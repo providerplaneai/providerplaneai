@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "Running Vitest before push (live output)..."
+
+# Get staged test files
+STAGED_TESTS=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(test|spec)\.ts$' || true)
+
+if [ -n "$STAGED_TESTS" ]; then
+    echo "⚡ Running Vitest on staged test files:"
+    echo "$STAGED_TESTS"
+    npx vitest run $STAGED_TESTS --run --reporter=verbose
+    RESULT=$?
+else
+    echo "⚠️  No staged test files found, running all tests..."
+    npx vitest run --run --reporter=verbose
+    RESULT=$?
+fi
+
+if [ $RESULT -ne 0 ]; then
+    echo "❌ Tests failed — push aborted"
+    exit 1
+fi
+
+echo "✅ All tests passed — pushing"

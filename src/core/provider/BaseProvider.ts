@@ -1,0 +1,199 @@
+import { AIProviderType, CapabilityConfig, CapabilityMap, ProviderConnectionConfig } from "#root/index.js";
+
+/**
+ * Abstract base class for all AI providers.
+ *
+ * Provides shared helpers and state management for provider implementations.
+ *
+ * Responsibilities:
+ * - Store and manage provider configuration
+ * - Register and check supported capabilities
+ * - Merge provider defaults, model configs, and runtime options
+ * - Offer type-safe capability checks
+ *
+ * Does not implement Provider directly, but is intended for extension.
+ */
+export abstract class BaseProvider {
+    /** Type of this provider (OpenAI, Anthropic, Gemini, etc.) */
+    readonly providerType: AIProviderType;
+
+    /** Current connection config */
+    protected config: ProviderConnectionConfig | null = null;
+
+    /** Support provider capabilities */
+    protected capabilities: Partial<CapabilityMap> = {};
+
+    /**
+     * Base constructor.
+     * @param providerType Type of the provider, used for registration and logging
+     */
+    public constructor(providerType: AIProviderType) {
+        this.providerType = providerType;
+    }
+
+    /**
+     * Initialize the provider with a connection configuration.
+     * Must be implemented by concrete providers.
+     *
+     * @param _config Connection configuration
+     * @throws Error if not implemented
+     */
+    init(_config: ProviderConnectionConfig) {
+        throw new Error("init() Not implemented");
+    }
+
+    /**
+     * Check if the provider has been initialized.
+     *
+     * @returns True if initialized, false otherwise
+     */
+    public isInitialized(): boolean {
+        return this.config !== null;
+    }
+
+    public getProviderType(): AIProviderType {
+        return this.providerType;
+    }
+
+    /**
+     * Type-safe runtime check for a capability.
+     * Allows safe casting after confirming the capability is registered.
+     *
+     * @template C Capability key
+     * @param capability Capability symbol
+     * @returns True if the capability is registered
+     */
+    public hasCapability<C extends keyof CapabilityMap>(capability: C): this is CapabilityMap[C] & this {
+        return !!this.capabilities[capability];
+    }
+
+    /**
+     * Register a capability implementation.
+     * Called by concrete providers to declare support for a capability.
+     *
+     * @template C Capability key
+     * @param capability Capability symbol
+     * @param impl Implementation of the capability
+     */
+    protected registerCapability<C extends keyof CapabilityMap>(capability: C, impl: CapabilityMap[C]) {
+        this.capabilities[capability] = impl;
+    }
+
+    /**
+     * Deep-merge multiple objects.
+     * Arrays override completely, objects are recursively merged, primitives override.
+     * Used for merging provider defaults, model configurations, and runtime options.
+     *
+     * @param sources Objects to merge
+     * @returns Deep-merged object
+     */
+    protected mergeOptions(...sources: any[]): any {
+        const result: any = {};
+
+        for (const src of sources) {
+            if (!src) {
+                continue;
+            }
+
+            for (const key of Object.keys(src)) {
+                const val = src[key];
+
+                if (Array.isArray(val)) {
+                    // arrays override, never merge
+                    result[key] = [...val];
+                } else if (val && typeof val === "object") {
+                    // deep merge objects
+                    result[key] = this.mergeOptions(result[key] || {}, val);
+                } else {
+                    // primitives override
+                    result[key] = val;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Resolve and merge configuration for a capability.
+     *
+     * Merge precedence (low → high):
+     * 1. providerDefaults (global provider-level defaults)
+     * 2. model capability defaults (models[modelName][capability])
+     * 3. runtimeOptions (request-level overrides)
+     *
+     * Model resolution fallback:
+     * runtimeOptions.model → config.defaultModels[capability] → config.defaultModel
+     *
+     * @param capability Name of the capability
+     * @param runtimeOptions Request-level override options
+     * @throws Error if a model cannot be resolved for this capability
+     * @returns Merged configuration with keys: model, modelParams, providerParams, generalParams
+     */
+    public getMergedOptions(capability: string, runtimeOptions: any = {}) {
+        this.ensureInitialized();
+
+        // 1) Resolve model
+        const resolvedModel =
+            runtimeOptions?.model ||
+            (this.config!.defaultModels ? this.config!.defaultModels[capability] : undefined) ||
+            this.config!.defaultModel;
+
+        if (!resolvedModel) {
+            throw new Error(`Unable to resolve model for capability='${capability}'`);
+        }
+
+        // 2) Get provider defaults (if any)
+        const providerDefaults: CapabilityConfig = {
+            modelParams: this.config!.providerDefaults?.modelParams || {},
+            providerParams: this.config!.providerDefaults?.providerParams || {},
+            generalParams: this.config!.providerDefaults?.generalParams || {}
+        };
+
+        // 3) Get model config for the capability
+        const capabilityBlock: CapabilityConfig = this.config!.models?.[resolvedModel]?.[capability] || {};
+
+        // If you haven't added providerParams/modelParams in JSON yet, treat all fields as modelParams
+        const modelParamsFromConfig = capabilityBlock.modelParams || {};
+        const providerParamsFromConfig = capabilityBlock.providerParams || {};
+        const generalParamsFromConfig = capabilityBlock.generalParams || {};
+
+        // 4) Runtime overrides
+        const runtimeModelParams = runtimeOptions.modelParams || {};
+        const runtimeProviderParams = runtimeOptions.providerParams || {};
+        const runtimeGeneralParams = runtimeOptions.generalParams || {};
+
+        // 5) Merge provider defaults => model config => runtime
+        const mergedModelParams = this.mergeOptions(providerDefaults.modelParams, modelParamsFromConfig, runtimeModelParams);
+
+        const mergedProviderParams = this.mergeOptions(
+            providerDefaults.providerParams,
+            providerParamsFromConfig,
+            runtimeProviderParams
+        );
+
+        const mergedGeneralParams = this.mergeOptions(
+            providerDefaults.generalParams,
+            generalParamsFromConfig,
+            runtimeGeneralParams
+        );
+
+        return {
+            model: resolvedModel,
+            modelParams: mergedModelParams,
+            providerParams: mergedProviderParams,
+            generalParams: mergedGeneralParams
+        };
+    }
+
+    /**
+     * Ensures that the provider has been initialized before use.
+     *
+     * @throws Error if not initialized
+     */
+    public ensureInitialized(): void {
+        if (!this.config) {
+            throw new Error(`${this.providerType} provider not initialized`);
+        }
+    }
+}

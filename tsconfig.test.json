@@ -1,0 +1,12 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "skipLibCheck": true,
+        "isolatedModules": true,
+        "noEmitOnError": true,
+        "noEmit": true
+    },
+    "include": [
+        "src"
+    ]
+}

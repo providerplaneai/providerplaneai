@@ -1,0 +1,264 @@
+{
+    "appConfig": {
+        "executionPolicy": {
+            "providerChain": [
+                {
+                    "providerType": "openai",
+                    "connectionName": "default"
+                },                
+                {
+                    "providerType": "gemini",
+                    "connectionName": "default"
+                },
+                {
+                    "providerType": "anthropic",
+                    "connectionName": "default"
+                }
+            ]
+        }
+    },
+    "providers": {
+        "openai": {
+            "default": {
+                "type": "openai",
+                "apiKeyEnvVar": "OPENAI_API_KEY_1",
+                "defaultModel": "gpt-5",
+                "defaultModels": {
+                    "chat": "gpt-5",
+                    "embed": "text-embedding-3-large",
+                    "audio": "gpt-4o-transcribe",
+                    "video": "sora-2",
+                    "moderation": "omni-moderation-latest"
+                },
+                "providerDefaults": {
+                    "providerParams": {}
+                },
+                "models": {
+                    "gpt-5": {
+                        "chat": {
+                            "generalParams": {},
+                            "modelParams": {},
+                            "providerParams": {}
+                        },
+                        "chatStream": {
+                            "modelParams": {},
+                            "providerParams": {},
+                            "generalParams": {
+                                "chatStreamBatchSize": 64
+                            }
+                        }
+                    },
+                    "text-embedding-3-large": {
+                        "embed": {
+                            "modelParams": {
+                                "encodingFormat": "float",
+                                "dimensions": 3072
+                            },
+                            "providerParams": {},
+                            "generalParams": {}
+                        }
+                    },
+                    "gpt-3.5-turbo-instruct": {
+                        "completion": {
+                            "modelParams": {
+                                "max_tokens": 512
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "gpt-4o-transcribe": {
+                        "audio": {
+                            "modelParams": {
+                                "language": "en"
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "gpt-4o-mini-tts": {
+                        "audio": {
+                            "modelParams": {
+                                "language": "en",
+                                "voice": "alloy"
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "sora-2": {
+                        "video": {
+                            "modelParams": {
+                                "seconds": "8",
+                                "size": "1280x720"
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "omni-moderation-latest": {
+                        "moderation": {
+                            "modelParams": {},
+                            "providerParams": {}
+                        }
+                    }
+                }
+            },
+            "fallback": {
+                "type": "openai",
+                "apiKeyEnvVar": "OPENAI_API_KEY_2",
+                "defaultModel": "gpt-5",
+                "defaultModels": {
+                    "chat": "gpt-5",
+                    "completion": "gpt-3.5-turbo-instruct",
+                    "embedding": "text-embedding-3-large",
+                    "image": "gpt-5",
+                    "audio": "gpt-4o-transcribe",
+                    "video": "sora-2",
+                    "moderation": "omni-moderation-latest"
+                },
+                "providerDefaults": {
+                    "timeout": 15000,
+                    "maxRetries": 3
+                },
+                "models": {
+                    "gpt-5": {
+                        "chat": {
+                            "modelParams": {
+                                "instructions": "Talk like a pirate."
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "text-embedding-3-large": {
+                        "embed": {
+                            "modelParams": {
+                                "encodingFormat": "float",
+                                "dimensions": 3072
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "gpt-3.5-turbo-instruct": {
+                        "completion": {
+                            "modelParams": {
+                                "max_tokens": 512
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "gpt-4o-transcribe": {
+                        "audio": {
+                            "modelParams": {
+                                "language": "en"
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "gpt-4o-mini-tts": {
+                        "audio": {
+                            "modelParams": {
+                                "language": "en",
+                                "voice": "alloy"
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "sora-2": {
+                        "video": {
+                            "modelParams": {
+                                "seconds": "8",
+                                "size": "1280x720"
+                            },
+                            "providerParams": {}
+                        }
+                    },
+                    "omni-moderation-latest": {
+                        "moderation": {
+                            "modelParams": {},
+                            "providerParams": {}
+                        }
+                    }
+                }
+            }
+        },
+        "anthropic": {
+            "default": {
+                "type": "anthropic",
+                "apiKeyEnvVar": "ANTHROPIC_API_KEY_1",
+                "defaultModel": "claude-sonnet-4-5-20250929",
+                "defaultModels": {
+                    "chat": "claude-sonnet-4-5-20250929",
+                    "embed": "voyage-3"
+                },
+                "providerDefaults": {
+                    "providerParams": {}
+                },
+                "models": {
+                    "claude-sonnet-4-5-20250929": {
+                        "chat": {
+                            "generalParams": {
+                            },
+                            "modelParams": {
+                                "max_tokens": 1024
+                            },
+                            "providerParams": {}
+                        },
+                        "chatStream": {
+                            "modelParams": {
+                                "max_tokens": 1024
+                            },
+                            "providerParams": {},
+                            "generalParams": {
+                                "chatStreamBatchSize": 64
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "gemini": {
+            "default": {
+                "type": "gemini",
+                "apiKeyEnvVar": "GEMINI_API_KEY_1",
+                "defaultModel": "gemini-2.5-flash-lite",
+                "defaultModels": {
+                    "chat": "gemini-2.5-flash-lite",
+                    "embed": "text-embedding-004",
+                    "imageGeneration": "imagen-4.0-generate-001"
+                },
+                "providerDefaults": {
+                    "providerParams": {}
+                },
+                "models": {
+                    "imagen-4.0-generate-001": {},
+                    "gemini-2.5-flash-lite": {
+                        "chat": {
+                            "generalParams": {
+                            },
+                            "modelParams": {
+                                "max_tokens": 1024
+                            },
+                            "providerParams": {}
+                        },
+                        "chatStream": {
+                            "modelParams": {
+                                "max_tokens": 1024
+                            },
+                            "providerParams": {},
+                            "generalParams": {
+                                "chatStreamBatchSize": 64
+                            }
+                        }
+                    },
+                    "text-embedding-004": {
+                        "embed": {
+                            "modelParams": {
+                                "taskType": "RETRIEVAL_QUERY",
+                                "dimensions": 768
+                            },
+                            "providerParams": {},
+                            "generalParams": {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
