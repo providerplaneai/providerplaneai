@@ -14,7 +14,6 @@ import {
     withRequestContext,
     withRequestContextStream,
     AIClientLifecycleHooks,
-    AISession,
     AllProvidersFailedError,
     AnthropicProvider,
     ClientChatRequest,
@@ -31,10 +30,7 @@ import {
     NormalizedImageAnalysis,
     OpenAIProvider,
     ProviderAttemptContext,
-    ProviderAttemptResult,
-    SessionEvent,
-    SessionSerializer,
-    SessionSnapshot
+    ProviderAttemptResult
 } from "#root/index.js";
 
 /**
@@ -65,9 +61,6 @@ export class AIClient {
      */
     private providers: Map<AIProviderType, Map<string, BaseProvider>> = new Map();
 
-    /** In-memory sessions registry */
-    private readonly sessions = new Map<string, AISession>();
-
     /**
      * Application configuration loaded from config files and environment variables.
      * Resolved once at construction and passed to providers during initialization.
@@ -81,6 +74,7 @@ export class AIClient {
     constructor() {
         const appConfig = loadAppConfig();
         this.appConfig = appConfig;
+
         // Auto-register providers from the provider chain
         for (const provider of appConfig?.appConfig?.executionPolicy?.providerChain || []) {
             const { connectionName, providerType } = provider;
@@ -100,64 +94,10 @@ export class AIClient {
      * Set lifecycle hooks for metrics and instrumentation.
      */
     setLifeCycleHooks(lifeCycleHooks: AIClientLifecycleHooks) {
+        if (this.lifeCycleHooks) {
+            throw new Error("Lifecycle hooks already set");
+        }
         this.lifeCycleHooks = lifeCycleHooks;
-    }
-
-    /** Create a new session */
-    createSession(id?: string): AISession {
-        const session = new AISession(id);
-        this.sessions.set(session.id, session);
-        return session;
-    }
-
-    /** Get an existing session by ID */
-    getSession(id: string): AISession | undefined {
-        return this.sessions.get(id);
-    }
-
-    /** Get existing session by ID, or create a new one if not found */
-    getOrCreateSession(id?: string): AISession {
-        if (!id) {
-            return this.createSession();
-        }
-        return this.sessions.get(id) ?? this.createSession(id);
-    }
-
-    /** Resume a session from a snapshot */
-    resumeSession(snapshot: SessionSnapshot): AISession {
-        const session = SessionSerializer.deserialize(snapshot).session;
-        this.sessions.set(session.id, session);
-        return session;
-    }
-
-    /** Serialize a session by ID */
-    serializeSession(id: string): SessionSnapshot {
-        const session = this.sessions.get(id);
-        if (!session) {
-            throw new Error(`Session not found: ${id}`);
-        }
-        return SessionSerializer.serialize(session);
-    }
-
-    /** Close a session by ID */
-    closeSession(id: string): void {
-        this.sessions.delete(id);
-    }
-
-    /** List all active session IDs */
-    listSessions(): string[] {
-        return Array.from(this.sessions.keys());
-    }
-
-    /**
-     * Emit a session event (request, response, chunk, etc.) with generated ID and timestamp.
-     */
-    private emitSessionData<TPayload>(session: AISession, e: Omit<SessionEvent<TPayload>, "id" | "timestamp">) {
-        session.addEvent({
-            id: crypto.randomUUID(),
-            timestamp: Date.now(),
-            ...e
-        });
     }
 
     /**
@@ -253,7 +193,7 @@ export class AIClient {
      * @template C Capability key (e.g., ChatCapability, ImageAnalysisCapability)
      * @param capability The capability being invoked
      * @param request The request object created by the caller
-     * @param session The session to attach this request to
+     * @param context The multimodal execution context to attach this request to
      * @param executeFn Function that executes the call on a provider
      * @param providerChain Optional ordered list of providers to try; defaults to appConfig.executionPolicy.providerChain
      * @returns Result of the first successful provider call
@@ -262,7 +202,7 @@ export class AIClient {
     async executeWithPolicy<C extends keyof CapabilityMap, TReq, TRes>(
         capability: C,
         request: AIRequest<TReq>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         executeFn: (provider: CapabilityMap[C] & BaseProvider, ctx: MultiModalExecutionContext) => Promise<AIResponse<TRes>>,
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<TRes>> {
@@ -272,17 +212,8 @@ export class AIClient {
             throw new ExecutionPolicyError(`No provider chain defined in execution policy for capability: ${capability}`);
         }
 
-        const context = session.getContext();
-
         // Begin the turn once before provider iteration
         context.beginTurn(request.input);
-
-        // Log request in session
-        this.emitSessionData(session, {
-            eventType: "request",
-            capability,
-            payload: request.input
-        });
 
         const errors: ProviderAttemptResult[] = [];
 
@@ -314,26 +245,20 @@ export class AIClient {
                 // Execute provider
                 const result: AIResponse<TRes> = await withRequestContext(request, () => executeFn(provider, context));
 
-                if (result.metadata?.status === "completed" || result.metadata?.status === "incomplete") {
-                    // Apply output to context (context is state-only)
-                    context.applyOutput(result.output, result.multimodalArtifacts);
-
-                    // Log response in session
-                    this.emitSessionData(session, {
-                        eventType: "response",
-                        capability,
-                        payload: result?.output
-                    });
-
-                    // Metrics hook: provider attempt success
-                    this.lifeCycleHooks?.onAttemptSuccess?.({
-                        ...attemptCtx,
-                        durationMs: Date.now() - startTime
-                    });
-                } else {
-                    throw new Error(`Provider returned unexpected status: ${result.metadata?.status}`);
+                if (result.error) {
+                    throw result.error;
                 }
 
+                if (result.output !== undefined) {
+                    // Apply output to context (context is state-only)
+                    context.applyOutput(result.output, result.multimodalArtifacts);
+                }
+
+                // Metrics hook: provider attempt success
+                this.lifeCycleHooks?.onAttemptSuccess?.({
+                    ...attemptCtx,
+                    durationMs: Date.now() - startTime
+                });
                 this.lifeCycleHooks?.onExecutionEnd?.(capability, chain);
                 return result;
             } catch (err) {
@@ -368,7 +293,7 @@ export class AIClient {
      * @template C Capability key (e.g., ChatStreamCapability, ImageGenerationStreamCapability)
      * @param capability The capability being invoked
      * @param request The request object created by the caller
-     * @param session The session to attach this request to
+     * @param context The multimodal execution context to attach this request to
      * @param executeFn Function that executes the call on a provider and returns an AsyncGenerator
      * @param providerChain Optional ordered list of providers to try; defaults to appConfig.executionPolicy.providerChain
      * @returns AsyncGenerator yielding chunks from the first successful provider
@@ -377,7 +302,7 @@ export class AIClient {
     async *executeWithPolicyStream<C extends keyof CapabilityMap, TReq, TRes>(
         capability: C,
         request: AIRequest<TReq>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         executeFn: (
             provider: CapabilityMap[C] & BaseProvider,
             ctx: MultiModalExecutionContext
@@ -389,16 +314,8 @@ export class AIClient {
             throw new ExecutionPolicyError(`No provider chain defined for ${capability}`);
         }
 
-        const context = session.getContext();
-
         // Begin the turn once before provider iteration
         context.beginTurn(request.input);
-
-        this.emitSessionData(session, {
-            eventType: "request",
-            capability,
-            payload: request.input
-        });
 
         const errors: ProviderAttemptResult[] = [];
         this.lifeCycleHooks?.onExecutionStart?.(capability, chain);
@@ -426,20 +343,17 @@ export class AIClient {
                 let chunkIndex = 0;
                 let finalOutput: TRes | undefined;
                 for await (const chunk of withRequestContextStream(request, () => executeFn(provider, context))) {
+                    if (chunk.error) {
+                        throw chunk.error;
+                    }
+
                     // Attach any multimodal artifacts incrementally
                     if (chunk.multimodalArtifacts) {
                         context.attachMultimodalArtifacts(chunk.multimodalArtifacts);
                     }
 
-                    // Apply partial output to session (state-only)
-                    this.emitSessionData(session, {
-                        eventType: "chunk",
-                        capability,
-                        payload: chunk.delta
-                    });
-
                     // Track the final output if this chunk signals completion
-                    if (chunk.metadata?.status === "completed" || chunk.metadata?.status === "incomplete") {
+                    if (chunk.output !== undefined) {
                         finalOutput = chunk.output;
                     }
 
@@ -455,19 +369,10 @@ export class AIClient {
                     });
                 }
 
-                if (finalOutput === undefined) {
-                    throw new Error(`Provider stream finished without producing a final output`);
+                if (finalOutput != undefined) {
+                    // Apply final output to context
+                    context.applyOutput(finalOutput, undefined);
                 }
-
-                // Apply final output to context
-                context.applyOutput(finalOutput);
-
-                // Emit final response to session
-                this.emitSessionData(session, {
-                    eventType: "response",
-                    capability,
-                    payload: finalOutput
-                });
 
                 this.lifeCycleHooks?.onAttemptSuccess?.({
                     ...attemptCtx,
@@ -498,48 +403,22 @@ export class AIClient {
      * Basic chat interface
      *
      * @param request The AIRequest payload for chat
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AIResponse from the provider
      */
     async chat(
         request: AIRequest<ClientChatRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
-    ): Promise<AIResponse<string[]>> {
-        const outputs: string[] = [];
-        const rawResponses: any[] = [];
-        const { input } = request;
-
-        // Send one message at a time and aggregate results
-        for (const msg of input.messages) {
-            const singleMessageRequest: AIRequest<ClientChatRequest> = {
-                ...request,
-                input: { messages: [msg] }
-            };
-
-            const result = await this.executeWithPolicy<typeof CapabilityKeys.ChatCapabilityKey, ClientChatRequest, string>(
-                CapabilityKeys.ChatCapabilityKey,
-                singleMessageRequest,
-                session,
-                (provider, ctx) => provider.chat(singleMessageRequest, ctx),
-                providerChain
-            );
-
-            outputs.push(result.output);
-            rawResponses.push(result.rawResponse);
-        }
-
-        return {
-            ...request,
-            output: outputs,
-            rawResponse: rawResponses,
-            id: `multi-${crypto.randomUUID()}`,
-            metadata: {
-                provider: "aggregated",
-                status: "completed"
-            }
-        };
+    ): Promise<AIResponse<string>> {
+        return this.executeWithPolicy<typeof CapabilityKeys.ChatCapabilityKey, ClientChatRequest, string>(
+            CapabilityKeys.ChatCapabilityKey,
+            request,
+            context,
+            (provider, ctx) => provider.chat(request, ctx),
+            providerChain
+        );
     }
 
     /**
@@ -549,30 +428,22 @@ export class AIClient {
      * The client does not transform or buffer chunks.
      *
      * @param request The AIRequest payload for chat
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AsyncGenerator yielding AIResponseChunk objects
      */
     async *chatStream(
         request: AIRequest<ClientChatRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): AsyncGenerator<AIResponseChunk<string>> {
-        const { input } = request;
-        for (const msg of input.messages) {
-            const singleMessageRequest: AIRequest<ClientChatRequest> = {
-                ...request,
-                input: { messages: [msg] }
-            };
-
-            yield* this.executeWithPolicyStream<typeof CapabilityKeys.ChatStreamCapabilityKey, ClientChatRequest, string>(
-                CapabilityKeys.ChatStreamCapabilityKey,
-                singleMessageRequest,
-                session,
-                (provider, ctx) => provider.chatStream(singleMessageRequest, ctx),
-                providerChain
-            );
-        }
+        yield* this.executeWithPolicyStream<typeof CapabilityKeys.ChatStreamCapabilityKey, ClientChatRequest, string>(
+            CapabilityKeys.ChatStreamCapabilityKey,
+            request,
+            context,
+            (provider, ctx) => provider.chatStream(request, ctx),
+            providerChain
+        );
     }
 
     /**
@@ -582,19 +453,19 @@ export class AIClient {
      * an optional chat feature to keep the capability model orthogonal.
      *
      * @param request The AIRequest payload for embedding generation
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AIResponse containing embeddings
      */
     async embeddings(
         request: AIRequest<ClientEmbeddingRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<number[] | number[][]>> {
         return this.executeWithPolicy<typeof CapabilityKeys.EmbedCapabilityKey, ClientEmbeddingRequest, number[] | number[][]>(
             CapabilityKeys.EmbedCapabilityKey,
             request,
-            session,
+            context,
             (provider, ctx) => provider.embed(request, ctx),
             providerChain
         );
@@ -608,13 +479,13 @@ export class AIClient {
      * - Future policy-driven routing
      *
      * @param request The AIRequest payload for moderation
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AIResponse containing moderation results
      */
     async moderation(
         request: AIRequest<ClientModerationRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<ModerationResult | ModerationResult[]>> {
         return this.executeWithPolicy<
@@ -624,7 +495,7 @@ export class AIClient {
         >(
             CapabilityKeys.ModerationCapabilityKey,
             request,
-            session,
+            context,
             (provider, ctx) => provider.moderation(request, ctx),
             providerChain
         );
@@ -634,13 +505,13 @@ export class AIClient {
      * Image generation (non-streaming).
      *
      * @param request The AIRequest payload for image generation
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AIResponse containing generated image data
      */
     async generateImage(
         request: AIRequest<ClientImageGenerationRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<NormalizedImage[]>> {
         return this.executeWithPolicy<
@@ -650,7 +521,7 @@ export class AIClient {
         >(
             CapabilityKeys.ImageGenerationCapabilityKey,
             request,
-            session,
+            context,
             (provider, ctx) => provider.generateImage(request, ctx),
             providerChain
         );
@@ -663,14 +534,14 @@ export class AIClient {
      * current provider support is limited.
      *
      * @param request The AIRequest payload for image generation
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AsyncGenerator yielding AIResponseChunk objects
      * @throws Error if the provider does not support image generation streaming capability
      */
     async *generateImageStream(
         request: AIRequest<ClientImageGenerationRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
         yield* this.executeWithPolicyStream<
@@ -680,7 +551,7 @@ export class AIClient {
         >(
             CapabilityKeys.ImageGenerationStreamCapabilityKey,
             request,
-            session,
+            context,
             (provider, ctx) => provider.generateImageStream(request, ctx),
             providerChain
         );
@@ -690,13 +561,13 @@ export class AIClient {
      * Image analysis interface.
      *
      * @param request The AIRequest payload for image analysis
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AIResponse containing generated image data
      */
     async analyzeImage(
         request: AIRequest<ClientImageAnalysisRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<NormalizedImageAnalysis[]>> {
         return this.executeWithPolicy<
@@ -706,7 +577,7 @@ export class AIClient {
         >(
             CapabilityKeys.ImageAnalysisCapabilityKey,
             request,
-            session,
+            context,
             (provider, ctx) => provider.analyzeImage(request, ctx),
             providerChain
         );
@@ -719,13 +590,13 @@ export class AIClient {
      * current provider support is limited.
      *
      * @param request The AIRequest payload for image analysis
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AsyncGenerator yielding AIResponseChunk objects
      */
     async *analyzeImageStream(
         request: AIRequest<ClientImageAnalysisRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>> {
         yield* this.executeWithPolicyStream<
@@ -735,7 +606,7 @@ export class AIClient {
         >(
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             request,
-            session,
+            context,
             (provider, ctx) => provider.analyzeImageStream(request, ctx),
             providerChain
         );
@@ -745,19 +616,19 @@ export class AIClient {
      * Image editing (non-streaming).
      *
      * @param request The AIRequest payload for image editing
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AIResponse containing edited image data
      */
     async editImage(
         request: AIRequest<ClientImageEditRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<NormalizedImage[]>> {
         return this.executeWithPolicy<typeof CapabilityKeys.ImageEditCapabilityKey, ClientImageEditRequest, NormalizedImage[]>(
             CapabilityKeys.ImageEditCapabilityKey,
             request,
-            session,
+            context,
             (provider, ctx) => provider.editImage(request, ctx),
             providerChain
         );
@@ -767,13 +638,13 @@ export class AIClient {
      * Streaming image edit interface.
      *
      * @param request The AIRequest payload for image editing
-     * @param session AISession for tracking history and events
+     * @param context MultiModalExecutionContext for tracking history and events
      * @param providerChain Provider chain override
      * @returns AsyncGenerator yielding AIResponseChunk objects
      */
     async *editImageStream(
         request: AIRequest<ClientImageEditRequest>,
-        session: AISession,
+        context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
     ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
         yield* this.executeWithPolicyStream<
@@ -783,7 +654,7 @@ export class AIClient {
         >(
             CapabilityKeys.ImageEditStreamCapabilityKey,
             request,
-            session,
+            context,
             (provider, ctx) => provider.editImageStream(request, ctx),
             providerChain
         );
