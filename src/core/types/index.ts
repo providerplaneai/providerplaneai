@@ -3,4 +3,6 @@ export * from "./AIResponse.js";
 export * from "./Config.js";
 export * from "./MultiModalExecutionContext.js";
 export * from "./exceptions/index.js";
+export * from "./artifacts/index.js";
 export * from "./timeline/index.js";
+export * from "./NormalizedUserInput.js";

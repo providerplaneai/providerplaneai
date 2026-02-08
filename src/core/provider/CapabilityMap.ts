@@ -14,10 +14,12 @@ import {
     ImageEditStreamCapability,
     ImageGenerationCapability,
     ImageGenerationStreamCapability,
-    ModerationCapability,
-    ModerationResult,
+    ModerationCapability,    
+    NormalizedChatMessage,
+    NormalizedEmbedding,
     NormalizedImage,
-    NormalizedImageAnalysis
+    NormalizedImageAnalysis,
+    NormalizedModeration
 } from "#root/index.js";
 
 /**
@@ -48,18 +50,15 @@ export type CapabilityKeyType = (typeof CapabilityKeys)[keyof typeof CapabilityK
  * - Consumers can safely cast to the capability interface after checking with hasCapability()
  */
 export interface CapabilityMap {
-    [CapabilityKeys.ChatCapabilityKey]: ChatCapability<ClientChatRequest, string>;
-    [CapabilityKeys.ChatStreamCapabilityKey]: ChatStreamCapability<ClientChatRequest, string>;
+    [CapabilityKeys.ChatCapabilityKey]: ChatCapability<ClientChatRequest, NormalizedChatMessage>;
+    [CapabilityKeys.ChatStreamCapabilityKey]: ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>;
     [CapabilityKeys.ImageGenerationCapabilityKey]: ImageGenerationCapability<ClientImageGenerationRequest, NormalizedImage[]>;
     [CapabilityKeys.ImageGenerationStreamCapabilityKey]: ImageGenerationStreamCapability<
         ClientImageGenerationRequest,
         NormalizedImage[]
     >;
-    [CapabilityKeys.EmbedCapabilityKey]: EmbedCapability<ClientEmbeddingRequest, number[] | number[][]>;
-    [CapabilityKeys.ModerationCapabilityKey]: ModerationCapability<
-        ClientModerationRequest,
-        ModerationResult | ModerationResult[]
-    >;
+    [CapabilityKeys.EmbedCapabilityKey]: EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]>;
+    [CapabilityKeys.ModerationCapabilityKey]: ModerationCapability<ClientModerationRequest, NormalizedModeration[]>;
     [CapabilityKeys.ImageAnalysisCapabilityKey]: ImageAnalysisCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>;
     [CapabilityKeys.ImageAnalysisStreamCapabilityKey]: ImageAnalysisStreamCapability<
         ClientImageAnalysisRequest,

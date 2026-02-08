@@ -1,7 +1,7 @@
 {
     "type": "module",
     "name": "providerplaneai",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Multi-provider AI abstraction layer for Node.js applications.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -10,7 +10,7 @@
         "prepare": "husky install",
         "clean": "rimraf dist",
         "playground": "node dist/playground.js",
-        "build": "npm run clean && tsc -p tsconfig.build.json", 
+        "build": "npm run clean && tsc -p tsconfig.build.json",
         "dev": "nodemon --watch src --ext ts --exec \"npm run build && npm run playground\"",
         "lint": "eslint . --ext .ts,.tsx --no-warn-ignored",
         "lint:fix": "eslint . --ext .ts,.tsx --fix",

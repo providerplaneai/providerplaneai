@@ -14,7 +14,6 @@ export interface ClientImageGenerationRequest extends ClientRequestBase {
      * Additional provider-agnostic generation parameters
      */
     params?: {
-        count?: number;
         size?: string; // "1024x1024", "wide", etc.
         format?: "png" | "jpeg" | "webp" | "avif";
         quality?: "low" | "medium" | "high" | "ultra";

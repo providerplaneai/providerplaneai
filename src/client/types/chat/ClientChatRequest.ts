@@ -1,5 +1,4 @@
-import { ClientRequestBase } from "../shared/ClientRequestBase.js";
-import { ClientChatMessage } from "./ClientChatMessage.js";
+import { ClientChatMessage, ClientRequestBase } from "#root/index.js";
 
 /**
  * Provider-agnostic chat request payload.

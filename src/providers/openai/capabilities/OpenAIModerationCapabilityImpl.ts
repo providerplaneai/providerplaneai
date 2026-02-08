@@ -7,7 +7,7 @@ import {
     CapabilityKeys,
     ClientModerationRequest,
     ModerationCapability,
-    ModerationResult,
+    NormalizedModeration,
     MultiModalExecutionContext
 } from "#root/index.js";
 
@@ -25,10 +25,9 @@ import {
  * OpenAI provides a dedicated moderation API (omni-moderation-latest),
  * which returns flagged status, categories, and category confidence scores.
  */
-export class OpenAIModerationCapabilityImpl implements ModerationCapability<
-    ClientModerationRequest,
-    ModerationResult | ModerationResult[]
-> {
+export class OpenAIModerationCapabilityImpl implements
+    ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
+
     /**
      * Constructs a new OpenAI moderation capability.
      *
@@ -38,7 +37,7 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
-    ) {}
+    ) { }
 
     /**
      * Performs moderation on one or more input strings.
@@ -53,15 +52,21 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<
      *
      * @param request - Unified moderation request
      * @param _executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns AIResponse containing moderation result(s)
      * @throws Error if input is invalid or API fails
      */
     async moderation(
         request: AIRequest<ClientModerationRequest>,
-        _executionContext?: MultiModalExecutionContext
-    ): Promise<AIResponse<ModerationResult | ModerationResult[]>> {
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedModeration[]>> {
         // Ensure provider lifecycle has completed
         this.provider.ensureInitialized();
+
+        if (signal?.aborted) {
+            throw new Error("Request aborted");
+        }
 
         const { input, options, context } = request;
         // Defensive validation: Require at least one input string
@@ -69,50 +74,72 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<
             throw new Error("Invalid moderation input");
         }
 
+        const inputs = Array.isArray(input.input) ? input.input : [input.input];
+
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.ModerationCapabilityKey, options);
 
         // Call OpenAI moderation API
         const response = await this.client.moderations.create({
             model: merged.model ?? "omni-moderation-latest",
-            input: input.input,
+            input: inputs,
             ...(merged.modelParams ?? {}),
             ...(merged.providerParams ?? {})
-        });
+        }, { signal });
 
-        /**
-         * Normalize OpenAI moderation results:
-         * - flagged: boolean
-         * - categories: object with category flags
-         * - categoryScores: numeric confidence scores (0–1)
-         * - reason: comma-separated list of flagged categories
-         */
-        const results: ModerationResult[] = response.results.map((r) => ({
-            flagged: r.flagged,
-            categories: Object.fromEntries(Object.entries(r.categories ?? {}).map(([k, v]) => [k, Boolean(v)])),
-            categoryScores: Object.fromEntries(Object.entries(r.category_scores ?? {}).map(([k, v]) => [k, Number(v)])),
-            raw: r,
-            reason: Object.entries(r.categories ?? {})
-                .filter(([_, flagged]) => flagged)
-                .map(([cat]) => cat)
-                .join(", ")
-        }));
+        if (!response.results || response.results.length === 0) {
+            throw new Error("OpenAI returned no moderation results");
+        }
 
-        // Normalize output: single string input -> single ModerationResult, else array
-        const normalizedOutput = Array.isArray(input.input) ? results : results[0];
+        const normalized: NormalizedModeration[] =
+            response.results.map((r, index) => {
+                const categories = Object.fromEntries(
+                    Object.entries(r.categories ?? {}).map(([k, v]) => [
+                        k,
+                        Boolean(v)
+                    ])
+                );
 
-        // Return fully normalized AIResponse
+                const categoryScores = Object.fromEntries(
+                    Object.entries(r.category_scores ?? {}).map(([k, v]) => [
+                        k,
+                        Number(v)
+                    ])
+                );
+
+                const reason = Object.entries(categories)
+                    .filter(([, flagged]) => flagged)
+                    .map(([k]) => k)
+                    .join(", ");
+
+                return {
+                    id: crypto.randomUUID(),
+                    flagged: r.flagged,
+                    categories,
+                    categoryScores:
+                        Object.keys(categoryScores).length
+                            ? categoryScores
+                            : undefined,
+                    reason: reason || undefined,
+                    metadata: {
+                        provider: AIProvider.OpenAI,
+                        model: merged.model ?? "omni-moderation-latest",
+                        inputIndex: index,
+                        requestId: context?.requestId
+                    }
+                };
+            });
+
         return {
-            output: normalizedOutput,
+            output: normalized,
             rawResponse: response,
-            id: response.id,
+            id: crypto.randomUUID(),
             metadata: {
+                ...(context?.metadata ?? {}),
                 provider: AIProvider.OpenAI,
-                model: merged.model,
+                model: merged.model ?? "omni-moderation-latest",
                 status: "completed",
-                tokensUsed: (response as any)?.usage?.total_tokens,
-                requestId: context?.requestId,
-                ...(context?.metadata ?? {})
+                requestId: context?.requestId
             }
         };
     }

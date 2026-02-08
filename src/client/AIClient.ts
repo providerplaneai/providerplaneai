@@ -25,12 +25,16 @@ import {
     DuplicateProviderRegistrationError,
     ExecutionPolicyError,
     GeminiProvider,
-    ModerationResult,
     NormalizedImage,
     NormalizedImageAnalysis,
     OpenAIProvider,
     ProviderAttemptContext,
-    ProviderAttemptResult
+    ProviderAttemptResult,
+    NormalizedModeration,
+    NormalizedChatMessage,
+    NormalizedEmbedding,
+    NormalizedUserInput,
+    TimelineArtifacts
 } from "#root/index.js";
 
 /**
@@ -203,7 +207,10 @@ export class AIClient {
         capability: C,
         request: AIRequest<TReq>,
         context: MultiModalExecutionContext,
-        executeFn: (provider: CapabilityMap[C] & BaseProvider, ctx: MultiModalExecutionContext) => Promise<AIResponse<TRes>>,
+        executeFn: (
+            provider: CapabilityMap[C] & BaseProvider,
+            ctx: MultiModalExecutionContext,
+            signal?: AbortSignal) => Promise<AIResponse<TRes>>,
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<TRes>> {
         // Use chain from config if none explicitly provided
@@ -213,11 +220,11 @@ export class AIClient {
         }
 
         // Begin the turn once before provider iteration
-        context.beginTurn(request.input);
+        context.beginTurn(this.normalizeUserInput(capability, request));
 
         const errors: ProviderAttemptResult[] = [];
 
-        // Metrics hook: provider attempt start
+        // Metrics hook: execution start
         this.lifeCycleHooks?.onExecutionStart?.(capability, chain);
 
         // Attempt each provider in order
@@ -242,17 +249,17 @@ export class AIClient {
                     continue;
                 }
 
-                // Execute provider
-                const result: AIResponse<TRes> = await withRequestContext(request, () => executeFn(provider, context));
+                const signal = this.createExecutionSignal(request);
 
+                const result: AIResponse<TRes> = await withRequestContext(request, () => executeFn(provider, context, signal));
                 if (result.error) {
                     throw result.error;
                 }
 
-                if (result.output !== undefined) {
-                    // Apply output to context (context is state-only)
-                    context.applyOutput(result.output, result.multimodalArtifacts);
+                if (result.output) {
+                    this.applyOutputToContext(capability, result.output, context);
                 }
+
 
                 // Metrics hook: provider attempt success
                 this.lifeCycleHooks?.onAttemptSuccess?.({
@@ -260,6 +267,7 @@ export class AIClient {
                     durationMs: Date.now() - startTime
                 });
                 this.lifeCycleHooks?.onExecutionEnd?.(capability, chain);
+
                 return result;
             } catch (err) {
                 const failure: ProviderAttemptResult = {
@@ -305,17 +313,20 @@ export class AIClient {
         context: MultiModalExecutionContext,
         executeFn: (
             provider: CapabilityMap[C] & BaseProvider,
-            ctx: MultiModalExecutionContext
+            ctx: MultiModalExecutionContext,
+            signal?: AbortSignal
         ) => AsyncGenerator<AIResponseChunk<TRes>>,
         providerChain?: ProviderRef[]
     ): AsyncGenerator<AIResponseChunk<TRes>> {
+
+        // Use chain from config if none explicitly provided
         const chain = providerChain ?? this.appConfig.appConfig?.executionPolicy?.providerChain ?? [];
         if (!chain.length) {
             throw new ExecutionPolicyError(`No provider chain defined for ${capability}`);
         }
 
         // Begin the turn once before provider iteration
-        context.beginTurn(request.input);
+        context.beginTurn(this.normalizeUserInput(capability, request));
 
         const errors: ProviderAttemptResult[] = [];
         this.lifeCycleHooks?.onExecutionStart?.(capability, chain);
@@ -340,16 +351,20 @@ export class AIClient {
                     continue;
                 }
 
+                const signal = this.createExecutionSignal(request);
+
                 let chunkIndex = 0;
                 let finalOutput: TRes | undefined;
-                for await (const chunk of withRequestContextStream(request, () => executeFn(provider, context))) {
+                for await (const chunk of withRequestContextStream(request, () => executeFn(provider, context, signal))) {
+                    signal.throwIfAborted();
+
                     if (chunk.error) {
                         throw chunk.error;
                     }
 
                     // Attach any multimodal artifacts incrementally
                     if (chunk.multimodalArtifacts) {
-                        context.attachMultimodalArtifacts(chunk.multimodalArtifacts);
+                        context.yieldArtifacts(chunk.multimodalArtifacts);
                     }
 
                     // Track the final output if this chunk signals completion
@@ -359,7 +374,6 @@ export class AIClient {
 
                     yield chunk;
 
-                    chunkIndex++;
                     this.lifeCycleHooks?.onChunkEmitted?.({
                         capability,
                         providerType,
@@ -367,11 +381,12 @@ export class AIClient {
                         chunkIndex,
                         chunkTimeMs: Date.now() - startTime
                     });
+
+                    chunkIndex++;
                 }
 
-                if (finalOutput != undefined) {
-                    // Apply final output to context
-                    context.applyOutput(finalOutput, undefined);
+                if (finalOutput !== undefined) {
+                    this.applyOutputToContext(capability, finalOutput, context);
                 }
 
                 this.lifeCycleHooks?.onAttemptSuccess?.({
@@ -399,6 +414,105 @@ export class AIClient {
         throw new AllProvidersFailedError(capability, chain, errors);
     }
 
+    private normalizeUserInput<T>(capability: keyof CapabilityMap, request: AIRequest<T>): NormalizedUserInput {
+        return {
+            id: crypto.randomUUID(),
+            modality: this.modalityForCapability(capability),
+            input: request.input,
+            metadata: {
+                requestId: request.context?.requestId
+            }
+        };
+    }
+
+    private modalityForCapability(capability: keyof CapabilityMap): NormalizedUserInput["modality"] {
+        switch (capability) {
+            case CapabilityKeys.ChatCapabilityKey:
+            case CapabilityKeys.ChatStreamCapabilityKey: return "chat";
+            case CapabilityKeys.EmbedCapabilityKey: return "embedding";
+            case CapabilityKeys.ModerationCapabilityKey: return "moderation";
+            case CapabilityKeys.ImageGenerationCapabilityKey:
+            case CapabilityKeys.ImageGenerationStreamCapabilityKey: return "imageGeneration";
+            case CapabilityKeys.ImageEditCapabilityKey:
+            case CapabilityKeys.ImageEditStreamCapabilityKey: return "imageEdit";
+            case CapabilityKeys.ImageAnalysisCapabilityKey:
+            case CapabilityKeys.ImageAnalysisStreamCapabilityKey: return "imageAnalysis";
+            default:
+                throw new Error(`Unhandled capability modality: ${capability}`);
+        }
+    }
+
+    private applyOutputToContext(
+        capability: keyof CapabilityMap,
+        output: unknown,
+        context: MultiModalExecutionContext
+    ) {
+        switch (capability) {
+            case CapabilityKeys.ChatCapabilityKey:
+            case CapabilityKeys.ChatStreamCapabilityKey:
+                context.applyAssistantMessage(output as NormalizedChatMessage);
+                break;
+
+            case CapabilityKeys.EmbedCapabilityKey:
+                context.attachArtifacts({ embeddings: [output as NormalizedEmbedding] });
+                break;
+
+            case CapabilityKeys.ModerationCapabilityKey:
+                context.attachArtifacts({ moderation: [output as NormalizedModeration] });
+                break;
+
+            case CapabilityKeys.ImageGenerationCapabilityKey:
+                case CapabilityKeys.ImageGenerationCapabilityKey:
+            case CapabilityKeys.ImageEditCapabilityKey:
+                context.attachArtifacts({ images: output as NormalizedImage[] });
+                break;
+                
+            case CapabilityKeys.ImageAnalysisCapabilityKey:
+            case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
+                context.attachArtifacts({ analysis: output as NormalizedImageAnalysis[] });
+                break;
+            case CapabilityKeys.ImageGenerationStreamCapabilityKey:
+            case CapabilityKeys.ImageEditStreamCapabilityKey:
+                // no-op, artifacts already attached
+                break;
+        }
+    }
+
+    private createExecutionSignal(request: AIRequest<any>): AbortSignal {
+        // If caller already provided a signal *and* no timeout, reuse it directly
+        if (request.signal && !request.timeoutMs) {
+            return request.signal;
+        }
+
+        const controller = new AbortController();
+
+        // Forward caller cancellation
+        if (request.signal) {
+            if (request.signal.aborted) {
+                controller.abort(request.signal.reason);
+            } else {
+                request.signal.addEventListener("abort", () => {
+                    controller.abort(request.signal?.reason);
+                });
+            }
+        }
+
+        // Enforce timeout
+        if (request.timeoutMs != null) {
+            const timeoutId = setTimeout(() => {
+                controller.abort(new Error("Execution timed out"));
+            }, request.timeoutMs);
+
+            // Cleanup timer if aborted early
+            controller.signal.addEventListener("abort", () => {
+                clearTimeout(timeoutId);
+            });
+        }
+
+        return controller.signal;
+    }
+
+
     /**
      * Basic chat interface
      *
@@ -411,12 +525,12 @@ export class AIClient {
         request: AIRequest<ClientChatRequest>,
         context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
-    ): Promise<AIResponse<string>> {
-        return this.executeWithPolicy<typeof CapabilityKeys.ChatCapabilityKey, ClientChatRequest, string>(
+    ): Promise<AIResponse<NormalizedChatMessage>> {
+        return this.executeWithPolicy<typeof CapabilityKeys.ChatCapabilityKey, ClientChatRequest, NormalizedChatMessage>(
             CapabilityKeys.ChatCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.chat(request, ctx),
+            (provider, ctx, signal) => provider.chat(request, ctx, signal),
             providerChain
         );
     }
@@ -436,12 +550,12 @@ export class AIClient {
         request: AIRequest<ClientChatRequest>,
         context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
-    ): AsyncGenerator<AIResponseChunk<string>> {
-        yield* this.executeWithPolicyStream<typeof CapabilityKeys.ChatStreamCapabilityKey, ClientChatRequest, string>(
+    ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage>> {
+        yield* this.executeWithPolicyStream<typeof CapabilityKeys.ChatStreamCapabilityKey, ClientChatRequest, NormalizedChatMessage>(
             CapabilityKeys.ChatStreamCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.chatStream(request, ctx),
+            (provider, ctx, signal) => provider.chatStream(request, ctx, signal),
             providerChain
         );
     }
@@ -461,12 +575,12 @@ export class AIClient {
         request: AIRequest<ClientEmbeddingRequest>,
         context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
-    ): Promise<AIResponse<number[] | number[][]>> {
-        return this.executeWithPolicy<typeof CapabilityKeys.EmbedCapabilityKey, ClientEmbeddingRequest, number[] | number[][]>(
+    ): Promise<AIResponse<NormalizedEmbedding[]>> {
+        return this.executeWithPolicy<typeof CapabilityKeys.EmbedCapabilityKey, ClientEmbeddingRequest, NormalizedEmbedding[]>(
             CapabilityKeys.EmbedCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.embed(request, ctx),
+            (provider, ctx, signal) => provider.embed(request, ctx, signal),
             providerChain
         );
     }
@@ -487,16 +601,16 @@ export class AIClient {
         request: AIRequest<ClientModerationRequest>,
         context: MultiModalExecutionContext,
         providerChain?: ProviderRef[]
-    ): Promise<AIResponse<ModerationResult | ModerationResult[]>> {
+    ): Promise<AIResponse<NormalizedModeration[]>> {
         return this.executeWithPolicy<
             typeof CapabilityKeys.ModerationCapabilityKey,
             ClientModerationRequest,
-            ModerationResult | ModerationResult[]
+            NormalizedModeration[]
         >(
             CapabilityKeys.ModerationCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.moderation(request, ctx),
+            (provider, ctx, signal) => provider.moderation(request, ctx, signal),
             providerChain
         );
     }
@@ -522,7 +636,7 @@ export class AIClient {
             CapabilityKeys.ImageGenerationCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.generateImage(request, ctx),
+            (provider, ctx, signal) => provider.generateImage(request, ctx, signal),
             providerChain
         );
     }
@@ -578,7 +692,7 @@ export class AIClient {
             CapabilityKeys.ImageAnalysisCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.analyzeImage(request, ctx),
+            (provider, ctx, signal) => provider.analyzeImage(request, ctx, signal),
             providerChain
         );
     }
@@ -607,7 +721,7 @@ export class AIClient {
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.analyzeImageStream(request, ctx),
+            (provider, ctx, signal) => provider.analyzeImageStream(request, ctx, signal),
             providerChain
         );
     }
@@ -629,7 +743,7 @@ export class AIClient {
             CapabilityKeys.ImageEditCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.editImage(request, ctx),
+            (provider, ctx, signal) => provider.editImage(request, ctx, signal),
             providerChain
         );
     }
@@ -655,8 +769,27 @@ export class AIClient {
             CapabilityKeys.ImageEditStreamCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.editImageStream(request, ctx),
+            (provider, ctx, signal) => provider.editImageStream(request, ctx, signal),
             providerChain
         );
     }
+    /*
+        async generateAudio(
+            request: AIRequest<ClientAudioRequest>,
+            context: MultiModalExecutionContext,
+            providerChain?: ProviderRef[]
+        ): Promise<AIResponse<NormalizedAudio[]>> { ... }
+    
+        async generateVideo(
+            request: AIRequest<ClientVideoRequest>,
+            context: MultiModalExecutionContext,
+            providerChain?: ProviderRef[]
+        ): Promise<AIResponse<NormalizedVideo[]>> { ... }
+    
+        async uploadFile(
+            request: AIRequest<ClientFileRequest>,
+            context: MultiModalExecutionContext,
+            providerChain?: ProviderRef[]
+        ): Promise<AIResponse<NormalizedFile[]>> { ... }*/
 }
+

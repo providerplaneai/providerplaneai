@@ -21,12 +21,16 @@ import {
     GeminiImageGenerationCapabilityImpl,
     GeminiModerationCapabilityImpl,
     ImageAnalysisCapability,
+    ImageAnalysisStreamCapability,
     ImageGenerationCapability,
+    ImageGenerationStreamCapability,
     ModerationCapability,
-    ModerationResult,
     MultiModalExecutionContext,
+    NormalizedChatMessage,
+    NormalizedEmbedding,
     NormalizedImage,
     NormalizedImageAnalysis,
+    NormalizedModeration,
     ProviderConnectionConfig
 } from "#root/index.js";
 
@@ -54,7 +58,9 @@ export class GeminiProvider
         ModerationCapability<ClientModerationRequest>,
         EmbedCapability<ClientEmbeddingRequest>,
         ImageGenerationCapability<ClientImageGenerationRequest>,
-        ImageAnalysisCapability<ClientImageAnalysisRequest>
+        ImageGenerationStreamCapability<ClientImageGenerationRequest>,
+        ImageAnalysisCapability<ClientImageAnalysisRequest>,
+        ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
 {
     /** Underlying Google Gemini SDK client */
     private client: GoogleGenAI | null = null;
@@ -98,26 +104,37 @@ export class GeminiProvider
         this.imageAnalysisDelegate = new GeminiImageAnalysisCapabilityImpl(this, this.client);
 
         // Register supported capabilities
-        this.registerCapability(CapabilityKeys.ChatCapabilityKey, this as ChatCapability<ClientChatRequest, string>);
+        this.registerCapability(
+            CapabilityKeys.ChatCapabilityKey, 
+            this as ChatCapability<ClientChatRequest, NormalizedChatMessage>
+        );
         this.registerCapability(
             CapabilityKeys.ChatStreamCapabilityKey,
-            this as ChatStreamCapability<ClientChatRequest, string>
+            this as ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
         );
         this.registerCapability(
             CapabilityKeys.EmbedCapabilityKey,
-            this as EmbedCapability<ClientEmbeddingRequest, number[] | number[][]>
+            this as EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]>
         );
         this.registerCapability(
             CapabilityKeys.ModerationCapabilityKey,
-            this as ModerationCapability<ClientModerationRequest, ModerationResult | ModerationResult[]>
+            this as ModerationCapability<ClientModerationRequest, NormalizedModeration[]>
         );
         this.registerCapability(
             CapabilityKeys.ImageGenerationCapabilityKey,
             this as ImageGenerationCapability<ClientImageGenerationRequest, NormalizedImage[]>
         );
         this.registerCapability(
+            CapabilityKeys.ImageGenerationStreamCapabilityKey,
+            this as ImageGenerationStreamCapability<ClientImageGenerationRequest, NormalizedImage[]>
+        );        
+        this.registerCapability(
             CapabilityKeys.ImageAnalysisCapabilityKey,
             this as ImageAnalysisCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
+        );      
+        this.registerCapability(
+            CapabilityKeys.ImageAnalysisStreamCapabilityKey,
+            this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
         );
     }
 
@@ -127,13 +144,15 @@ export class GeminiProvider
      * @template TChatInput Chat input type
      * @param req - Unified AI request containing chat input and options
      * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing generated text
      */
-    async chat(req: AIRequest<ClientChatRequest>, executionContext: MultiModalExecutionContext): Promise<AIResponse<string>> {
+    async chat(req: AIRequest<ClientChatRequest>, executionContext: MultiModalExecutionContext, signal?: AbortSignal)
+    : Promise<AIResponse<NormalizedChatMessage>> {
         if (!this.chatDelegate || typeof this.chatDelegate.chat !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ChatCapabilityKey);
         }
-        return await this.chatDelegate.chat(req, executionContext);
+        return await this.chatDelegate.chat(req, executionContext, signal);
     }
 
     /**
@@ -142,16 +161,18 @@ export class GeminiProvider
      * @template TChatInput Chat input type
      * @param req - Unified AI request containing chat input and options
      * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
      * @returns Async iterable emitting streamed response chunks
      */
     chatStream(
         req: AIRequest<ClientChatRequest>,
-        executionContext: MultiModalExecutionContext
-    ): AsyncGenerator<AIResponseChunk<string>> {
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage>> {
         if (!this.chatDelegate || typeof this.chatDelegate.chatStream !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ChatStreamCapabilityKey);
         }
-        return this.chatDelegate.chatStream(req, executionContext);
+        return this.chatDelegate.chatStream(req, executionContext, signal);
     }
 
     /**
@@ -160,16 +181,18 @@ export class GeminiProvider
      * @template TModerationInput Moderation input type
      * @param req - Unified AI request containing moderation input
      * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing moderation result(s)
      */
     async moderation(
         req: AIRequest<ClientModerationRequest>,
-        executionContext: MultiModalExecutionContext
-    ): Promise<AIResponse<ModerationResult | ModerationResult[]>> {
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedModeration[]>> {
         if (!this.moderationDelegate || typeof this.moderationDelegate.moderation !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ModerationCapabilityKey);
         }
-        return await this.moderationDelegate.moderation(req, executionContext);
+        return await this.moderationDelegate.moderation(req, executionContext, signal);
     }
 
     /**
@@ -178,16 +201,18 @@ export class GeminiProvider
      * @template TEmbedInput Embedding input type
      * @param req - Unified AI request containing embedding input
      * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing embedding vector(s)
      */
     async embed(
         req: AIRequest<ClientEmbeddingRequest>,
-        executionContext: MultiModalExecutionContext
-    ): Promise<AIResponse<number[] | number[][]>> {
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedEmbedding[]>> {
         if (!this.embedDelegate || typeof this.embedDelegate.embed !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.EmbedCapabilityKey);
         }
-        return await this.embedDelegate.embed(req, executionContext);
+        return await this.embedDelegate.embed(req, executionContext, signal);
     }
 
     /**
@@ -196,17 +221,40 @@ export class GeminiProvider
      * @template TImageInput Image input type
      * @param req - Unified AI request containing image generation input
      * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing normalized generated images
      */
     async generateImage(
         req: AIRequest<ClientImageGenerationRequest>,
-        executionContext: MultiModalExecutionContext
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
     ): Promise<AIResponse<NormalizedImage[]>> {
         if (!this.imageGenerationDelegate || typeof this.imageGenerationDelegate.generateImage !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageGenerationCapabilityKey);
         }
-        return await this.imageGenerationDelegate.generateImage(req, executionContext);
+        return await this.imageGenerationDelegate.generateImage(req, executionContext, signal);
     }
+
+    /**
+     * Execute a streaming image generation request.
+     *
+     * @template TImageInput Image generation input type
+     * @param req - Unified AI request containing image generation input
+     * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
+     * @returns Async iterable emitting image generation chunks
+     */
+    generateImageStream(
+        req: AIRequest<ClientImageGenerationRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
+        if (!this.imageGenerationDelegate || typeof this.imageGenerationDelegate.generateImageStream !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageGenerationStreamCapabilityKey);
+        }
+        return this.imageGenerationDelegate.generateImageStream(req, executionContext, signal);
+    }
+
 
     /**
      * Execute an image analysis request
@@ -214,15 +262,37 @@ export class GeminiProvider
      * @template TImageAnalysisInput Image analysis input type
      * @param req - Unified AI request containing Image analysis input and options
      * @param executionContext Execution context
-     * @returns AIResponse containing normalized image analysis
+     * @param signal AbortSignal for request cancellation
+     * @returns AIResponse containing normalized image analysis results
      */
     async analyzeImage(
         req: AIRequest<ClientImageAnalysisRequest>,
-        executionContext: MultiModalExecutionContext
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
     ): Promise<AIResponse<NormalizedImageAnalysis[]>> {
         if (!this.imageAnalysisDelegate || typeof this.imageAnalysisDelegate.analyzeImage !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisCapabilityKey);
         }
-        return await this.imageAnalysisDelegate.analyzeImage(req, executionContext);
+        return await this.imageAnalysisDelegate.analyzeImage(req, executionContext, signal);
     }
+
+    /**
+     * Execute a streaming image analysis request.
+     *
+     * @template TImageAnalysisInput Image analysis input type
+     * @param req - Unified AI request containing image analysis input and options
+     * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
+     * @returns Async iterable emitting streamed response chunks
+     */
+    analyzeImageStream(
+        req: AIRequest<ClientImageAnalysisRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>> {
+        if (!this.imageAnalysisDelegate || typeof this.imageAnalysisDelegate.analyzeImageStream !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisStreamCapabilityKey);
+        }
+        return this.imageAnalysisDelegate.analyzeImageStream(req, executionContext, signal);
+    }    
 }

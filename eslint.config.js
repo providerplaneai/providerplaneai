@@ -22,7 +22,7 @@ export default [
     ...compat.extends("plugin:prettier/recommended"),
     // Ignore specific files and folders
     {
-        ignores: ["src/playground.ts", "src/__tests__/**", "dist/**", "node_modules/**"]
+        ignores: ["src/playground.ts", "src/__tests__/**", "dist/**", "node_modules/**", "examples/**", "src/examples/**"]
     },
     {
         languageOptions: {

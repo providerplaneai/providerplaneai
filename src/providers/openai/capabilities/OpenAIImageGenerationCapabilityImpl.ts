@@ -7,6 +7,7 @@ import {
     BaseProvider,
     CapabilityKeys,
     ClientImageGenerationRequest,
+    ensureDataUri,
     ImageGenerationCapability,
     ImageGenerationStreamCapability,
     MultiModalExecutionContext,
@@ -24,11 +25,9 @@ import {
  * Usage:
  *   Instantiate with a parent provider and OpenAI client, then call `generateImage` or `generateImageStream`.
  */
-export class OpenAIImageGenerationCapabilityImpl
-    implements
-        ImageGenerationCapability<ClientImageGenerationRequest>,
-        ImageGenerationStreamCapability<ClientImageGenerationRequest>
-{
+export class OpenAIImageGenerationCapabilityImpl implements
+    ImageGenerationCapability<ClientImageGenerationRequest>,
+    ImageGenerationStreamCapability<ClientImageGenerationRequest> {
     /**
      * Constructor for OpenAI image generation capability implementation.
      * @param provider Parent provider instance for lifecycle/config access
@@ -37,7 +36,7 @@ export class OpenAIImageGenerationCapabilityImpl
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
-    ) {}
+    ) { }
 
     /**
      * Generates images using OpenAI Responses API (non-streaming).
@@ -51,18 +50,23 @@ export class OpenAIImageGenerationCapabilityImpl
      *
      * @param request Unified AIRequest containing prompt, reference images, and params
      * @param _executionContext Optional execution context (unused)
+     * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing normalized images
      * @throws Error if prompt is missing or generation fails
      */
     async generateImage(
         request: AIRequest<ClientImageGenerationRequest>,
-        _executionContext?: MultiModalExecutionContext
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
     ): Promise<AIResponse<NormalizedImage[]>> {
         // Ensure provider has been initialized with credentials + client
         this.provider.ensureInitialized();
 
-        const { input, options, context } = request;
+        if (signal?.aborted) {
+            throw new Error("Image generation aborted before request started");
+        }
 
+        const { input, options, context } = request;
         // Defensive guard: prompt is required
         if (!input?.prompt) {
             throw new Error("Prompt is required for image generation");
@@ -71,75 +75,33 @@ export class OpenAIImageGenerationCapabilityImpl
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageGenerationCapabilityKey, options);
 
-        const count = input.params?.count ?? 1;
+        // Generate images via OpenAI Responses API
+        const response = await this.client.responses.create({
+            model: merged.model ?? "gpt-4.1",
+            input: [{ role: "user", content: this.buildContent(input) }],
+            tools: [{
+                type: "image_generation",
+                size: input.params?.size,
+                background: input.params?.background,
+                quality: input.params?.quality,
+                style: input.params?.style
+            }],
+            ...(merged.modelParams ?? {}),
+            ...(merged.providerParams ?? {})
+        }, { signal });
 
-        // Build content array: prompt + optional reference images
-        let prompt = input.prompt;
-        const content: any[] = [];
-        if (input.referenceImages?.length) {
-            // If reference images are provided, enhance prompt and add images to content
-            prompt = `
-                Use the provided reference image(s) as visual inspiration. 
-                Incorporate their lighting, color palette, mood, and overall style where appropriate, but still follow the description below.
-                Description: ${input.prompt}`.trim();
-            for (const ref of input.referenceImages) {
-                content.push({ type: "input_image", image_url: ref.url });
-            }
-        }
-
-        // Always include the textual prompt
-        content.push({ type: "input_text", text: prompt });
-
-        // Generate images concurrently if count > 1
-        const responses = await Promise.all(
-            Array.from({ length: count }, () =>
-                this.client.responses.create({
-                    model: merged.model ?? "gpt-4.1",
-                    input: [{ role: "user", content }],
-                    tools: [
-                        {
-                            type: "image_generation",
-                            size: input.params?.size,
-                            background: input.params?.background,
-                            quality: input.params?.quality,
-                            style: input.params?.style
-                        }
-                    ],
-                    ...(merged.modelParams ?? {}),
-                    ...(merged.providerParams ?? {})
-                })
-            )
-        );
-
-        // Flatten nested response items and normalize output
-        const images = responses.flatMap((response, idx) =>
-            (response.output ?? []).flatMap((item) => {
-                if (item.type === "image_generation_call" && "result" in item && typeof item.result === "string") {
-                    return [
-                        {
-                            base64: item.result,
-                            url: undefined,
-                            mimeType: "image/png",
-                            raw: item,
-                            index: idx,
-                            id: item.id
-                        }
-                    ];
-                }
-                return [];
-            })
-        );
+        const images = this.parseImages(response.output ?? []);
 
         return {
             output: images,
-            rawResponse: responses,
-            id: responses[0]?.id ?? "unknown",
+            rawResponse: response,
+            id: response.id ?? context?.requestId ?? crypto.randomUUID(),
             metadata: {
+                ...(context?.metadata ?? {}),
                 provider: AIProvider.OpenAI,
                 model: merged.model,
-                status: responses.every((r) => r.status === "completed") ? "completed" : "partial",
-                requestId: context?.requestId,
-                ...(context?.metadata ?? {})
+                status: response.status ?? "completed",
+                requestId: context?.requestId
             }
         };
     }
@@ -147,6 +109,11 @@ export class OpenAIImageGenerationCapabilityImpl
     /**
      * Streaming image generation using OpenAI Responses API.
      * Emits partial image chunks as they become available.
+     * 
+     * Note:
+     * OpenAI image generation streams lifecycle events only.
+     * Image payloads are delivered atomically once generation completes.
+     * Consumers should expect exactly one image-bearing chunk.    
      *
      * Steps:
      * - Validates prompt
@@ -158,12 +125,14 @@ export class OpenAIImageGenerationCapabilityImpl
      *
      * @param request Unified AIRequest containing prompt, reference images, and params
      * @param _executionContext Optional execution context (unused)
+     * @param signal AbortSignal for request cancellation
      * @returns AsyncGenerator yielding AIResponseChunk<NormalizedImage[]>
      * @throws Error if prompt is missing
      */
     async *generateImageStream(
         request: AIRequest<ClientImageGenerationRequest>,
-        _executionContext?: MultiModalExecutionContext
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
         // Ensure provider has been initialized with credentials + client
         this.provider.ensureInitialized();
@@ -175,101 +144,147 @@ export class OpenAIImageGenerationCapabilityImpl
 
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageGenerationStreamCapabilityKey, options);
-        const count = input.params?.count ?? 1;
 
+        let responseId: string | undefined;
+        let imageIndex = 0;
         try {
-            // Build prompt content including optional reference images
-            let prompt = input.prompt;
-            const content: any[] = [];
-            if (input.referenceImages?.length) {
-                prompt = `
-Use the provided reference image(s) as visual inspiration.
-Incorporate their lighting, color palette, mood, and overall style where appropriate,
-but still follow the description below.
-Description: ${input.prompt}`.trim();
-                for (const ref of input.referenceImages) {
-                    content.push({ type: "input_image", image_url: ref.url });
+            const stream = this.client.responses.stream({
+                model: merged.model ?? "gpt-4.1",
+                input: [{ role: "user", content: this.buildContent(input) }],
+                tools: [{
+                    type: "image_generation",
+                    size: input.params?.size,
+                    background: input.params?.background,
+                    quality: input.params?.quality,
+                    style: input.params?.style
+                }],
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            }, { signal });
+
+            // Consume stream and yield image ONCE when ready
+            for await (const event of stream) {
+                if (signal?.aborted) {
+                    return;
+                }
+
+                if (
+                    !responseId &&
+                    (event.type === "response.created" || event.type === "response.completed") &&
+                    "response" in event &&
+                    event.response?.id
+                ) {
+                    responseId = event.response.id;
+                }
+
+                if (event.type !== "response.completed") {
+                    continue;
+                }
+
+                const images = this.parseImages(event.response.output ?? []);
+
+                for (const image of images) {
+                    image.index = imageIndex++;
+                    image.id ??= `image-${image.index}`;
+
+                    // Emit each image as its own chunk
+                    yield {
+                        delta: [image],
+                        output: [image],
+                        done: false,
+                        id: responseId ?? context?.requestId ?? crypto.randomUUID(),
+                        metadata: {
+                            ...(context?.metadata ?? {}),
+                            provider: AIProvider.OpenAI,
+                            model: merged.model,
+                            status: "incomplete",
+                            requestId: context?.requestId
+                        }
+                    };
                 }
             }
-            content.push({ type: "input_text", text: prompt });
 
-            // Start streaming generation for each image
-            const streams = Array.from({ length: count }, () =>
-                this.client.responses.stream({
-                    model: merged.model ?? "gpt-4.1",
-                    input: [{ role: "user", content }],
-                    tools: [
-                        {
-                            type: "image_generation",
-                            size: input.params?.size,
-                            background: input.params?.background,
-                            quality: input.params?.quality,
-                            style: input.params?.style
-                        }
-                    ],
-                    ...(merged.modelParams ?? {}),
-                    ...(merged.providerParams ?? {})
-                })
-            );
-
-            // Consume streams and yield image chunks as they are received
-            for (let idx = 0; idx < streams.length; idx++) {
-                const stream = streams[idx];
-                for await (const event of stream) {
-                    if (event.type !== "response.completed") {
-                        continue;
-                    }
-                    const outputItems = event.response?.output ?? [];
-                    const images: NormalizedImage[] = [];
-                    for (const item of outputItems) {
-                        if (
-                            typeof item === "object" &&
-                            item !== null &&
-                            (item as any).type === "image_generation_call" &&
-                            typeof (item as any).result === "string"
-                        ) {
-                            images.push({
-                                base64: (item as any).result,
-                                url: undefined,
-                                mimeType: "image/png",
-                                raw: item,
-                                index: idx,
-                                id: (item as any).id
-                            });
-                        }
-                    }
-                    // Yield each image chunk
-                    for (const img of images) {
-                        yield {
-                            output: [img],
-                            delta: [img],
-                            done: true,
-                            id: img.id,
-                            metadata: {
-                                provider: AIProvider.OpenAI,
-                                model: merged.model,
-                                requestId: context?.requestId,
-                                status: "completed"
-                            }
-                        };
-                    }
+            // Final completion marker
+            yield {
+                delta: [],
+                output: [],
+                done: true,
+                id: responseId ?? context?.requestId ?? crypto.randomUUID(),
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.OpenAI,
+                    model: merged.model,
+                    status: "completed",
+                    requestId: context?.requestId
                 }
-            }
+            };
         } catch (err) {
+            // Abort is NOT an error — exit silently
+            if (signal?.aborted) {
+                return;
+            }
+
             // Yield error chunk if streaming fails
             yield {
                 output: [],
                 delta: [],
                 done: true,
-                id: "",
-                error: err instanceof Error ? err.message : String(err),
+                id: responseId ?? context?.requestId ?? crypto.randomUUID(),
                 metadata: {
+                    ...(context?.metadata ?? {}),
                     provider: AIProvider.OpenAI,
                     model: merged.model,
                     status: "error",
-                    requestId: context?.requestId
+                    requestId: context?.requestId,
+                    error: err instanceof Error ? err.message : String(err)
                 }
             };
         }
+    }
+
+    private buildContent(input: ClientImageGenerationRequest): any[] {
+        let prompt = input.prompt!;
+        const content: any[] = [];
+
+        if (input.referenceImages?.length) {
+            prompt = `
+Use the provided reference image(s) as visual inspiration.
+Incorporate their lighting, color palette, mood, and overall style where appropriate,
+but still follow the description below.
+Description: ${input.prompt}
+            `.trim();
+
+            for (const ref of input.referenceImages) {
+                content.push({ type: "input_image", image_url: ref.url });
+            }
+        }
+
+        content.push({ type: "input_text", text: prompt });
+        return content;
+    }
+
+    private parseImages(outputItems: any[]): NormalizedImage[] {
+
+        return outputItems
+            .filter(item => item.type === "image_generation_call")
+            .map(item => {
+                const base64 =
+                    item.result ??
+                    item.image_base64 ??
+                    item.b64_json;
+
+                if (!base64) {
+                    return null;
+                }
+
+                return {
+                    id: item.id,
+                    base64,
+                    url: ensureDataUri(base64, "image/png"),
+                    mimeType: "image/png",
+                    raw: item,
+                } as NormalizedImage;
+            })
+            .filter(Boolean) as NormalizedImage[];
     }
 }

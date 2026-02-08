@@ -9,126 +9,90 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import { AIClient } from "./client/AIClient.js";
-import { loadAppConfig } from "./core/config/ConfigLoader.js";
-import { AppConfig } from "./core/types/Config.js";
-import { OpenAIProvider } from "./providers/openai/OpenAIProvider.js";
-import { AIProvider, AIProviderType } from "./core/provider/Provider.js";
-import { AnthropicProvider } from "./providers/anthropic/AnthropicProvider.js";
-import { GeminiProvider } from "./providers/gemini/GeminiProvider.js";
-import { GoogleGenAI, ThinkingLevel } from "@google/genai";
-import { AIRequest } from "./core/types/AIRequest.js";
-import { ensureDataUri } from "./core/utils/SharedUtils.js";
-import {
-    ClientChatRequest,
-    ClientEmbeddingRequest,
-    ClientImageAnalysisRequest,
-    ClientImageGenerationRequest,
-    ClientReferenceImage,
-    NormalizedImage,
-    NormalizedImageAnalysis
-} from "./client/types/index.js";
-import { AISession } from "./client/types/session/index.js";
+import { runMultiImageEdit, runMultiImageEdit2, runMultiImageEdit3, runMultiImageEdit4 } from "./examples/multi/multi.js";
+import { openai_image_edit, openai_image_edit_stream } from "./examples/images/edit/openai.imageedit.js";
+import { anthropic_chat, anthropic_chat_stream } from "./examples/chat/anthropic.chat.js";
+import { gemini_chat, gemini_chat_stream } from "./examples/chat/gemini.chat.js";
+import { openai_chat, openai_chat_stream } from "./examples/chat/openai.chat.js";
+import { anthropic_embedding } from "./examples/embeddings/anthropic.embed.js";
+import { gemini_embedding } from "./examples/embeddings/gemini.embed.js";
+import { openai_moderation } from "./examples/moderation/openai.moderation.js";
+import { anthropic_moderation } from "./examples/moderation/anthropic.moderation.js";
+import { gemini_moderation } from "./examples/moderation/gemini.moderation.js";
+import { gemini_image_analysis, gemini_image_analysis_stream } from "./examples/images/analysis/gemini.analysis.js";
+import { openai_image_analysis } from "./examples/images/analysis/openai.analysis.js";
+import { gemini_image_gen, gemini_image_gen_stream } from "./examples/images/generation/gemini.gen.js";
+import { anthropic_image_analysis, anthropic_image_analysis_stream } from "./examples/images/analysis/anthropic.analysis.js";
+//import { openai_moderation } from "./examples/moderation/openai.moderation.js";
+//import { openai_embedding } from "./examples/embeddings/openai.embed.js";
+//import { openai_image_gen, openai_image_gen_stream } from "./examples/images/generation/openai.gen.js";
+//import { openai_image_analysis, openai_image_analysis_stream } from "./examples/images/analysis/openai.analysis.js";
+//import { openai_image_edit } from "./examples/images/edit/openai.imageedit.js";
 
-function saveFile(result: any, i: number) {
-    const buffer = Buffer.from(result.output[i].base64!, "base64");
-    fs.writeFileSync(`test_data/output-${result.output[i].id}_${i}.${result.metadata?.format || "png"}`, buffer);
-    console.log(`Saved: test_data/output-${result.output[i].id}_${i}.${result.metadata?.format || "png"}`);
-}
-
-function loadImage(filePath: string, mimeType: string, role: string) {
-    const fileBuffer = fs.readFileSync(filePath);
-    const buffer = fileBuffer.toString("base64");
-    const refImage: ClientReferenceImage = {
-        id: crypto.randomUUID(),
-        sourceType: "base64",
-        base64: buffer,
-        mimeType,
-        url: ensureDataUri(buffer, mimeType),
-        role: role as any
-    };
-
-    return refImage;
-}
-
-function loadImageFromBuffer(buffer: string, mimeType: string, role: string) {
-    //let fileBuffer = fs.readFileSync(filePath);
-    //let buffer = fileBuffer.toString("base64");
-    const refImage: ClientReferenceImage = {
-        id: crypto.randomUUID(),
-        sourceType: "base64",
-        base64: buffer,
-        mimeType,
-        url: ensureDataUri(buffer, mimeType),
-        role: role as any
-    };
-
-    return refImage;
-}
 
 async function editImageMultiTurn(aiClient: AIClient) {
     // Sample subject image (Base64 or URL)
     //const subjectImage = loadImage(path.join('test_data/sunlit_lounge.png'), "image/png", "subject");
     //const maskImage = loadImage(path.join('test_data/sunlit_mask.png'), "image/png", "mask");
 
-    const session: AISession = aiClient.createSession();
 
     // generate
-    const generated = await aiClient.generateImage(
-        {
-            input: {
-                prompt: "A cinematic photo of a neon-lit cyberpunk street at night with a sneaky and fluffy cat",
-                params: {
-                    size: "1536x1024",
-                    format: "png",
-                    quality: "high",
-                    count: 1
-                }
-            }
-        },
-        session
-    );
+    /* const generated = await aiClient.generateImage(
+         {
+             input: {
+                 prompt: "A cinematic photo of a neon-lit cyberpunk street at night with a sneaky and fluffy cat",
+                 params: {
+                     size: "1536x1024",
+                     format: "png",
+                     quality: "high",
+ 
+                 }
+             }
+         },
+         session
+     );
+ 
+     saveFile(generated, 0);
+ 
+     const genBuffer = generated.output[0].base64;
+     const subjectImage: ClientReferenceImage = loadImageFromBuffer(genBuffer!, "image/png", "subject");
+ 
+     // Turn 1
+     console.log(`\n=== Turn 1 ===`);
+     const turn1 = await aiClient.editImage(
+         {
+             input: {
+                 prompt: "Modify the cat to be white",
+                 //referenceImages: [subjectImage, maskImage],
+                 referenceImages: [subjectImage],
+                 params: { count: 1 }
+             }
+         },
+         session
+     );
+ 
+     const turn1CRI: ClientReferenceImage = {
+         sourceType: "url",
+         url: ensureDataUri(turn1?.output?.[0]?.url || ""),
+         id: crypto.randomUUID(),
+         base64: turn1?.output?.[0]?.base64,
+         mimeType: "image/png"
+     };
+     /*for (let i = 0; i < turn1.output.length; i++)
+         saveFile(turn1, i);
+ 
+     // Turn 2
+     console.log(`\n=== Turn 2 ===`);
+     const turn2 = await aiClient.editImage({
+         input: {
+             prompt: "Add a collar to the cat",
+             referenceImages: [] // reuse last image from execution context
+         }
+     }, session);
+ 
+     for (let i = 0; i < turn2.output.length; i++)
+         saveFile(turn2, i);*/
 
-    saveFile(generated, 0);
-
-    const genBuffer = generated.output[0].base64;
-    const subjectImage: ClientReferenceImage = loadImageFromBuffer(genBuffer!, "image/png", "subject");
-
-    // Turn 1
-    console.log(`\n=== Turn 1 ===`);
-    const turn1 = await aiClient.editImage(
-        {
-            input: {
-                prompt: "Modify the cat to be white",
-                //referenceImages: [subjectImage, maskImage],
-                referenceImages: [subjectImage],
-                params: { count: 1 }
-            }
-        },
-        session
-    );
-
-    const turn1CRI: ClientReferenceImage = {
-        sourceType: "url",
-        url: ensureDataUri(turn1?.output?.[0]?.url || ""),
-        id: crypto.randomUUID(),
-        base64: turn1?.output?.[0]?.base64,
-        mimeType: "image/png"
-    };
-    /*for (let i = 0; i < turn1.output.length; i++)
-        saveFile(turn1, i);
-
-    // Turn 2
-    console.log(`\n=== Turn 2 ===`);
-    const turn2 = await aiClient.editImage({
-        input: {
-            prompt: "Add a collar to the cat",
-            referenceImages: [] // reuse last image from execution context
-        }
-    }, session);
-
-    for (let i = 0; i < turn2.output.length; i++)
-        saveFile(turn2, i);
-*/
     // Turn 3
     /*console.log(`\n=== Turn 3 ===`);
     const turn3 = await aiClient.editImage({
@@ -142,41 +106,27 @@ async function editImageMultiTurn(aiClient: AIClient) {
         saveFile(turn3, i);
 */
 
-    const analysis = await aiClient.analyzeImage(
-        {
-            input: { images: [turn1CRI] }
-        },
-        session
-    );
-    console.log(analysis);
-
-    console.log("Done");
+    /* const analysis = await aiClient.analyzeImage(
+         {
+             input: { images: [turn1CRI] }
+         },
+         
+     );
+     console.log(analysis);
+ 
+     console.log("Done");*/
 }
-
+/*
 async function editImageMultiTurnStream(aiClient: AIClient) {
+    
     const subjectImage = loadImage(path.join("test_data/sunlit_lounge.png"), "image/png", "subject");
-    const maskImage = loadImage(path.join("test_data/sunlit_mask.png"), "image/png", "mask");
+   const maskImage = loadImage(path.join("test_data/sunlit_mask.png"), "image/png", "mask");
 
-    const session: AISession = aiClient.createSession();
 
     async function consume(label: string, req: any) {
         console.log(`\n=== ${label} ===`);
 
         let i = 0;
-
-        for await (const chunk of aiClient.editImageStream(req, session)) {
-            if ((chunk.multimodalArtifacts as any)?.images?.length) {
-                for (const img of (chunk.multimodalArtifacts as any).images) {
-                    // Reuse your existing save helper by fabricating
-                    // the same shape it expects.
-                    saveFile({ output: [img] } as any, i++);
-                }
-            }
-
-            if (chunk.metadata?.status === "completed") {
-                console.log(`${label} completed`);
-            }
-        }
     }
 
     // Turn 1
@@ -206,50 +156,112 @@ async function editImageMultiTurnStream(aiClient: AIClient) {
 
     console.log("Done");
 }
-
+*/
 async function main() {
     console.log("Starting ProviderPlaneAI application...");
 
-    const aiClient = new AIClient();
+    //let result = await openai_chat();
+   //let result = await openai_chat_stream();
 
-    console.log(`Configuration loaded for environment: ${process.env.NODE_ENV || "development"}`);
+   // let result = await anthropic_chat();
+    //let result = await anthropic_chat_stream();
+
+    //let result = await gemini_chat();
+    //let result = await gemini_chat_stream();
+
+    //let result = await openai_moderation();
+    //let result = await anthropic_moderation();
+   // let result = await gemini_moderation();
+    
+    //let result = await openai_embedding();
+    //let result = await anthropic_embedding();
+    //let result = await gemini_embedding();
+
+    //let result = await openai_image_gen();
+    //let result = await openai_image_gen_stream();
+    
+    //let result = await gemini_image_gen();
+    //let result = await gemini_image_gen_stream();
+
+   // let result = await openai_image_analysis();
+   // console.log(result);
+    //result = await openai_image_analysis_stream();
+
+    //let result = await gemini_image_analysis();
+    //let result = await gemini_image_analysis_stream();
+
+    //let result = await anthropic_image_analysis();
+    let result = await anthropic_image_analysis_stream();
+
+
+    //let result = await openai_image_edit();
+    //let result = await openai_image_edit_stream();
+    //let result = await runMultiImageEdit()
+    //let result = await runMultiImageEdit2()
+//    let result = await runMultiImageEdit3();
+  //  let result = await runMultiImageEdit4();
+    console.log(result);
+
+//console.log(result);
+//console.log("-----");
+//console.log(result2);
+    
+   // const aiClient = new AIClient();
+
+    //console.log(`Configuration loaded for environment: ${process.env.NODE_ENV || "development"}`);
 
     //    await aiClient.registerProvider(new OpenAIProvider(), AIProvider.OpenAI, "default");
     //await aiClient.registerProvider(new AnthropicProvider(), AIProvider.Anthropic, "default");
     //await aiClient.registerProvider(new GeminiProvider(), AIProvider.Gemini, "default");
-
+/*
     aiClient.setLifeCycleHooks({
         onChunkEmitted: (ctx) => console.log(`[AI] Emitted ${ctx.chunkIndex} → ${ctx.providerType}`),
         onExecutionStart: (ctx) => console.log(`[AI] Execution Start ${ctx}`),
         onExecutionFailure: (ctx) => console.log(`[AI] Execution Failure ${ctx}`),
         onExecutionEnd: (ctx) => console.log(`[AI] Execution End ${ctx}`),
         onAttemptStart: (ctx) => console.log(`[AI] Attempt ${ctx.attemptIndex} → ${ctx.providerType}`),
-
         onAttemptSuccess: (ctx) => console.log(`[AI] Success ${ctx.providerType} in ${ctx.durationMs}ms`),
-
         onAttemptFailure: (ctx) => console.warn(`[AI] Failure ${ctx.providerType}: ${ctx.error}`)
     });
+*/
+    /*const chatRequest: ClientChatRequest = {
+        messages: [
+            { role: "user", content: [{ type: "text", text: "Explain quantum computing in 4 lines." }] },
+            { role: "user", content: [{ type: "text", text: "Hello! Can you summarize the benefits of TypeScript?" }] }
+        ]
+    };*/
+
+    /*const ctx: MultiModalExecutionContext = new MultiModalExecutionContext();
+
+    //const result = await aiClient.chat({ input: chatRequest }, ctx);
+
+    for await (const chunk of aiClient.chatStream({ input: chatRequest }, ctx)) {
+        // Each 'chunk' is an AIResponseChunk<string>
+        process.stdout.write(chunk.delta || "");
+    }*/
+
+ //   console.log("Chat Response:", result.output);
 
     // await editImageMultiTurn(aiClient);
     //await editImageMultiTurnStream(aiClient);
 
-    const generated = await aiClient.generateImage(
-        {
-            input: {
-                prompt: "A cinematic photo of a neon-lit cyberpunk street at night with a sneaky and fluffy cat",
-                params: {
-                    size: "1536x1024",
-                    format: "png",
-                    quality: "high",
-                    count: 1
-                }
-            }
-        },
-        new AISession(),
-        [{ providerType: AIProvider.Gemini, connectionName: "default" }]
-    );
-
-    console.log(generated);
+    /*   const generated = await aiClient.generateImage(
+           {
+               input: {
+                   prompt: "A cinematic photo of a neon-lit cyberpunk street at night with a sneaky and fluffy cat",
+                   params: {
+                       size: "1536x1024",
+                       format: "png",
+                       quality: "high",
+                       count: 1
+                   }
+               }
+           },
+           new AISession(),
+           [{ providerType: AIProvider.Gemini, connectionName: "default" }]
+       );
+   
+       console.log(generated);*/
 
     /* const request: ClientEmbeddingRequest = {
              input: [

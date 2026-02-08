@@ -7,7 +7,8 @@ import {
     CapabilityKeys,
     ClientEmbeddingRequest,
     EmbedCapability,
-    MultiModalExecutionContext
+    MultiModalExecutionContext,
+    NormalizedEmbedding
 } from "#root/index.js";
 
 /**
@@ -22,7 +23,7 @@ import {
  * Note:
  * Gemini embedding API supports "taskType" and "outputDimensionality" as modelParams for advanced configuration.
  */
-export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, number[] | number[][]> {
+export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
     /**
      * Constructs a Gemini embedding capability.
      *
@@ -32,7 +33,7 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
-    ) {}
+    ) { }
 
     /**
      * Generates embeddings for one or more input strings.
@@ -47,13 +48,15 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
      *
      * @param request - Unified embedding request
      * @param _executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns AIResponse with single vector or array of vectors
      * @throws Error if input is invalid or API returns no embeddings
      */
     async embed(
         request: AIRequest<ClientEmbeddingRequest>,
-        _executionContext?: MultiModalExecutionContext
-    ): Promise<AIResponse<number[] | number[][]>> {
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedEmbedding[]>> {
         // Ensure provider lifecycle has been initialized
         this.provider.ensureInitialized();
 
@@ -63,13 +66,16 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
             throw new Error("Invalid embedding input");
         }
 
+        if (signal?.aborted) {
+            throw new Error("Request aborted");
+        }
+
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.EmbedCapabilityKey, options);
 
         // Normalize single input to array for batch processing
         const inputs = Array.isArray(input.input) ? input.input : [input.input];
 
-        // Gemini supports batching natively in one call logic
         const response = await this.client.models.embedContent({
             model: merged.model ?? "text-embedding-004",
             contents: inputs.map((t) => ({ parts: [{ text: t }] })),
@@ -86,26 +92,44 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
             throw new Error("API returned no embeddings");
         }
 
-        // Extract and filter to ensure we only have number arrays
-        // We use .filter(Boolean) to remove any undefined entries and 'as number[][]' to satisfy the interface
-        const vectors = response.embeddings.map((e) => e.values).filter((v): v is number[] => !!v);
-
-        if (vectors.length === 0) {
-            throw new Error("API returned embeddings but all values were undefined");
+        if (response.embeddings.length !== inputs.length) {
+            throw new Error(
+                `Gemini returned ${response.embeddings.length} embeddings for ${inputs.length} inputs`
+            );
         }
 
-        // Return fully normalized AIResponse
+        const normalized: NormalizedEmbedding[] = response.embeddings.map((e, idx) => {
+            if (!e.values) {
+                throw new Error(`Gemini embedding at index ${idx} is missing values`);
+            }
+
+            return {
+                id: crypto.randomUUID(),
+                vector: e.values,
+                dimensions: e.values.length,
+                purpose: (request as any)?.purpose ?? "embedding",
+                metadata: {
+                    provider: AIProvider.Gemini,
+                    model: merged.model,
+                    status: "completed",
+                    tokensUsed: (response as any)?.usageMetadata?.totalTokenCount,
+                    requestId: context?.requestId
+                }
+            };
+        });
+
+
         return {
-            output: Array.isArray(input.input) ? vectors : vectors[0],
+            output: normalized,
             rawResponse: response,
+            id: crypto.randomUUID(),
             metadata: {
+                ...(context?.metadata ?? {}),
                 provider: AIProvider.Gemini,
                 model: merged.model,
                 status: "completed",
-                // Note: Gemini embeddings API doesn't always return usage in the same field as chat
-                tokensUsed: (response as any).usageMetadata?.totalTokenCount,
-                requestId: context?.requestId,
-                ...(context?.metadata ?? {})
+                tokensUsed: (response as any)?.usageMetadata?.totalTokenCount,
+                requestId: context?.requestId
             }
         };
     }

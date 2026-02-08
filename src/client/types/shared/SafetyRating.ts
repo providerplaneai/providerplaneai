@@ -23,7 +23,7 @@ import { AIProviderType } from "#root/index.js";
  */
 export interface SafetyRating {
     /** Provider that emitted this rating */
-    provider: AIProviderType;
+    provider?: AIProviderType;
 
     /** Normalized category (e.g. "sexual", "violence", "hate", "self-harm") */
     categories?: {
@@ -48,4 +48,6 @@ export interface SafetyRating {
 
     /** Provider-specific raw payload */
     raw?: unknown;
+
+    flagged?: boolean;
 }

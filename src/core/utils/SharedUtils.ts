@@ -65,3 +65,60 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
         throw new Error(`Could not resolve reference image: ${url}`);
     }
 }
+
+/**
+ * Robust best-effort JSON parser for LLM-generated text (Gemini/other LLMs).
+ *
+ * - Handles:
+ *   1. Full JSON (object or array)
+ *   2. Newline-delimited JSON
+ *   3. Adjacent JSON objects without newlines: {}{}
+ * - Fallback: returns a normalized object with `description` and `safety`.
+ * - Silently ignores unparseable fragments, but logs a warning once per parse.
+ *
+ * DO NOT use for:
+ * - config parsing
+ * - API responses
+ * - persistence
+ * - security-sensitive data
+ */
+export function parseBestEffortJson<T = any>(text: string): T[] {
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+
+    const results: T[] = [];
+    let parsingWarningsLogged = false;
+
+    // 1. Try full JSON parse (array or object)
+    try {
+        const parsed = JSON.parse(trimmed);
+        return Array.isArray(parsed) ? parsed : [parsed];
+    } catch { }
+
+    // 2. Split by newline first
+    const lines = trimmed.split("\n").map(l => l.trim()).filter(Boolean);
+
+    for (const line of lines) {
+        // 3. Handle adjacent objects without newline: e.g. `{}{}`
+        const potentialObjects = line.split(/(?<=})\s*(?=\{)/);
+
+        for (const objText of potentialObjects) {
+            try {
+                const parsed = JSON.parse(objText);
+                results.push(parsed);
+            } catch {
+                if (!parsingWarningsLogged) {
+                    //console.warn("[parseBestEffortJson] Skipping unparseable JSON fragment:", objText);
+                    parsingWarningsLogged = true;
+                }
+            }
+        }
+    }
+
+    // 4. If nothing parsed, return fallback
+    if (!results.length) {
+        return [trimmed] as T[];
+    }
+
+    return results;
+}

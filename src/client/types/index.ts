@@ -7,4 +7,3 @@ export * from "./moderation/index.js"; // Moderation request/result types
 export * from "./shared/index.js"; // Shared utility types (base, safety, bounding box, etc.)
 export * from "./video/index.js"; // Video analysis types
 export * from "./AIClientLifecycleHooks.js"; // Lifecycle hooks for instrumentation
-export * from "./timeline/index.js"; // timeline and event types
