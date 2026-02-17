@@ -34,7 +34,11 @@ import {
     NormalizedChatMessage,
     NormalizedEmbedding,
     NormalizedUserInput,
-    TimelineArtifacts
+    TimelineArtifacts,
+    CapabilityKeyType,
+    GenericJob,
+    JobManager,
+    JobLifecycleHooks
 } from "#root/index.js";
 
 /**
@@ -75,7 +79,7 @@ export class AIClient {
     /** Optional lifecycle hooks for metrics and instrumentation */
     private lifeCycleHooks?: AIClientLifecycleHooks;
 
-    constructor() {
+    constructor(private _jobManager = new JobManager()) {
         const appConfig = loadAppConfig();
         this.appConfig = appConfig;
 
@@ -189,6 +193,74 @@ export class AIClient {
             }
         }
         return result;
+    }
+
+    public get jobManager() {
+        return this._jobManager;
+    }
+
+    public createCapabilityJob<C extends CapabilityKeyType, TReq, TRes>(
+        capability: C,
+        request: AIRequest<TReq>,
+        options?: {
+            streaming?: boolean;
+            providerChain?: ProviderRef[];
+            addToManager?: boolean;
+            lifecycleHooks?: JobLifecycleHooks<TRes>;
+        }
+    ): GenericJob<AIRequest<TReq>, TRes> {
+
+        const job = new GenericJob<AIRequest<TReq>, TRes>(
+            request,
+            options?.streaming ?? false,
+            async (input, ctx: MultiModalExecutionContext, signal, onChunk) => {
+
+                if (options?.streaming) {
+                    let finalOutput: TRes | undefined;
+
+                    for await (const chunk of this.executeWithPolicyStream<C, TReq, TRes>(
+                        capability, input, ctx,
+                        (provider, cctx, sig) => (provider as CapabilityMap[C] & any)[capability](input, cctx, sig),
+                        options?.providerChain
+                    )) {
+                        signal?.throwIfAborted();
+
+                        if (chunk.multimodalArtifacts) {
+                            ctx.yieldArtifacts(chunk.multimodalArtifacts);                    
+                        }
+
+                        if (chunk.delta && onChunk) {                            
+                            onChunk({ delta: chunk.delta as unknown as TRes });
+                        }
+
+                        if (chunk.output !== undefined) {                                                    
+                            finalOutput = chunk.output;
+                        }
+                    }
+
+                    if (finalOutput !== undefined && onChunk) {
+                        onChunk({ final: finalOutput });
+                    }
+
+                    return finalOutput as TRes;
+                }
+
+                const result = await this.executeWithPolicy<C, TReq, TRes>(
+                    capability, input, ctx,
+                    (provider, cctx, sig) => (provider as CapabilityMap[C] & any)[capability](input, cctx, sig),
+                    options?.providerChain
+                );
+
+                return result.output as TRes;
+            },
+            options?.lifecycleHooks            
+        );
+
+        if (options?.addToManager ?? true) {
+            this._jobManager.addJob(job);
+        }
+
+        return job;
     }
 
     /**
@@ -462,11 +534,11 @@ export class AIClient {
                 break;
 
             case CapabilityKeys.ImageGenerationCapabilityKey:
-                case CapabilityKeys.ImageGenerationCapabilityKey:
+            case CapabilityKeys.ImageGenerationCapabilityKey:
             case CapabilityKeys.ImageEditCapabilityKey:
                 context.attachArtifacts({ images: output as NormalizedImage[] });
                 break;
-                
+
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
                 context.attachArtifacts({ analysis: output as NormalizedImageAnalysis[] });

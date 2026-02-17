@@ -1,6 +1,97 @@
-import { AIClient, ClientTextPart, MultiModalExecutionContext, NormalizedChatMessage } from "#root/index.js";
+import { AIClient, AIRequest, CapabilityKeys, ClientChatRequest, ClientTextPart, JobChunk, MultiModalExecutionContext, NormalizedChatMessage } from "#root/index.js";
 
 export const openai_chat = async () => {
+    console.log("=== OpenAI Chat ===");
+
+    const client = new AIClient();
+    client.setLifeCycleHooks({
+        onChunkEmitted: (ctx) => console.log(`[AI] Emitted ${ctx.chunkIndex} → ${ctx.providerType}`),
+        onExecutionStart: (ctx) => console.log(`[AI] Execution Start ${ctx}`),
+        onExecutionFailure: (ctx) => console.log(`[AI] Execution Failure ${ctx}`),
+        onExecutionEnd: (ctx) => console.log(`[AI] Execution End ${ctx}`),
+        onAttemptStart: (ctx) => console.log(`[AI] Attempt ${ctx.attemptIndex} → ${ctx.providerType}`),
+        onAttemptSuccess: (ctx) => console.log(`[AI] Success ${ctx.providerType} in ${ctx.durationMs}ms`),
+        onAttemptFailure: (ctx) => console.warn(`[AI] Failure ${ctx.providerType}: ${ctx.error}`)
+    });
+
+    const request: ClientChatRequest = {
+        messages: [
+            {
+                role: "user",
+                content: [{ type: "text", text: "Explain jobs vs workflows" }]
+            }
+        ]
+    };
+
+    // Create the job (nothing runs yet)
+    const job = client.createCapabilityJob(
+        CapabilityKeys.ChatCapabilityKey,
+        { input: request },
+        { streaming: false }
+    );
+
+    // Later (or immediately), run it
+    const ctx = new MultiModalExecutionContext();
+
+    await job.run(ctx);
+
+    // Final result
+    console.log(job);
+
+    return job.output
+}
+
+export const openai_chat_stream = async () => {
+    console.log("=== OpenAI Streaming Chat ===");
+
+    const client = new AIClient();
+    client.setLifeCycleHooks({
+        onChunkEmitted: (ctx) => console.log(`[AI] Emitted ${ctx.chunkIndex} → ${ctx.providerType}`),
+        onExecutionStart: (ctx) => console.log(`[AI] Execution Start ${ctx}`),
+        onExecutionFailure: (ctx) => console.log(`[AI] Execution Failure ${ctx}`),
+        onExecutionEnd: (ctx) => console.log(`[AI] Execution End ${ctx}`),
+        onAttemptStart: (ctx) => console.log(`[AI] Attempt ${ctx.attemptIndex} → ${ctx.providerType}`),
+        onAttemptSuccess: (ctx) => console.log(`[AI] Success ${ctx.providerType} in ${ctx.durationMs}ms`),
+        onAttemptFailure: (ctx) => console.warn(`[AI] Failure ${ctx.providerType}: ${ctx.error}`)
+    });
+
+    const request: ClientChatRequest = {
+        messages: [
+            {
+                role: "user",
+                content: [{ type: "text", text: "Explain quantum mechanics in 10 sentences" }]
+            }
+        ]
+    };
+
+    const job = client.createCapabilityJob(
+        CapabilityKeys.ChatStreamCapabilityKey,
+        { input: request },
+        { streaming: true }
+    );    
+
+    /*job.onChunk = (chunk) => {
+        if (chunk.delta) {
+            console.log("delta:", chunk.delta);
+        }
+    };*/
+
+   /* await client.jobManager.runJob(job.id, new MultiModalExecutionContext(), undefined, (chunk: JobChunk<any>) => {
+        if (chunk.delta) {
+            console.log("chunk callback delta:", chunk.delta);
+        }
+    });
+*/
+    //const ctx = new MultiModalExecutionContext();
+    //await job.run(ctx);
+
+    // Final result
+    console.log(job);
+
+    return job.output    
+}
+
+export const openai_chat_old = async () => {
     console.log("=== OpenAI Chat ===");
 
     const client = new AIClient();
@@ -30,7 +121,7 @@ export const openai_chat = async () => {
     return result.output;
 }
 
-export const openai_chat_stream = async () => {
+export const openai_chat_stream_old = async () => {
     console.log("=== OpenAI Streaming Chat ===");
 
     const client = new AIClient();
@@ -51,7 +142,7 @@ export const openai_chat_stream = async () => {
     const timeout = setTimeout(() => {
         console.log("\n⛔ aborting stream\n");
         controller.abort();
-    }, 1000*60*3);
+    }, 1000 * 60 * 3);
 
     let accumulatedOutput: any = undefined;
 

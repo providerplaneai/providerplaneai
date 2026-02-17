@@ -1,6 +1,7 @@
 {
     "appConfig": {
         "executionPolicy": {
+            "maxConcurrentJobs": 100,
             "providerChain": [
                 {
                     "providerType": "openai",
