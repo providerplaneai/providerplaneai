@@ -34,11 +34,15 @@ import {
     NormalizedChatMessage,
     NormalizedEmbedding,
     NormalizedUserInput,
-    TimelineArtifacts,
     CapabilityKeyType,
     GenericJob,
     JobManager,
-    JobLifecycleHooks
+    JobLifecycleHooks,
+    createDefaultExecutors,
+    CapabilityExecutorRegistry,
+    CapabilityExecutor,
+    NonStreamingExecutor,
+    StreamingExecutor
 } from "#root/index.js";
 
 /**
@@ -69,6 +73,8 @@ export class AIClient {
      */
     private providers: Map<AIProviderType, Map<string, BaseProvider>> = new Map();
 
+    private executors: CapabilityExecutorRegistry;
+
     /**
      * Application configuration loaded from config files and environment variables.
      * Resolved once at construction and passed to providers during initialization.
@@ -79,7 +85,7 @@ export class AIClient {
     /** Optional lifecycle hooks for metrics and instrumentation */
     private lifeCycleHooks?: AIClientLifecycleHooks;
 
-    constructor(private _jobManager = new JobManager()) {
+    constructor(private _jobManager = new JobManager(), executors?: CapabilityExecutorRegistry) {
         const appConfig = loadAppConfig();
         this.appConfig = appConfig;
 
@@ -96,6 +102,8 @@ export class AIClient {
                 throw new Error(`Invalid provider: ${providerType}`);
             }
         }
+
+        this.executors = executors ?? createDefaultExecutors();
     }
 
     /**
@@ -141,6 +149,44 @@ export class AIClient {
         // Always register the provider instance after assuring initialization state
         providerMap.set(connectionName, provider);
         this.providers.set(providerType, providerMap);
+        provider.setClientExecutors(this.executors?.getExecutors() ?? new Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>());
+    }
+
+    // overload — non-streaming
+    public registerCapabilityExecutor<
+        C extends CapabilityKeyType,
+        TInput,
+        TOutput
+    >(
+        capability: C,
+        executor: NonStreamingExecutor<C, TInput, TOutput>
+    ): void;
+
+    // overload — streaming
+    public registerCapabilityExecutor<
+        C extends CapabilityKeyType,
+        TInput,
+        TOutput
+    >(
+        capability: C,
+        executor: StreamingExecutor<C, TInput, TOutput>
+    ): void;
+
+    public registerCapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput>(
+        capability: C,
+        executor: | StreamingExecutor<C, TInput, TOutput> | NonStreamingExecutor<C, TInput, TOutput>) {
+
+        if (this.executors.has(capability)) {
+            throw new Error(`Executor for capability ${capability} is already registered`);
+        }
+        this.executors.set(capability, executor);
+
+        for (const provider of this.providers.values()) {
+            for (const p of provider.values()) {
+                p.setClientExecutors(this.executors.getExecutors());
+            }
+        }
+
     }
 
     /**
@@ -183,12 +229,12 @@ export class AIClient {
      * @param capability The capability key to search for
      * @returns Array of providers that implement the requested capability
      */
-    public findProvidersByCapability<C extends keyof CapabilityMap>(capability: C): (CapabilityMap[C] & BaseProvider)[] {
-        const result: (CapabilityMap[C] & BaseProvider)[] = [];
+    public findProvidersByCapability<C extends CapabilityKeyType>(capability: C): BaseProvider[] {
+        const result: BaseProvider[] = [];
         for (const providerMap of this.providers.values()) {
             for (const provider of providerMap.values()) {
                 if (provider.hasCapability(capability)) {
-                    result.push(provider as CapabilityMap[C] & BaseProvider);
+                    result.push(provider);
                 }
             }
         }
@@ -199,61 +245,65 @@ export class AIClient {
         return this._jobManager;
     }
 
-    public createCapabilityJob<C extends CapabilityKeyType, TReq, TRes>(
+    public createCapabilityJob<C extends CapabilityKeyType, TInput, TOutput>(
         capability: C,
-        request: AIRequest<TReq>,
+        request: AIRequest<TInput>,
         options?: {
-            streaming?: boolean;
             providerChain?: ProviderRef[];
             addToManager?: boolean;
-            lifecycleHooks?: JobLifecycleHooks<TRes>;
+            lifecycleHooks?: JobLifecycleHooks<TOutput>;
         }
-    ): GenericJob<AIRequest<TReq>, TRes> {
+    ): GenericJob<AIRequest<TInput>, TOutput> {
 
-        const job = new GenericJob<AIRequest<TReq>, TRes>(
+        const executor = this.executors.get<C, TInput, TOutput>(capability);
+
+        const streaming: boolean = executor?.streaming;
+
+        let finalResponse: TOutput | undefined;
+
+        const job = new GenericJob<AIRequest<TInput>, TOutput>(
             request,
-            options?.streaming ?? false,
+            streaming,
             async (input, ctx: MultiModalExecutionContext, signal, onChunk) => {
 
-                if (options?.streaming) {
-                    let finalOutput: TRes | undefined;
-
-                    for await (const chunk of this.executeWithPolicyStream<C, TReq, TRes>(
+                if (executor.streaming) {
+                    for await (const chunk of this.executeWithPolicyStream<C, TInput, TOutput>(
                         capability, input, ctx,
-                        (provider, cctx, sig) => (provider as CapabilityMap[C] & any)[capability](input, cctx, sig),
+                        (provider, cctx, sig) => executor.invoke(provider.getCapability(capability), input, cctx, sig),
                         options?.providerChain
                     )) {
                         signal?.throwIfAborted();
 
                         if (chunk.multimodalArtifacts) {
-                            ctx.yieldArtifacts(chunk.multimodalArtifacts);                    
+                            ctx.yieldArtifacts(chunk.multimodalArtifacts);
                         }
 
-                        if (chunk.delta && onChunk) {                            
-                            onChunk({ delta: chunk.delta as unknown as TRes });
+                        if (chunk.delta && onChunk) {
+                            onChunk({ delta: chunk.delta });
                         }
 
-                        if (chunk.output !== undefined) {                                                    
-                            finalOutput = chunk.output;
+                        if (chunk.output !== undefined) {
+                            finalResponse = chunk.output;
                         }
                     }
 
-                    if (finalOutput !== undefined && onChunk) {
-                        onChunk({ final: finalOutput });
+                    if (finalResponse !== undefined && onChunk) {
+                        onChunk({ final: finalResponse });
                     }
+                } else {
 
-                    return finalOutput as TRes;
+                    const result = await this.executeWithPolicy<C, TInput, TOutput>(
+                        capability, input, ctx,
+                        (provider, cctx, sig) => executor.invoke(provider.getCapability(capability), input, cctx, sig),
+                        options?.providerChain
+                    );
+
+                    finalResponse = result.output;
                 }
 
-                const result = await this.executeWithPolicy<C, TReq, TRes>(
-                    capability, input, ctx,
-                    (provider, cctx, sig) => (provider as CapabilityMap[C] & any)[capability](input, cctx, sig),
-                    options?.providerChain
-                );
-
-                return result.output as TRes;
+                return finalResponse;
             },
-            options?.lifecycleHooks            
+            options?.lifecycleHooks
         );
 
         if (options?.addToManager ?? true) {
@@ -275,12 +325,12 @@ export class AIClient {
      * @returns Result of the first successful provider call
      * @throws AllProvidersFailedError if all providers fail
      */
-    async executeWithPolicy<C extends keyof CapabilityMap, TReq, TRes>(
+    async executeWithPolicy<C extends CapabilityKeyType, TReq, TRes>(
         capability: C,
         request: AIRequest<TReq>,
         context: MultiModalExecutionContext,
         executeFn: (
-            provider: CapabilityMap[C] & BaseProvider,
+            provider: BaseProvider,
             ctx: MultiModalExecutionContext,
             signal?: AbortSignal) => Promise<AIResponse<TRes>>,
         providerChain?: ProviderRef[]
@@ -316,7 +366,7 @@ export class AIClient {
             this.lifeCycleHooks?.onAttemptStart?.(attemptCtx);
 
             try {
-                const provider = this.getProvider<CapabilityMap[C] & BaseProvider>(providerType, connectionName);
+                const provider = this.getProvider<BaseProvider>(providerType, connectionName);
                 if (!provider.hasCapability(capability)) {
                     continue;
                 }
@@ -379,12 +429,12 @@ export class AIClient {
      * @returns AsyncGenerator yielding chunks from the first successful provider
      * @throws AllProvidersFailedError if all providers fail immediately
      */
-    async *executeWithPolicyStream<C extends keyof CapabilityMap, TReq, TRes>(
+    async *executeWithPolicyStream<C extends CapabilityKeyType, TReq, TRes>(
         capability: C,
         request: AIRequest<TReq>,
         context: MultiModalExecutionContext,
         executeFn: (
-            provider: CapabilityMap[C] & BaseProvider,
+            provider: BaseProvider,
             ctx: MultiModalExecutionContext,
             signal?: AbortSignal
         ) => AsyncGenerator<AIResponseChunk<TRes>>,
@@ -418,7 +468,7 @@ export class AIClient {
             this.lifeCycleHooks?.onAttemptStart?.(attemptCtx);
 
             try {
-                const provider = this.getProvider<CapabilityMap[C] & BaseProvider>(providerType, connectionName);
+                const provider = this.getProvider<BaseProvider>(providerType, connectionName);
                 if (!provider.hasCapability(capability)) {
                     continue;
                 }
@@ -510,7 +560,7 @@ export class AIClient {
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey: return "imageAnalysis";
             default:
-                throw new Error(`Unhandled capability modality: ${capability}`);
+                return "custom";
         }
     }
 
@@ -534,7 +584,7 @@ export class AIClient {
                 break;
 
             case CapabilityKeys.ImageGenerationCapabilityKey:
-            case CapabilityKeys.ImageGenerationCapabilityKey:
+            case CapabilityKeys.ImageGenerationStreamCapabilityKey:
             case CapabilityKeys.ImageEditCapabilityKey:
                 context.attachArtifacts({ images: output as NormalizedImage[] });
                 break;
@@ -547,6 +597,11 @@ export class AIClient {
             case CapabilityKeys.ImageEditStreamCapabilityKey:
                 // no-op, artifacts already attached
                 break;
+
+            default:
+                // For custom capabilities, we don't know how to interpret the output,
+                // so we just return and leave it to the caller to handle it as needed.
+                return;
         }
     }
 
@@ -602,7 +657,7 @@ export class AIClient {
             CapabilityKeys.ChatCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.chat(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ChatCapabilityKey).chat(request, ctx, signal)),
             providerChain
         );
     }
@@ -627,7 +682,7 @@ export class AIClient {
             CapabilityKeys.ChatStreamCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.chatStream(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ChatStreamCapabilityKey).chatStream(request, ctx, signal)),
             providerChain
         );
     }
@@ -652,7 +707,7 @@ export class AIClient {
             CapabilityKeys.EmbedCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.embed(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.EmbedCapabilityKey).embed(request, ctx, signal)),
             providerChain
         );
     }
@@ -682,7 +737,7 @@ export class AIClient {
             CapabilityKeys.ModerationCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.moderation(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ModerationCapabilityKey).moderation(request, ctx, signal)),
             providerChain
         );
     }
@@ -708,7 +763,7 @@ export class AIClient {
             CapabilityKeys.ImageGenerationCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.generateImage(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageGenerationCapabilityKey).generateImage(request, ctx, signal)),
             providerChain
         );
     }
@@ -738,7 +793,7 @@ export class AIClient {
             CapabilityKeys.ImageGenerationStreamCapabilityKey,
             request,
             context,
-            (provider, ctx) => provider.generateImageStream(request, ctx),
+            (provider, ctx) => (provider.getCapability(CapabilityKeys.ImageGenerationStreamCapabilityKey).generateImageStream(request, ctx)),
             providerChain
         );
     }
@@ -764,7 +819,7 @@ export class AIClient {
             CapabilityKeys.ImageAnalysisCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.analyzeImage(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageAnalysisCapabilityKey).analyzeImage(request, ctx, signal)),
             providerChain
         );
     }
@@ -793,7 +848,7 @@ export class AIClient {
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.analyzeImageStream(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageAnalysisStreamCapabilityKey).analyzeImageStream(request, ctx, signal)),
             providerChain
         );
     }
@@ -815,7 +870,7 @@ export class AIClient {
             CapabilityKeys.ImageEditCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.editImage(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageEditCapabilityKey).editImage(request, ctx, signal)),
             providerChain
         );
     }
@@ -841,7 +896,7 @@ export class AIClient {
             CapabilityKeys.ImageEditStreamCapabilityKey,
             request,
             context,
-            (provider, ctx, signal) => provider.editImageStream(request, ctx, signal),
+            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageEditStreamCapabilityKey).editImageStream(request, ctx, signal)),
             providerChain
         );
     }

@@ -20,4 +20,5 @@ export interface TimelineArtifacts {
     audio?: NormalizedAudio[];
     video?: NormalizedVideo[];
     files?: NormalizedFile[];
+    custom?: Record<string, unknown>[];
 }

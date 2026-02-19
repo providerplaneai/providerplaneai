@@ -25,155 +25,17 @@ import { gemini_image_gen, gemini_image_gen_stream } from "./examples/images/gen
 import { anthropic_image_analysis, anthropic_image_analysis_stream } from "./examples/images/analysis/anthropic.analysis.js";
 import { background_job_cancellation_example, job1_example, job1_streaming_example, job_background_example, multiple_background_jobs_example  } from "./examples/jobs/job1.js";
 import { ClientChatRequest, GenericJob, JobChunk, JobManager, JobSnapshot, MultiModalExecutionContext, NormalizedChatMessage } from "./index.js";
+import { crashRecovery_example, jobRecovery_example, runCustomCapabilityJob_example } from "./examples/jobs/job2.js";
 //import { openai_moderation } from "./examples/moderation/openai.moderation.js";
 //import { openai_embedding } from "./examples/embeddings/openai.embed.js";
 //import { openai_image_gen, openai_image_gen_stream } from "./examples/images/generation/openai.gen.js";
 //import { openai_image_analysis, openai_image_analysis_stream } from "./examples/images/analysis/openai.analysis.js";
 //import { openai_image_edit } from "./examples/images/edit/openai.imageedit.js";
 
-
-const JOB_FILE = path.resolve("test_data/.jobs.json");
-
-function persistJobs(snapshots: JobSnapshot<any, any>[]) {
-    fs.writeFileSync(JOB_FILE, JSON.stringify(snapshots, null, 2), "utf8");
-}
-
-function loadPersistedJobs(): JobSnapshot<any, any>[] {
-    if (!fs.existsSync(JOB_FILE)) return [];
-    return JSON.parse(fs.readFileSync(JOB_FILE, "utf8"));
-}
-
-/**
- * Phase 1: Start jobs and simulate a crash.
- */
-export const crashRecovery_example = async () => {
-    console.log("=== Phase 1: Start jobs and simulate crash ===");
-
-    const jobManager = new JobManager({
-        persistJobs,
-        loadPersistedJobs,
-        hooks: {
-            onStart: job => console.log(`[JobManager] started ${job.id}`),
-            onProgress: (chunk, job) => console.log(`[JobManager] job ${job.id} chunk`),
-            onComplete: job => console.log(`[JobManager] completed ${job.id}`),
-            onError: (err, job) => console.error(`[JobManager] error ${job.id}`, err)
-        }
-    });
-
-    const client = new AIClient(jobManager);
-    const ctx = new MultiModalExecutionContext();
-
-    const prompts = [
-        "Explain recursion in simple terms",
-        "Write a limerick about TypeScript",
-        "Summarize what a job queue is",
-        "Give an analogy for async programming"
-    ];
-
-    const jobs = prompts.map((text, index) => {
-        const request: ClientChatRequest = {
-            messages: [{ role: "user", content: [{ type: "text", text }] }]
-        };
-
-        const job = client.createCapabilityJob("chatStream", { input: request }, { streaming: true });
-
-        // Subscribe to status updates
-        jobManager.subscribe(job.id, snapshot => {
-            switch (snapshot.status) {
-                case "pending":
-                    console.log(`[Job ${index}] pending`);
-                    break;
-                case "running":
-                    if (snapshot.streaming?.started) {
-                        console.log(`[Job ${index}] running (chunks=${snapshot.streaming.chunksEmitted})`);
-                    }
-                    break;
-                case "completed":
-                    console.log(`[Job ${index}] COMPLETED`);
-                    break;
-                case "error":
-                    console.error(`[Job ${index}] ERROR`, snapshot.error);
-                    break;
-                case "aborted":
-                    console.warn(`[Job ${index}] ABORTED`);
-                    break;
-                case "interrupted":
-                    console.warn(`[Job ${index}] INTERRUPTED`);
-                    break;
-            }
-        });
-
-        return job;
-    });
-
-    // Fire-and-forget: start all jobs concurrently
-    for (const job of jobs) {
-        jobManager.runJob(job.id, ctx, (chunk: JobChunk<NormalizedChatMessage>) => {
-            if (chunk.delta?.content?.[0]?.type === "text") {
-                process.stdout.write(chunk.delta.content[0].text);
-            }
-            if (chunk.final) {
-                console.log("\n[Stream] Final chunk received");
-            }
-        });
-    }
-
-    console.log("All jobs started concurrently. Simulating crash in 9.1s...");
-
-    // Simulate a SIGTERM / crash mid-execution
-    setTimeout(() => {
-        console.log("\n[SIMULATED CRASH] Process terminated unexpectedly!\n");
-        process.exit(1);
-    }, 9100);
-};
-
-/**
- * Phase 2: Restart process and recover incomplete jobs
- */
-export const jobRecovery_example = async () => {
-    console.log("=== Phase 2: Restart process and recover jobs ===");
-
-    const jobManager = new JobManager({
-        persistJobs,
-        loadPersistedJobs,
-        hooks: {
-            onStart: job => console.log(`[Recovery] started ${job.id}`),
-            onProgress: (chunk, job) => console.log(`[Recovery] job ${job.id} chunk`),
-            onComplete: job => console.log(`[Recovery] completed ${job.id}`),
-            onError: (err, job) => console.error(`[Recovery] error ${job.id}`, err)
-        }
-    });
-
-    const client = new AIClient(jobManager);
-    const ctx = new MultiModalExecutionContext();
-
-    console.log("Jobs loaded from previous session:");
-    for (const snapshot of jobManager.listJobs()) {
-        console.log(`- Job ${snapshot.id}: status=${snapshot.status}, streaming=${snapshot.streaming?.enabled ? `chunksEmitted=${snapshot.streaming?.chunksEmitted}, completed=${snapshot.streaming?.completed}` : "n/a"}`);
-    }
-
-    // Restart all incomplete jobs
-    for (const snapshot of jobManager.listJobs()) {
-        if (snapshot.status !== "completed" && snapshot.status !== "error" && snapshot.status !== "aborted") {
-            console.log(`[Recovery] restarting job ${snapshot.id}`);
-
-            const job = jobManager.getJob(snapshot.id)!;
-
-            jobManager.runJob(snapshot.id, ctx, (chunk: JobChunk<NormalizedChatMessage>) => {
-                const delta = chunk.delta as NormalizedChatMessage | undefined;
-                if (delta?.content?.[0]?.type === "text") {
-                    process.stdout.write(delta.content[0].text);
-                }
-                if (chunk.final) {
-                    console.log("\n[Stream] Final chunk received");
-                }
-            });
-        }
-    }
-};
-
 //crashRecovery_example();
-jobRecovery_example();
+//jobRecovery_example();
+
+runCustomCapabilityJob_example()
 
 async function editImageMultiTurn(aiClient: AIClient) {
     // Sample subject image (Base64 or URL)

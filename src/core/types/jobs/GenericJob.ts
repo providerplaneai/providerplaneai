@@ -101,12 +101,13 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
                 chunkCallback?.(chunk);
             };
 
-            this.output = await this.executor(this.input, ctx, signal, wrappedChunkCallback);
+            const response = await this.executor(this.input, ctx, signal, wrappedChunkCallback);
+            this.output = response;
             this.syncArtifactsFromTimeline(ctx);
             this.status = "completed";
             this.endTime = Date.now();
-            this.hooks?.onComplete?.(this.output);
-            this.resolveCompletion(this.output);
+            this.hooks?.onComplete?.(response);
+            this.resolveCompletion(response);
         } catch (err: any) {
             this.error = err;
             this.status = signal?.aborted ? "aborted" : "error";
@@ -114,11 +115,6 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
             this.hooks?.onError?.(err);
             this.rejectCompletion(err);
         }
-    }
-
-    async result(ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<TOutput> {
-        await this.run(ctx, signal);
-        return this.output!;
     }
 
     toSnapshot(): JobSnapshot<TInput, TOutput> {

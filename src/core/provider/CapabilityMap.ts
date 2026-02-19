@@ -19,7 +19,8 @@ import {
     NormalizedEmbedding,
     NormalizedImage,
     NormalizedImageAnalysis,
-    NormalizedModeration
+    NormalizedModeration,
+    ProviderCapability
 } from "#root/index.js";
 
 /**
@@ -40,7 +41,9 @@ export const CapabilityKeys = {
     ModerationCapabilityKey: "moderation"
 } as const;
 
-export type CapabilityKeyType = (typeof CapabilityKeys)[keyof typeof CapabilityKeys];
+//export type CapabilityKeyType = (typeof CapabilityKeys)[keyof typeof CapabilityKeys] | string;
+
+export type CapabilityKeyType = Extract<keyof CapabilityMap, string>;
 
 /**
  * Mapping from capability keys to their interface implementations.
@@ -66,4 +69,6 @@ export interface CapabilityMap {
     >;
     [CapabilityKeys.ImageEditCapabilityKey]: ImageEditCapability<ClientImageEditRequest, NormalizedImage[]>;
     [CapabilityKeys.ImageEditStreamCapabilityKey]: ImageEditStreamCapability<ClientImageEditRequest, NormalizedImage[]>;
+    
+    [key: string]: ProviderCapability; // Allow for user defined capabilities
 }

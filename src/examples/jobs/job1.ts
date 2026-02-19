@@ -41,8 +41,7 @@ export const job1_example = async () => {
 
     const job = client.createCapabilityJob(
         "chat",
-        { input: request },
-        { streaming: false }
+        { input: request }
     );
 
     // Run it
@@ -91,8 +90,7 @@ export const job1_streaming_example = async () => {
 
     const job1 = client.createCapabilityJob<CapabilityKeyType, ClientChatRequest, NormalizedChatMessage>(
         "chatStream",
-        { input: request },
-        { streaming: true }
+        { input: request }
     );
 
     const ctx1 = new MultiModalExecutionContext();
@@ -124,8 +122,7 @@ export const job1_streaming_example = async () => {
 
     const job2 = client.createCapabilityJob<CapabilityKeyType, ClientChatRequest, NormalizedChatMessage>(
         "chatStream",
-        { input: request2 },
-        { streaming: true }
+        { input: request2 }
     );
 
     const ctx2 = new MultiModalExecutionContext();
@@ -176,8 +173,7 @@ export const job_background_example = async () => {
 
     const job = client.createCapabilityJob(
         "chatStream",
-        { input: request },
-        { streaming: true }
+        { input: request }
     );
 
     const ctx = new MultiModalExecutionContext();
@@ -255,8 +251,7 @@ export const multiple_background_jobs_example = async () => {
 
         const job = client.createCapabilityJob(
             "chatStream",
-            { input: request },
-            { streaming: true }
+            { input: request }
         );
 
         jobManager.subscribe(job.id, (snapshot: JobSnapshot<any, any>) => {
@@ -331,8 +326,7 @@ export const background_job_cancellation_example = async () => {
 
     const job = client.createCapabilityJob(
         "chatStream",
-        { input: request },
-        { streaming: true }
+        { input: request }
     );
 
     // Observe job lifecycle

@@ -9,7 +9,8 @@ export interface NormalizedUserInput {
         | "imageAnalysis"
         | "audio"
         | "video"
-        | "file";
+        | "file"
+        | "custom";
 
     /**
      * Raw client request input
@@ -17,8 +18,5 @@ export interface NormalizedUserInput {
      */
     input: unknown;
 
-    metadata?: {
-        requestId?: string;
-        [key: string]: unknown;
-    };
+    metadata?: Record<string, unknown>;
 }

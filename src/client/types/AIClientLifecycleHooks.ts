@@ -1,4 +1,4 @@
-import { AIProviderType, ProviderRef } from "#root/index.js";
+import { AIProviderType, CapabilityKeyType, ProviderRef } from "#root/index.js";
 
 /**
  * Context object describing a single provider attempt (non-streaming or streaming).
@@ -32,17 +32,17 @@ export interface AIClientLifecycleHooks {
     /**
      * Called once at the start of an execution
      */
-    onExecutionStart?: (capability: string, providerChain: ProviderRef[]) => void;
+    onExecutionStart?: (capability: CapabilityKeyType, providerChain: ProviderRef[]) => void;
 
     /**
      * Called once at the end of an execution (successful)
      */
-    onExecutionEnd?: (capability: string, providerChain: ProviderRef[]) => void;
+    onExecutionEnd?: (capability: CapabilityKeyType, providerChain: ProviderRef[]) => void;
 
     /**
      * Called once if the entire execution fails (all providers fail)
      */
-    onExecutionFailure?: (capability: string, providerChain: ProviderRef[], errors: ProviderAttemptResult[]) => void;
+    onExecutionFailure?: (capability: CapabilityKeyType, providerChain: ProviderRef[], errors: ProviderAttemptResult[]) => void;
 
     /**
      * Called when a provider attempt starts
@@ -63,7 +63,7 @@ export interface AIClientLifecycleHooks {
      * Called each time a streaming provider emits a chunk
      */
     onChunkEmitted?: (chunkMetrics: {
-        capability: string;
+        capability: CapabilityKeyType;
         providerType: AIProviderType;
         connectionName?: string;
         chunkIndex: number;

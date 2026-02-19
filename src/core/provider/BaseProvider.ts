@@ -1,4 +1,12 @@
-import { AIProviderType, CapabilityConfig, CapabilityMap, ProviderConnectionConfig } from "#root/index.js";
+import { 
+    AIProviderType, 
+    CapabilityConfig, 
+    CapabilityExecutor, 
+    CapabilityKeyType, 
+    CapabilityMap, 
+    CapabilityUnsupportedError, 
+    ProviderConnectionConfig 
+} from "#root/index.js";
 
 /**
  * Abstract base class for all AI providers.
@@ -22,6 +30,8 @@ export abstract class BaseProvider {
 
     /** Support provider capabilities */
     protected capabilities: Partial<CapabilityMap> = {};
+
+    protected executors?: Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>;
 
     /**
      * Base constructor.
@@ -55,6 +65,22 @@ export abstract class BaseProvider {
         return this.providerType;
     }
 
+    public getCapabilities(): Partial<CapabilityMap> {
+        return this.capabilities;
+    }
+
+    public getCapability<C extends CapabilityKeyType>(capability: C): CapabilityMap[C] {
+        if(this.capabilities[capability]) {
+            return this.capabilities[capability] as CapabilityMap[C];
+        }
+
+        if (this.executors?.has(capability)) {
+            return this.executors.get(capability) as CapabilityMap[C];
+        }
+        
+        throw new CapabilityUnsupportedError(this.providerType, capability);
+    }
+
     /**
      * Type-safe runtime check for a capability.
      * Allows safe casting after confirming the capability is registered.
@@ -63,8 +89,8 @@ export abstract class BaseProvider {
      * @param capability Capability symbol
      * @returns True if the capability is registered
      */
-    public hasCapability<C extends keyof CapabilityMap>(capability: C): this is CapabilityMap[C] & this {
-        return !!this.capabilities[capability];
+    public hasCapability<C extends CapabilityKeyType>(capability: C): this is CapabilityMap[C] & this {
+        return !!this.capabilities[capability] || !!this.executors?.has(capability);
     }
 
     /**
@@ -75,8 +101,12 @@ export abstract class BaseProvider {
      * @param capability Capability symbol
      * @param impl Implementation of the capability
      */
-    protected registerCapability<C extends keyof CapabilityMap>(capability: C, impl: CapabilityMap[C]) {
+    protected registerCapability<C extends CapabilityKeyType>(capability: C, impl: CapabilityMap[C]) {
         this.capabilities[capability] = impl;
+    }
+
+    public setClientExecutors(executors: Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>) {
+        this.executors = executors;
     }
 
     /**

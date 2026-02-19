@@ -52,5 +52,4 @@ export interface Job<TInput = any, TOutput = any> {
     error?: Error;    
 
     run(ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<void>;
-    result(ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<TOutput>;
 }

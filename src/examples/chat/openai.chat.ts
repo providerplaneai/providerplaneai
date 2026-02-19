@@ -26,8 +26,7 @@ export const openai_chat = async () => {
     // Create the job (nothing runs yet)
     const job = client.createCapabilityJob(
         CapabilityKeys.ChatCapabilityKey,
-        { input: request },
-        { streaming: false }
+        { input: request }
     );
 
     // Later (or immediately), run it
@@ -66,8 +65,7 @@ export const openai_chat_stream = async () => {
 
     const job = client.createCapabilityJob(
         CapabilityKeys.ChatStreamCapabilityKey,
-        { input: request },
-        { streaming: true }
+        { input: request }
     );    
 
     /*job.onChunk = (chunk) => {
