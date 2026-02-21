@@ -27,11 +27,15 @@ export interface TimelineEventBase {
     /**
      * Optional, inert execution metadata
      * NEVER used automatically
+     * Only for human debugging or manual inspection
      */
     metadata?: {
         provider?: string;
         model?: string;
         requestId?: string;
+        responseTimeMs?: number;
+        tokensUsed?: number;
+        status?: string;
         [key: string]: unknown;
     };
 }

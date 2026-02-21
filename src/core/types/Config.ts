@@ -117,6 +117,11 @@ export interface ExecutionPolicyConfig {
 export interface AppConfig {
     /** General app specific configs */
     appConfig?: {
+        /** Maximum number of concurrent jobs allowed */
+        maxConcurrency?: number;
+        /** Maximum number of response chunks to store */
+        maxStoredResponseChunks?: number;        
+        /** Execution policy configuration */
         executionPolicy: ExecutionPolicyConfig;
     };
 

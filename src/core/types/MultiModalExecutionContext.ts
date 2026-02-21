@@ -15,20 +15,19 @@ import {
     NormalizedMask,
     ImageGenerationEvent,
     ImageEditEvent,
-    NormalizedUserInput
+    NormalizedUserInput,
+    AIResponse
 } from "#root/index.js";
 
 /**
  * Execution context for multi-turn, multimodal AI sessions.
  * Maintains a unified timeline with all modalities.
- * 
- * Responsibilities:
- * - Own the canonical timeline
- * - Attach normalized artifacts
- * - Provide deterministic access to the latest outputs
  *
- * This class is stateful but intentionally dumb:
- * no provider logic, no retries, no orchestration. 
+ * Design invariants:
+ * - Owns the canonical timeline
+ * - Stores ONLY final AIResponse-derived artifacts
+ * - Streaming chunks are ephemeral
+ * - No provider logic, no retries, no orchestration
  */
 export class MultiModalExecutionContext {
     /** Unified timeline for all events */
@@ -68,23 +67,59 @@ export class MultiModalExecutionContext {
     }
 
     /** Attach multimodal artifacts without producing a chat message */
-    attachArtifacts(artifacts: Partial<TimelineArtifacts>, action: SystemEvent["action"] = "attachArtifacts"): void {
+    attachArtifacts(artifacts?: Partial<TimelineArtifacts>): void {
         const event: SystemEvent = {
             id: crypto.randomUUID(),
             type: "systemEvent",
             timestamp: Date.now(),
-            action,
+            action: "attachArtifacts",
             artifacts: this.mergeArtifacts(this.createEmptyArtifacts(), artifacts)
         };
 
         this.timeline.push(event);
     }
 
-    /** Streaming helper */
+    /**
+     * Attach multimodal artifacts with metadata sourced from an internal AIResponse.
+     * Intended for internal orchestration use only.
+     */
+    attachArtifactsFromResponse<T>(response: AIResponse<T>, artifacts?: Partial<TimelineArtifacts>): void {
+        const baseWithResponseArtifacts = this.mergeArtifacts(
+            this.createEmptyArtifacts(),
+            response.multimodalArtifacts
+        );
+
+        const event: SystemEvent = {
+            id: crypto.randomUUID(),
+            type: "systemEvent",
+            timestamp: Date.now(),
+            action: "attachArtifacts",
+            artifacts: this.mergeArtifacts(baseWithResponseArtifacts, artifacts),
+            metadata: response.metadata
+        };
+
+        this.timeline.push(event);
+    }
+
+    /**
+     * Streaming helper.
+     * Chunks are forwarded but NOT persisted as AIResponses.
+     */
     yieldArtifacts(artifacts?: Partial<TimelineArtifacts>): void {
-        if (artifacts) {
-            this.attachArtifacts(artifacts, "streamChunk");
-        }
+        if (!artifacts) return;
+
+        const event: SystemEvent = {
+            id: crypto.randomUUID(),
+            type: "systemEvent",
+            timestamp: Date.now(),
+            action: "streamChunk",
+            artifacts: this.mergeArtifacts(
+                this.createEmptyArtifacts(),
+                artifacts
+            )
+        };
+
+        this.timeline.push(event);
     }
 
     /** Reset the entire session */
@@ -112,9 +147,11 @@ export class MultiModalExecutionContext {
             moderation: [...safeArray(base.moderation), ...safeArray(addition.moderation)],
             audio: [...safeArray(base.audio), ...safeArray(addition.audio)],
             video: [...safeArray(base.video), ...safeArray(addition.video)],
-            files: [...safeArray(base.files), ...safeArray(addition.files)]
+            files: [...safeArray(base.files), ...safeArray(addition.files)],
+            custom: [...safeArray(base.custom), ...safeArray(addition.custom)]
         };
     }
+
 
     /** Create an empty TimelineArtifacts object */
     private createEmptyArtifacts(): TimelineArtifacts {
@@ -127,7 +164,8 @@ export class MultiModalExecutionContext {
             moderation: [],
             audio: [],
             video: [],
-            files: []
+            files: [],
+            custom: [],
         };
     }
 

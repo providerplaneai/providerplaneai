@@ -1,16 +1,27 @@
-import { Job, JobChunk, JobLifecycleHooks, JobSnapshot, JobStatus, MultiModalExecutionContext, TimelineArtifacts } from "#root/index.js";
+import { AIResponse, AIResponseChunk, CapabilityKeyType, Job, JobChunk, JobLifecycleHooks, JobSnapshot, JobStatus, MultiModalExecutionContext, ProviderRef, TimelineArtifacts } from "#root/index.js";
 
-export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
-    id = crypto.randomUUID();
-    output?: TOutput;
-    error?: Error;
-    private artifacts: TimelineArtifacts = {};
+export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {    
+    private readonly maxStoredResponseChunks: number;
+    private readonly capability?: CapabilityKeyType;
+    private readonly providerChain?: ProviderRef[];
+
+    private _id = crypto.randomUUID();
+    private _output?: TOutput;
+    private _error?: Error;
+    
     private _status: JobStatus = "pending";
+
+    private _response?: AIResponse<TOutput>;
+    private _responseChunks: AIResponseChunk<TOutput>[] = [];
+
+    /** Artifacts accumulated during job execution */
+    private artifacts: TimelineArtifacts = {};
+    private artifactSeen = new Map<keyof TimelineArtifacts, Set<string>>();
 
     /** Completion promise (never blocks unless awaited externally) */
     private completionPromise: Promise<TOutput>;
     private resolveCompletion!: (value: TOutput) => void;
-    private rejectCompletion!: (err: Error) => void;
+    private rejectCompletion!: (err: Error) => void;    
 
     /** Called whenever status changes */
     onStatusChange?: (status: JobStatus) => void;
@@ -24,32 +35,50 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     private chunksEmitted: number = 0;
     private lastChunkAt?: number;
 
-    /** Index into ctx.timeline up to which artifacts have been synced */
-    private timelineIndexCursor = 0;
-
     /** Timing metrics */
     private startTime?: number;
     private endTime?: number;
+    private runCount = 0;
+    private restoredFromSnapshotAt?: number;
 
     constructor(
-        public input: TInput,
+        public readonly input: TInput,
         private streamingEnabled: boolean = false,
         private executor: (
             input: TInput,
             ctx: MultiModalExecutionContext,
             signal?: AbortSignal,
-            onChunk?: (chunk: JobChunk<TOutput>) => void
-        ) => Promise<TOutput>,
-        private hooks?: JobLifecycleHooks<TOutput>
+            onChunk?: (chunk: JobChunk<TOutput>, internalChunk?: AIResponseChunk<TOutput>) => void
+        ) => Promise<AIResponse<TOutput>>,
+        private hooks?: JobLifecycleHooks<TOutput>,
+        maxStoredResponseChunks?: number,
+        executionMetadata?: { capability?: CapabilityKeyType; providerChain?: ProviderRef[] }
     ) {
+        if (maxStoredResponseChunks !== undefined
+            && (!Number.isInteger(maxStoredResponseChunks) || maxStoredResponseChunks < 0)) {
+            throw new Error("GenericJob: maxStoredResponseChunks must be a non-negative integer");
+        }
+        this.maxStoredResponseChunks = maxStoredResponseChunks ?? 1000;
+        this.capability = executionMetadata?.capability;
+        this.providerChain = executionMetadata?.providerChain;
         this.completionPromise = new Promise<TOutput>((resolve, reject) => {
             this.resolveCompletion = resolve;
             this.rejectCompletion = reject;
         });
     }
 
+    get id() { return this._id; }
+    get output() { return this._output; }
+    get error() { return this._error; }
+
+    /** Internal diagnostic view of final orchestration response (read-only). */
+    get response(): AIResponse<TOutput> | undefined { return this._response; }
+
+    /** Internal diagnostic view of orchestration chunks (read-only snapshot copy). */
+    get responseChunks(): readonly AIResponseChunk<TOutput>[] { return this._responseChunks.slice(); }
+
     get status() { return this._status; }
-    set status(newStatus: JobStatus) {
+    private setStatus(newStatus: JobStatus) {
         this._status = newStatus;
         this.onStatusChange?.(newStatus);
     }
@@ -74,24 +103,32 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
      * @param onChunk Optional streaming callback (overrides existing onChunk)
      */
     async run(ctx: MultiModalExecutionContext, signal?: AbortSignal, onChunk?: (chunk: JobChunk<TOutput>) => void): Promise<void> {
-        if (this.status === "completed" || this.status === "error" || this.status === "aborted") {
-            // final states cannot rerun
+        if (this.status === "running") {
+            // Can only rerun a job if it's not currently running
             return;
         }
 
-        this.status = "running";
+        this.runCount++;
+        this.setStatus("running");
         this.startTime = Date.now();
-        this.hooks?.onStart?.();
 
         const chunkCallback = onChunk ?? this.onChunk;
 
         try {
-            const wrappedChunkCallback = (chunk: JobChunk<TOutput>) => {
-                this.syncArtifactsFromTimeline(ctx);
+            this.hooks?.onStart?.();
 
-                // Update streaming metadata
+            const wrappedChunkCallback = (chunk: JobChunk<TOutput>, internalChunk?: AIResponseChunk<TOutput>) => {
+                if (internalChunk) {
+                    this._responseChunks.push(internalChunk);
+                    if (this._responseChunks.length > this.maxStoredResponseChunks) {
+                        this._responseChunks.splice(0, this._responseChunks.length - this.maxStoredResponseChunks);
+                    }
+                    this.mergeArtifacts(internalChunk.multimodalArtifacts);
+                }
+
+                // Update streaming metadata based on public JobChunk emissions.
                 if (this.streamingEnabled) {
-                    if (!this.streamingStarted) this.streamingStarted = true;
+                    this.streamingStarted = true;
                     this.chunksEmitted++;
                     this.lastChunkAt = Date.now();
                     if (chunk.final) this.streamingCompleted = true;
@@ -102,29 +139,38 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
             };
 
             const response = await this.executor(this.input, ctx, signal, wrappedChunkCallback);
-            this.output = response;
-            this.syncArtifactsFromTimeline(ctx);
-            this.status = "completed";
+            this._response = response;
+            this._output = response.output;
+            this.mergeArtifacts(response.multimodalArtifacts);
+            this.setStatus("completed");
             this.endTime = Date.now();
-            this.hooks?.onComplete?.(response);
-            this.resolveCompletion(response);
+            this.hooks?.onComplete?.(response.output);
+            this.resolveCompletion(response.output);
         } catch (err: any) {
-            this.error = err;
-            this.status = signal?.aborted ? "aborted" : "error";
+            this._error = err;
+            this.setStatus(signal?.aborted ? "aborted" : "error");
             this.endTime = Date.now();
             this.hooks?.onError?.(err);
             this.rejectCompletion(err);
         }
     }
 
+
     toSnapshot(): JobSnapshot<TInput, TOutput> {
         return {
+            schemaVersion: 1,
             id: this.id,
+            capability: this.capability,
+            providerChain: this.providerChain,
             status: this.status,
             input: this.input,
             output: this.output,
-            error: this.error?.message,
+            error: this._error?.message,
             multimodalArtifacts: { ...this.artifacts },
+            startedAt: this.startTime,
+            endedAt: this.endTime,
+            runCount: this.runCount,
+            restoredFromSnapshotAt: this.restoredFromSnapshotAt,
             durationMs: this.durationMs,
             streaming: this.streamingEnabled
                 ? {
@@ -138,27 +184,129 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         };
     }
 
-    private syncArtifactsFromTimeline(ctx: MultiModalExecutionContext) {
-        const timeline = ctx.getTimeline();
+    reset() {
+        this._output = undefined;
+        this._error = undefined;
+        this._response = undefined;
+        this._responseChunks = [];
+        this.setStatus("pending");
+        this.artifacts = {};
+        this.artifactSeen.clear();
+        this.streamingStarted = false;
+        this.streamingCompleted = false;
+        this.chunksEmitted = 0;
+        this.lastChunkAt = undefined;
+        this.startTime = undefined;
+        this.endTime = undefined;
+        this.restoredFromSnapshotAt = undefined;
+        this.completionPromise = new Promise<TOutput>((resolve, reject) => {
+            this.resolveCompletion = resolve;
+            this.rejectCompletion = reject;
+        });        
+    }
 
-        for (let i = this.timelineIndexCursor; i < timeline.length; i++) {
-            const event = timeline[i];
-            const artifacts = event.artifacts;
-            if (!artifacts) continue;
+    /**
+     * Hydrate this job from a persisted snapshot.
+     * Internal response envelopes/chunks are intentionally not restored.
+     */
+    restoreFromSnapshot(snapshot: JobSnapshot<TInput, TOutput>) {
+        this._id = snapshot.id as any;
+        this._output = snapshot.output;
+        this._error = snapshot.error ? new Error(snapshot.error) : undefined;
+        this.setStatus(snapshot.status === "running" ? "interrupted" : snapshot.status);
 
-            for (const key of Object.keys(artifacts) as (keyof TimelineArtifacts)[]) {
-                const arr = artifacts[key];
-                if (!arr || arr.length === 0) continue;
+        this.artifacts = { ...(snapshot.multimodalArtifacts ?? {}) };
+        this.rebuildArtifactSeen();
+        this.startTime = snapshot.startedAt;
+        this.endTime = snapshot.endedAt;
+        this.runCount = snapshot.runCount ?? 0;
+        this.restoredFromSnapshotAt = Date.now();
 
-                if (!this.artifacts[key]) {
-                    this.artifacts[key] = [];
+        this.streamingEnabled = snapshot.streaming?.enabled ?? this.streamingEnabled;
+        this.streamingStarted = snapshot.streaming?.started ?? false;
+        this.chunksEmitted = snapshot.streaming?.chunksEmitted ?? 0;
+        this.streamingCompleted = snapshot.streaming?.completed ?? false;
+        this.lastChunkAt = snapshot.streaming?.lastChunkAt;
+
+        this._response = undefined;
+        this._responseChunks = [];
+    }
+
+    markAborted(reason?: Error) {
+        if (reason) {
+            this._error = reason;
+        }
+        this.setStatus("aborted");
+        if (!this.endTime) {
+            this.endTime = Date.now();
+        }
+    }
+
+    private mergeArtifacts(artifacts?: TimelineArtifacts) {
+        if (!artifacts) return;
+
+        for (const key of Object.keys(artifacts) as (keyof TimelineArtifacts)[]) {
+            const incoming = artifacts[key];
+            if (!incoming || incoming.length === 0) continue;
+
+            if (!this.artifacts[key]) {
+                this.artifacts[key] = [];
+            }
+
+            const target = this.artifacts[key] as unknown[];
+            for (const item of incoming) {
+                const fingerprint = this.getArtifactFingerprint(item);
+                if (!fingerprint) {
+                    target.push(item);
+                    continue;
                 }
 
-                (this.artifacts[key] as unknown[]).push(...arr);
+                let seen = this.artifactSeen.get(key);
+                if (!seen) {
+                    seen = new Set<string>();
+                    this.artifactSeen.set(key, seen);
+                }
+
+                if (seen.has(fingerprint)) {
+                    continue;
+                }
+
+                seen.add(fingerprint);
+                target.push(item);
             }
         }
+    }
 
-        this.timelineIndexCursor = timeline.length;
+    private rebuildArtifactSeen() {
+        this.artifactSeen.clear();
+
+        for (const key of Object.keys(this.artifacts) as (keyof TimelineArtifacts)[]) {
+            const arr = this.artifacts[key];
+            if (!arr || arr.length === 0) continue;
+
+            for (const item of arr) {
+                const fingerprint = this.getArtifactFingerprint(item);
+                if (!fingerprint) continue;
+
+                let seen = this.artifactSeen.get(key);
+                if (!seen) {
+                    seen = new Set<string>();
+                    this.artifactSeen.set(key, seen);
+                }
+                seen.add(fingerprint);
+            }
+        }
+    }
+
+    private getArtifactFingerprint(value: unknown): string | undefined {
+        if (!value || typeof value !== "object") return undefined;
+
+        const id = (value as { id?: unknown }).id;
+        if (typeof id === "string" && id.length > 0) {
+            return `id:${id}`;
+        }
+
+        return undefined;
     }
 
 

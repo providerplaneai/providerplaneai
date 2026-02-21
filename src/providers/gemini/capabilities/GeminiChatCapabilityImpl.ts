@@ -51,6 +51,7 @@ export class GeminiChatCapabilityImpl
 
         const text = response?.text ?? "";
         const id = response?.responseId ?? crypto.randomUUID();
+        const usage = this.extractUsage(response);
 
         const message: NormalizedChatMessage = {
             id,
@@ -69,7 +70,8 @@ export class GeminiChatCapabilityImpl
                 provider: AIProvider.Gemini,
                 model: merged.model,
                 status: "completed",
-                requestId: context?.requestId
+                requestId: context?.requestId,
+                ...usage
             }
         };
     }
@@ -92,6 +94,7 @@ export class GeminiChatCapabilityImpl
         let responseId: string | undefined;
         let accumulatedText = "";
         let buffer = "";
+        let latestUsage: ReturnType<GeminiChatCapabilityImpl["extractUsage"]> | undefined;
 
         try {
             const stream = await this.client.models.generateContentStream({
@@ -103,6 +106,7 @@ export class GeminiChatCapabilityImpl
 
             for await (const chunk of stream) {
                 if (signal?.aborted) return;
+                latestUsage = this.extractUsage(chunk);
 
                 const deltaText = chunk.text ?? "";
                 if (!deltaText) continue;
@@ -120,7 +124,10 @@ export class GeminiChatCapabilityImpl
                         responseId,
                         context,
                         merged.model,
-                        "incomplete"
+                        "incomplete",
+                        false,
+                        undefined,
+                        latestUsage
                     );
                     buffer = "";
                 }
@@ -134,7 +141,10 @@ export class GeminiChatCapabilityImpl
                     responseId,
                     context,
                     merged.model,
-                    "incomplete"
+                    "incomplete",
+                    false,
+                    undefined,
+                    latestUsage
                 );
             }
 
@@ -146,7 +156,9 @@ export class GeminiChatCapabilityImpl
                 context,
                 merged.model,
                 "completed",
-                true
+                true,
+                undefined,
+                latestUsage
             );
         } catch (err) {
             if (signal?.aborted) return;
@@ -159,7 +171,8 @@ export class GeminiChatCapabilityImpl
                 merged.model,
                 "error",
                 true,
-                err
+                err,
+                latestUsage
             );
         }
     }
@@ -176,7 +189,8 @@ export class GeminiChatCapabilityImpl
         model: string,
         status: "incomplete" | "completed" | "error",
         done: boolean = false,
-        error?: unknown
+        error?: unknown,
+        usage?: ReturnType<GeminiChatCapabilityImpl["extractUsage"]>
     ): AIResponseChunk<NormalizedChatMessage> {
         // Merge metadata from context + chunk info
         const messageMetadata = {
@@ -185,6 +199,7 @@ export class GeminiChatCapabilityImpl
             model,
             status,
             requestId: context?.requestId,
+            ...(usage ?? {}),
             ...(error ? { error } : {})
         };
 
@@ -208,6 +223,20 @@ export class GeminiChatCapabilityImpl
             done,
             id: responseId,
             metadata: messageMetadata
+        };
+    }
+
+    private extractUsage(response: any): {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+    } {
+        const usage = response?.usageMetadata;
+        if (!usage) return {};
+        return {
+            inputTokens: usage.promptTokenCount,
+            outputTokens: usage.candidatesTokenCount,
+            totalTokens: usage.totalTokenCount
         };
     }
 

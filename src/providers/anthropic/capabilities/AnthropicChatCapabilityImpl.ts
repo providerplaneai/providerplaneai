@@ -87,7 +87,8 @@ export class AnthropicChatCapabilityImpl implements
                 provider: AIProvider.Anthropic,
                 model: merged.model,
                 status: message.metadata?.status as string,
-                requestId: context?.requestId
+                requestId: context?.requestId,
+                ...this.extractUsage(response?.usage)
             }
         };
     }
@@ -175,9 +176,11 @@ export class AnthropicChatCapabilityImpl implements
             }
 
             let stopReason: Anthropic.Messages.StopReason | null = null;
+            let finalUsage: Anthropic.Messages.Usage | undefined;
             try {
                 const final = await stream.finalMessage();
                 stopReason = final?.stop_reason ?? null;
+                finalUsage = final?.usage;
             } catch {
                 /* ignored */
             }
@@ -189,7 +192,9 @@ export class AnthropicChatCapabilityImpl implements
                 context,
                 merged.model,
                 "completed",
-                true
+                true,
+                undefined,
+                finalUsage
             );
 
         } catch (err) {
@@ -208,7 +213,8 @@ export class AnthropicChatCapabilityImpl implements
         model: string,
         status: "incomplete" | "completed" | "error",
         done: boolean = false,
-        error?: unknown
+        error?: unknown,
+        usage?: Anthropic.Messages.Usage
     ): AIResponseChunk<NormalizedChatMessage> {
 
         // Merge metadata from context + chunk info
@@ -218,6 +224,7 @@ export class AnthropicChatCapabilityImpl implements
             model,
             status,
             requestId: context?.requestId,
+            ...this.extractUsage(usage),
             ...(error ? { error } : {})
         };
 
@@ -249,6 +256,22 @@ export class AnthropicChatCapabilityImpl implements
                 status,
                 requestId: context?.requestId
             }
+        };
+    }
+
+    private extractUsage(usage?: Anthropic.Messages.Usage): {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+    } {
+        if (!usage) return {};
+
+        const inputTokens = usage.input_tokens;
+        const outputTokens = usage.output_tokens;
+        return {
+            inputTokens,
+            outputTokens,
+            totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0)
         };
     }
 

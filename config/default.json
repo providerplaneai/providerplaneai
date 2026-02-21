@@ -1,7 +1,8 @@
 {
     "appConfig": {
+        "maxConcurrency": 100,
+        "maxStoredResponseChunks": 1000,        
         "executionPolicy": {
-            "maxConcurrentJobs": 100,
             "providerChain": [
                 {
                     "providerType": "openai",

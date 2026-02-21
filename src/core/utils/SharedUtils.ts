@@ -122,3 +122,10 @@ export function parseBestEffortJson<T = any>(text: string): T[] {
 
     return results;
 }
+
+export function validateNonNegativeInteger(value: unknown, fieldName: string) {
+    if (value === undefined) return;
+    if (!Number.isInteger(value) || (value as number) < 0) {
+        throw new Error(`Invalid appConfig.${fieldName}: expected a non-negative integer`);
+    }
+}

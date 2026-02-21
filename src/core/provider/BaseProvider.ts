@@ -1,10 +1,13 @@
 import { 
     AIProviderType, 
+    BuiltInCapabilityKey,
     CapabilityConfig, 
     CapabilityExecutor, 
     CapabilityKeyType, 
     CapabilityMap, 
     CapabilityUnsupportedError, 
+    CustomCapabilityKey,
+    ProviderCapability,
     ProviderConnectionConfig 
 } from "#root/index.js";
 
@@ -69,16 +72,23 @@ export abstract class BaseProvider {
         return this.capabilities;
     }
 
-    public getCapability<C extends CapabilityKeyType>(capability: C): CapabilityMap[C] {
-        if(this.capabilities[capability]) {
-            return this.capabilities[capability] as CapabilityMap[C];
+    private resolveCapability<C extends CapabilityKeyType>(capability: C): (C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability) {
+        const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
+        if (capabilities[capability]) {
+            return capabilities[capability] as (C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability);
         }
 
         if (this.executors?.has(capability)) {
-            return this.executors.get(capability) as CapabilityMap[C];
+            // Client-registered executors may be used for custom capabilities and are resolved
+            // through this fallback path by design.
+            return this.executors.get(capability) as unknown as (C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability);
         }
-        
+
         throw new CapabilityUnsupportedError(this.providerType, capability);
+    }
+
+    public getCapability<C extends CapabilityKeyType>(capability: C): C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability {
+        return this.resolveCapability(capability);
     }
 
     /**
@@ -89,8 +99,9 @@ export abstract class BaseProvider {
      * @param capability Capability symbol
      * @returns True if the capability is registered
      */
-    public hasCapability<C extends CapabilityKeyType>(capability: C): this is CapabilityMap[C] & this {
-        return !!this.capabilities[capability] || !!this.executors?.has(capability);
+    public hasCapability<C extends CapabilityKeyType>(capability: C): boolean {
+        const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
+        return !!capabilities[capability] || !!this.executors?.has(capability);
     }
 
     /**
@@ -101,8 +112,11 @@ export abstract class BaseProvider {
      * @param capability Capability symbol
      * @param impl Implementation of the capability
      */
-    protected registerCapability<C extends CapabilityKeyType>(capability: C, impl: CapabilityMap[C]) {
-        this.capabilities[capability] = impl;
+    protected registerCapability<C extends BuiltInCapabilityKey>(capability: C, impl: CapabilityMap[C]): void;
+    protected registerCapability(capability: CustomCapabilityKey, impl: ProviderCapability): void;
+    protected registerCapability(capability: CapabilityKeyType, impl: ProviderCapability) {
+        const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
+        capabilities[capability] = impl;
     }
 
     public setClientExecutors(executors: Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>) {

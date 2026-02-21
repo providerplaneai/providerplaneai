@@ -20,7 +20,6 @@ import {
     NormalizedImage,
     NormalizedImageAnalysis,
     NormalizedModeration,
-    ProviderCapability
 } from "#root/index.js";
 
 /**
@@ -32,18 +31,18 @@ export const CapabilityKeys = {
     ChatCapabilityKey: "chat",
     ChatStreamCapabilityKey: "chatStream",
     ImageGenerationCapabilityKey: "imageGeneration",
-    ImageGenerationStreamCapabilityKey: "imageGenerateStream",
+    ImageGenerationStreamCapabilityKey: "imageGenerationStream",
     ImageEditCapabilityKey: "imageEdit",
     ImageEditStreamCapabilityKey: "imageEditStream",
-    ImageAnalysisCapabilityKey: "imageAnalyze",
+    ImageAnalysisCapabilityKey: "imageAnalysis",
     ImageAnalysisStreamCapabilityKey: "imageAnalyzeStream",
     EmbedCapabilityKey: "embed",
     ModerationCapabilityKey: "moderation"
 } as const;
 
-//export type CapabilityKeyType = (typeof CapabilityKeys)[keyof typeof CapabilityKeys] | string;
-
-export type CapabilityKeyType = Extract<keyof CapabilityMap, string>;
+export type BuiltInCapabilityKey = (typeof CapabilityKeys)[keyof typeof CapabilityKeys];
+export type CustomCapabilityKey = string & {};
+export type CapabilityKeyType = BuiltInCapabilityKey | CustomCapabilityKey;
 
 /**
  * Mapping from capability keys to their interface implementations.
@@ -69,6 +68,4 @@ export interface CapabilityMap {
     >;
     [CapabilityKeys.ImageEditCapabilityKey]: ImageEditCapability<ClientImageEditRequest, NormalizedImage[]>;
     [CapabilityKeys.ImageEditStreamCapabilityKey]: ImageEditStreamCapability<ClientImageEditRequest, NormalizedImage[]>;
-    
-    [key: string]: ProviderCapability; // Allow for user defined capabilities
 }

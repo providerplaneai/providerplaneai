@@ -45,11 +45,11 @@ export interface JobLifecycleHooks<TOutput> {
 }
 
 export interface Job<TInput = any, TOutput = any> {
-    id: string;
-    input: TInput;
-    output?: TOutput;
-    status: JobStatus;
-    error?: Error;    
+    readonly id: string;
+    readonly input: TInput;
+    readonly output?: TOutput;
+    readonly status: JobStatus;
+    readonly error?: Error;    
 
     run(ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<void>;
 }

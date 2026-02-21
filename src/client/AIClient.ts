@@ -16,12 +16,6 @@ import {
     AIClientLifecycleHooks,
     AllProvidersFailedError,
     AnthropicProvider,
-    ClientChatRequest,
-    ClientEmbeddingRequest,
-    ClientImageAnalysisRequest,
-    ClientImageEditRequest,
-    ClientImageGenerationRequest,
-    ClientModerationRequest,
     DuplicateProviderRegistrationError,
     ExecutionPolicyError,
     GeminiProvider,
@@ -34,6 +28,9 @@ import {
     NormalizedChatMessage,
     NormalizedEmbedding,
     NormalizedUserInput,
+    TimelineArtifacts,
+    BuiltInCapabilityKey,
+    CustomCapabilityKey,
     CapabilityKeyType,
     GenericJob,
     JobManager,
@@ -53,7 +50,7 @@ import {
  * - Register, initialize, and route to AI providers
  * - Enforce capability availability and fail-fast error handling
  * - Manage session lifecycle and event timelines
- * - Provide a unified, provider-agnostic interface for all AI capabilities (chat, embeddings, moderation, image, etc.)
+ * - Provide job-first, provider-agnostic orchestration for all capabilities
  *
  * Design:
  * - No provider-specific logic or AI implementation details
@@ -84,10 +81,28 @@ export class AIClient {
 
     /** Optional lifecycle hooks for metrics and instrumentation */
     private lifeCycleHooks?: AIClientLifecycleHooks;
+    private _jobManager: JobManager;
 
-    constructor(private _jobManager = new JobManager(), executors?: CapabilityExecutorRegistry) {
+    constructor(jobManager?: JobManager, executors?: CapabilityExecutorRegistry) {
         const appConfig = loadAppConfig();
         this.appConfig = appConfig;
+        const configuredMaxConcurrency = appConfig.appConfig?.maxConcurrency;
+        const configuredMaxStoredResponseChunks = appConfig.appConfig?.maxStoredResponseChunks;
+
+        if (jobManager) {
+            if (jobManager.getMaxConcurrency() === undefined) {
+                jobManager.setMaxConcurrency(configuredMaxConcurrency);
+            }
+            if (jobManager.getMaxStoredResponseChunks() === undefined) {
+                jobManager.setMaxStoredResponseChunks(configuredMaxStoredResponseChunks);
+            }
+            this._jobManager = jobManager;
+        } else {
+            this._jobManager = new JobManager({
+                maxConcurrency: configuredMaxConcurrency,
+                maxStoredResponseChunks: configuredMaxStoredResponseChunks
+            });
+        }
 
         // Auto-register providers from the provider chain
         for (const provider of appConfig?.appConfig?.executionPolicy?.providerChain || []) {
@@ -154,7 +169,7 @@ export class AIClient {
 
     // overload — non-streaming
     public registerCapabilityExecutor<
-        C extends CapabilityKeyType,
+        C extends BuiltInCapabilityKey,
         TInput,
         TOutput
     >(
@@ -164,12 +179,17 @@ export class AIClient {
 
     // overload — streaming
     public registerCapabilityExecutor<
-        C extends CapabilityKeyType,
+        C extends BuiltInCapabilityKey,
         TInput,
         TOutput
     >(
         capability: C,
         executor: StreamingExecutor<C, TInput, TOutput>
+    ): void;
+
+    public registerCapabilityExecutor<TInput, TOutput>(
+        capability: CustomCapabilityKey,
+        executor: StreamingExecutor<any, TInput, TOutput> | NonStreamingExecutor<any, TInput, TOutput>
     ): void;
 
     public registerCapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput>(
@@ -241,14 +261,23 @@ export class AIClient {
         return result;
     }
 
+    /**
+     * Advanced access to the job manager.
+     * Most consumers should create jobs via createCapabilityJob(...) and execute via this manager.
+     */
     public get jobManager() {
         return this._jobManager;
     }
 
+    /**
+     * Primary execution API for consumers.
+     * Creates a capability job that can be queued, observed, persisted, and rerun.
+     */
     public createCapabilityJob<C extends CapabilityKeyType, TInput, TOutput>(
         capability: C,
         request: AIRequest<TInput>,
         options?: {
+            maxStoredResponseChunks?: number;
             providerChain?: ProviderRef[];
             addToManager?: boolean;
             lifecycleHooks?: JobLifecycleHooks<TOutput>;
@@ -258,52 +287,91 @@ export class AIClient {
         const executor = this.executors.get<C, TInput, TOutput>(capability);
 
         const streaming: boolean = executor?.streaming;
-
-        let finalResponse: TOutput | undefined;
+        const maxStoredResponseChunks = options?.maxStoredResponseChunks
+            ?? this._jobManager.getMaxStoredResponseChunks()
+            ?? this.appConfig.appConfig?.maxStoredResponseChunks;
 
         const job = new GenericJob<AIRequest<TInput>, TOutput>(
             request,
             streaming,
             async (input, ctx: MultiModalExecutionContext, signal, onChunk) => {
 
-                if (executor.streaming) {
+                if (executor.streaming === true) {
+                    let finalOutput: TOutput | undefined;
+                    let finalInternalChunk: AIResponseChunk<TOutput> | undefined;
+                    let latestChunkId: string | undefined;
+                    let latestChunkRaw: unknown;
+                    let mergedMetadata: AIResponse<TOutput>["metadata"] | undefined;
+                    const mergedArtifacts: TimelineArtifacts = {};
+
                     for await (const chunk of this.executeWithPolicyStream<C, TInput, TOutput>(
                         capability, input, ctx,
                         (provider, cctx, sig) => executor.invoke(provider.getCapability(capability), input, cctx, sig),
                         options?.providerChain
                     )) {
                         signal?.throwIfAborted();
-
+                        if (chunk.id) latestChunkId = chunk.id;
+                        if (chunk.raw !== undefined) latestChunkRaw = chunk.raw;
+                        if (chunk.metadata) {
+                            mergedMetadata = {
+                                ...(mergedMetadata ?? {}),
+                                ...chunk.metadata
+                            };
+                        }
                         if (chunk.multimodalArtifacts) {
-                            ctx.yieldArtifacts(chunk.multimodalArtifacts);
+                            this.mergeTimelineArtifacts(mergedArtifacts, chunk.multimodalArtifacts);
                         }
 
-                        if (chunk.delta && onChunk) {
-                            onChunk({ delta: chunk.delta });
+                        if (chunk.delta !== undefined && onChunk) {
+                            onChunk({ delta: chunk.delta }, chunk);
                         }
 
                         if (chunk.output !== undefined) {
-                            finalResponse = chunk.output;
+                            finalOutput = chunk.output;
+                            finalInternalChunk = chunk;
                         }
                     }
 
-                    if (finalResponse !== undefined && onChunk) {
-                        onChunk({ final: finalResponse });
+                    if (finalOutput !== undefined && onChunk) {
+                        onChunk(
+                            { final: finalOutput },
+                            finalInternalChunk ?? { output: finalOutput, done: true }
+                        );
                     }
+                    if (finalOutput === undefined) {
+                        throw new Error(`AIClient: capability '${capability}' stream completed without final output`);
+                    }
+                    const fallbackArtifacts = this.buildArtifactsFromOutput(capability, finalOutput);
+                    return {
+                        output: finalOutput,
+                        id: finalInternalChunk?.id ?? latestChunkId,
+                        rawResponse: finalInternalChunk?.raw ?? latestChunkRaw,
+                        multimodalArtifacts: Object.keys(mergedArtifacts).length ? mergedArtifacts : fallbackArtifacts,
+                        metadata: {
+                            ...(mergedMetadata ?? {}),
+                            ...(finalInternalChunk?.metadata ?? {})
+                        }
+                    };
                 } else {
-
                     const result = await this.executeWithPolicy<C, TInput, TOutput>(
                         capability, input, ctx,
-                        (provider, cctx, sig) => executor.invoke(provider.getCapability(capability), input, cctx, sig),
+                        (provider, cctx, sig) => executor.invoke(provider.getCapability(capability), input, cctx, sig),       
                         options?.providerChain
                     );
 
-                    finalResponse = result.output;
-                }
+                    if (result.multimodalArtifacts || result.output === undefined) {
+                        return result;
+                    }
 
-                return finalResponse;
+                    return {
+                        ...result,
+                        multimodalArtifacts: this.buildArtifactsFromOutput(capability, result.output)
+                    };
+                }
             },
-            options?.lifecycleHooks
+            options?.lifecycleHooks,
+            maxStoredResponseChunks,
+            { capability, providerChain: options?.providerChain }
         );
 
         if (options?.addToManager ?? true) {
@@ -325,7 +393,7 @@ export class AIClient {
      * @returns Result of the first successful provider call
      * @throws AllProvidersFailedError if all providers fail
      */
-    async executeWithPolicy<C extends CapabilityKeyType, TReq, TRes>(
+    private async executeWithPolicy<C extends CapabilityKeyType, TReq, TRes>(
         capability: C,
         request: AIRequest<TReq>,
         context: MultiModalExecutionContext,
@@ -345,6 +413,7 @@ export class AIClient {
         context.beginTurn(this.normalizeUserInput(capability, request));
 
         const errors: ProviderAttemptResult[] = [];
+        const attempts: ProviderAttemptResult[] = [];
 
         // Metrics hook: execution start
         this.lifeCycleHooks?.onExecutionStart?.(capability, chain);
@@ -378,19 +447,21 @@ export class AIClient {
                     throw result.error;
                 }
 
-                if (result.output) {
+                if (result.output !== undefined) {
                     this.applyOutputToContext(capability, result.output, context);
                 }
 
-
                 // Metrics hook: provider attempt success
-                this.lifeCycleHooks?.onAttemptSuccess?.({
+                const success: ProviderAttemptResult = {
                     ...attemptCtx,
-                    durationMs: Date.now() - startTime
-                });
+                    durationMs: Date.now() - startTime,
+                    ...this.extractAttemptUsage(result.metadata, result.rawResponse)
+                };
+                attempts.push(success);
+                this.lifeCycleHooks?.onAttemptSuccess?.(success);
                 this.lifeCycleHooks?.onExecutionEnd?.(capability, chain);
 
-                return result;
+                return this.withProviderAttemptsMetadata(result, attempts);
             } catch (err) {
                 const failure: ProviderAttemptResult = {
                     ...attemptCtx,
@@ -399,6 +470,7 @@ export class AIClient {
                 };
 
                 errors.push(failure);
+                attempts.push(failure);
                 // Metrics hook: provider attempt failed
                 this.lifeCycleHooks?.onAttemptFailure?.(failure);
             }
@@ -429,7 +501,7 @@ export class AIClient {
      * @returns AsyncGenerator yielding chunks from the first successful provider
      * @throws AllProvidersFailedError if all providers fail immediately
      */
-    async *executeWithPolicyStream<C extends CapabilityKeyType, TReq, TRes>(
+    private async *executeWithPolicyStream<C extends CapabilityKeyType, TReq, TRes>(
         capability: C,
         request: AIRequest<TReq>,
         context: MultiModalExecutionContext,
@@ -451,11 +523,15 @@ export class AIClient {
         context.beginTurn(this.normalizeUserInput(capability, request));
 
         const errors: ProviderAttemptResult[] = [];
+        const attempts: ProviderAttemptResult[] = [];
         this.lifeCycleHooks?.onExecutionStart?.(capability, chain);
 
         for (let i = 0; i < chain.length; i++) {
             const { providerType, connectionName } = chain[i];
             const startTime = Date.now();
+            let chunkIndex = 0;
+            let chunksEmitted = 0;
+            let pendingChunk: AIResponseChunk<TRes> | undefined;
 
             const attemptCtx: ProviderAttemptContext = {
                 capability,
@@ -475,8 +551,8 @@ export class AIClient {
 
                 const signal = this.createExecutionSignal(request);
 
-                let chunkIndex = 0;
                 let finalOutput: TRes | undefined;
+                let latestChunkMetadata: AIResponseChunk<TRes>["metadata"] | undefined;
                 for await (const chunk of withRequestContextStream(request, () => executeFn(provider, context, signal))) {
                     signal.throwIfAborted();
 
@@ -493,9 +569,52 @@ export class AIClient {
                     if (chunk.output !== undefined) {
                         finalOutput = chunk.output;
                     }
+                    if (chunk.metadata) {
+                        latestChunkMetadata = chunk.metadata;
+                    }
 
-                    yield chunk;
+                    if (pendingChunk) {
+                        yield pendingChunk;
+                        this.lifeCycleHooks?.onChunkEmitted?.({
+                            capability,
+                            providerType,
+                            connectionName,
+                            chunkIndex,
+                            chunkTimeMs: Date.now() - startTime
+                        });
+                        chunkIndex++;
+                        chunksEmitted++;
+                    }
 
+                    pendingChunk = chunk;
+                }
+
+                if (finalOutput !== undefined) {
+                    this.applyOutputToContext(capability, finalOutput, context);
+                }
+
+                const success: ProviderAttemptResult = {
+                    ...attemptCtx,
+                    durationMs: Date.now() - startTime,
+                    chunksEmitted: chunksEmitted + (pendingChunk ? 1 : 0),
+                    ...this.extractAttemptUsage(
+                        latestChunkMetadata ?? pendingChunk?.metadata,
+                        pendingChunk?.raw
+                    )
+                };
+                attempts.push(success);
+                this.lifeCycleHooks?.onAttemptSuccess?.(success);
+
+                if (pendingChunk) {
+                    const chunkWithAttempts: AIResponseChunk<TRes> = {
+                        ...pendingChunk,
+                        metadata: {
+                            ...(pendingChunk.metadata ?? {}),
+                            providerAttempts: attempts.map(a => ({ ...a }))
+                        }
+                    };
+
+                    yield chunkWithAttempts;
                     this.lifeCycleHooks?.onChunkEmitted?.({
                         capability,
                         providerType,
@@ -503,29 +622,35 @@ export class AIClient {
                         chunkIndex,
                         chunkTimeMs: Date.now() - startTime
                     });
-
-                    chunkIndex++;
                 }
-
-                if (finalOutput !== undefined) {
-                    this.applyOutputToContext(capability, finalOutput, context);
-                }
-
-                this.lifeCycleHooks?.onAttemptSuccess?.({
-                    ...attemptCtx,
-                    durationMs: Date.now() - startTime
-                });
 
                 this.lifeCycleHooks?.onExecutionEnd?.(capability, chain);
                 return;
             } catch (err) {
+                // Flush buffered chunk so successful partial output from this attempt isn't dropped.
+                if (pendingChunk) {
+                    yield pendingChunk;
+                    this.lifeCycleHooks?.onChunkEmitted?.({
+                        capability,
+                        providerType,
+                        connectionName,
+                        chunkIndex,
+                        chunkTimeMs: Date.now() - startTime
+                    });
+                    chunkIndex++;
+                    chunksEmitted++;
+                    pendingChunk = undefined;
+                }
+
                 const failure: ProviderAttemptResult = {
                     ...attemptCtx,
                     durationMs: Date.now() - startTime,
+                    chunksEmitted,
                     error: err instanceof Error ? err.message : String(err)
                 };
 
                 errors.push(failure);
+                attempts.push(failure);
                 this.lifeCycleHooks?.onAttemptFailure?.(failure);
             }
         }
@@ -536,7 +661,74 @@ export class AIClient {
         throw new AllProvidersFailedError(capability, chain, errors);
     }
 
-    private normalizeUserInput<T>(capability: keyof CapabilityMap, request: AIRequest<T>): NormalizedUserInput {
+    private withProviderAttemptsMetadata<TRes>(
+        result: AIResponse<TRes>,
+        attempts: ProviderAttemptResult[]
+    ): AIResponse<TRes> {
+        return {
+            ...result,
+            metadata: {
+                ...(result.metadata ?? {}),
+                providerAttempts: attempts.map(a => ({ ...a }))
+            }
+        };
+    }
+
+    private extractAttemptUsage(
+        metadata?: AIResponse<unknown>["metadata"] | AIResponseChunk<unknown>["metadata"],
+        raw?: unknown
+    ): Pick<ProviderAttemptResult, "inputTokens" | "outputTokens" | "totalTokens" | "estimatedCostUsd"> {
+        const m = metadata ?? {};
+        const usage = this.extractRawUsage(raw);
+
+        const inputTokens = this.readNumber(m, "inputTokens")
+            ?? this.readNumber(usage, "input_tokens")
+            ?? this.readNumber(usage, "prompt_tokens")
+            ?? this.readNumber(usage, "promptTokenCount");
+        const outputTokens = this.readNumber(m, "outputTokens")
+            ?? this.readNumber(usage, "output_tokens")
+            ?? this.readNumber(usage, "completion_tokens")
+            ?? this.readNumber(usage, "candidatesTokenCount");
+        const totalTokens = this.readNumber(m, "totalTokens")
+            ?? this.readNumber(m, "tokensUsed")
+            ?? this.readNumber(usage, "total_tokens")
+            ?? this.readNumber(usage, "totalTokenCount");
+        const estimatedCostUsd = this.readNumber(m, "estimatedCostUsd")
+            ?? this.readNumber(m, "costUsd");
+
+        return {
+            inputTokens,
+            outputTokens,
+            totalTokens,
+            estimatedCostUsd
+        };
+    }
+
+    private readNumber(source: Record<string, unknown>, key: string): number | undefined {
+        const value = source[key];
+        return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+    }
+
+    private extractRawUsage(raw: unknown): Record<string, unknown> {
+        if (!raw || typeof raw !== "object") {
+            return {};
+        }
+
+        const direct = raw as Record<string, unknown>;
+        const usage = direct["usage"];
+        if (usage && typeof usage === "object") {
+            return usage as Record<string, unknown>;
+        }
+
+        const usageMetadata = direct["usageMetadata"];
+        if (usageMetadata && typeof usageMetadata === "object") {
+            return usageMetadata as Record<string, unknown>;
+        }
+
+        return {};
+    }
+
+    private normalizeUserInput<T>(capability: CapabilityKeyType, request: AIRequest<T>): NormalizedUserInput {
         return {
             id: crypto.randomUUID(),
             modality: this.modalityForCapability(capability),
@@ -547,7 +739,7 @@ export class AIClient {
         };
     }
 
-    private modalityForCapability(capability: keyof CapabilityMap): NormalizedUserInput["modality"] {
+    private modalityForCapability(capability: CapabilityKeyType): NormalizedUserInput["modality"] {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey: return "chat";
@@ -565,35 +757,44 @@ export class AIClient {
     }
 
     private applyOutputToContext(
-        capability: keyof CapabilityMap,
+        capability: CapabilityKeyType,
         output: unknown,
         context: MultiModalExecutionContext
     ) {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey:
-                context.applyAssistantMessage(output as NormalizedChatMessage);
+                context.applyAssistantMessage(
+                    this.expectObject<NormalizedChatMessage>(capability, output, "chat output")
+                );
                 break;
 
             case CapabilityKeys.EmbedCapabilityKey:
-                context.attachArtifacts({ embeddings: [output as NormalizedEmbedding] });
+                context.attachArtifacts({
+                    embeddings: this.expectArray<NormalizedEmbedding>(capability, output, "embeddings output")
+                });
                 break;
 
             case CapabilityKeys.ModerationCapabilityKey:
-                context.attachArtifacts({ moderation: [output as NormalizedModeration] });
+                context.attachArtifacts({
+                    moderation: this.expectArray<NormalizedModeration>(capability, output, "moderation output")
+                });
                 break;
 
             case CapabilityKeys.ImageGenerationCapabilityKey:
             case CapabilityKeys.ImageGenerationStreamCapabilityKey:
             case CapabilityKeys.ImageEditCapabilityKey:
-                context.attachArtifacts({ images: output as NormalizedImage[] });
+                context.attachArtifacts({
+                    images: this.expectArray<NormalizedImage>(capability, output, "images output")
+                });
                 break;
 
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
-                context.attachArtifacts({ analysis: output as NormalizedImageAnalysis[] });
+                context.attachArtifacts({
+                    analysis: this.expectArray<NormalizedImageAnalysis>(capability, output, "analysis output")
+                });
                 break;
-            case CapabilityKeys.ImageGenerationStreamCapabilityKey:
             case CapabilityKeys.ImageEditStreamCapabilityKey:
                 // no-op, artifacts already attached
                 break;
@@ -639,284 +840,64 @@ export class AIClient {
         return controller.signal;
     }
 
+    private mergeTimelineArtifacts(target: TimelineArtifacts, next: TimelineArtifacts) {
+        for (const key of Object.keys(next) as (keyof TimelineArtifacts)[]) {
+            const incoming = next[key];
+            if (!incoming || incoming.length === 0) continue;
 
-    /**
-     * Basic chat interface
-     *
-     * @param request The AIRequest payload for chat
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AIResponse from the provider
-     */
-    async chat(
-        request: AIRequest<ClientChatRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): Promise<AIResponse<NormalizedChatMessage>> {
-        return this.executeWithPolicy<typeof CapabilityKeys.ChatCapabilityKey, ClientChatRequest, NormalizedChatMessage>(
-            CapabilityKeys.ChatCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ChatCapabilityKey).chat(request, ctx, signal)),
-            providerChain
-        );
+            if (!target[key]) {
+                target[key] = [];
+            }
+
+            (target[key] as unknown[]).push(...incoming);
+        }
     }
 
-    /**
-     * Streaming chat interface.
-     * Streaming is modeled as an AsyncGenerator
-     *
-     * The client does not transform or buffer chunks.
-     *
-     * @param request The AIRequest payload for chat
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AsyncGenerator yielding AIResponseChunk objects
-     */
-    async *chatStream(
-        request: AIRequest<ClientChatRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage>> {
-        yield* this.executeWithPolicyStream<typeof CapabilityKeys.ChatStreamCapabilityKey, ClientChatRequest, NormalizedChatMessage>(
-            CapabilityKeys.ChatStreamCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ChatStreamCapabilityKey).chatStream(request, ctx, signal)),
-            providerChain
-        );
+    private buildArtifactsFromOutput(
+        capability: CapabilityKeyType,
+        output: unknown
+    ): TimelineArtifacts | undefined {
+        switch (capability) {
+            case CapabilityKeys.ChatCapabilityKey:
+            case CapabilityKeys.ChatStreamCapabilityKey:
+                return { chat: [this.expectObject<NormalizedChatMessage>(capability, output, "chat output")] };
+            case CapabilityKeys.EmbedCapabilityKey:
+                return { embeddings: this.expectArray<NormalizedEmbedding>(capability, output, "embeddings output") };
+            case CapabilityKeys.ModerationCapabilityKey:
+                return { moderation: this.expectArray<NormalizedModeration>(capability, output, "moderation output") };
+            case CapabilityKeys.ImageGenerationCapabilityKey:
+            case CapabilityKeys.ImageGenerationStreamCapabilityKey:
+            case CapabilityKeys.ImageEditCapabilityKey:
+                return { images: this.expectArray<NormalizedImage>(capability, output, "images output") };
+            case CapabilityKeys.ImageAnalysisCapabilityKey:
+            case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
+                return { analysis: this.expectArray<NormalizedImageAnalysis>(capability, output, "analysis output") };
+            case CapabilityKeys.ImageEditStreamCapabilityKey:
+                return undefined;
+            default:
+                return undefined;
+        }
     }
 
-    /**
-     * Embedding generation interface.
-     *
-     * Embeddings are treated as a first-class capability rather than
-     * an optional chat feature to keep the capability model orthogonal.
-     *
-     * @param request The AIRequest payload for embedding generation
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AIResponse containing embeddings
-     */
-    async embeddings(
-        request: AIRequest<ClientEmbeddingRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): Promise<AIResponse<NormalizedEmbedding[]>> {
-        return this.executeWithPolicy<typeof CapabilityKeys.EmbedCapabilityKey, ClientEmbeddingRequest, NormalizedEmbedding[]>(
-            CapabilityKeys.EmbedCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.EmbedCapabilityKey).embed(request, ctx, signal)),
-            providerChain
-        );
+    private expectArray<T>(
+        capability: CapabilityKeyType,
+        value: unknown,
+        label: string
+    ): T[] {
+        if (!Array.isArray(value)) {
+            throw new Error(`AIClient: invalid ${label} for capability '${capability}' (expected array)`);
+        }
+        return value as T[];
     }
 
-    /**
-     * Moderation interface.
-     *
-     * Moderation is intentionally isolated as its own capability to allow:
-     * - Independent provider support
-     * - Future policy-driven routing
-     *
-     * @param request The AIRequest payload for moderation
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AIResponse containing moderation results
-     */
-    async moderation(
-        request: AIRequest<ClientModerationRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): Promise<AIResponse<NormalizedModeration[]>> {
-        return this.executeWithPolicy<
-            typeof CapabilityKeys.ModerationCapabilityKey,
-            ClientModerationRequest,
-            NormalizedModeration[]
-        >(
-            CapabilityKeys.ModerationCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ModerationCapabilityKey).moderation(request, ctx, signal)),
-            providerChain
-        );
+    private expectObject<T extends object>(
+        capability: CapabilityKeyType,
+        value: unknown,
+        label: string
+    ): T {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            throw new Error(`AIClient: invalid ${label} for capability '${capability}' (expected object)`);
+        }
+        return value as T;
     }
-
-    /**
-     * Image generation (non-streaming).
-     *
-     * @param request The AIRequest payload for image generation
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AIResponse containing generated image data
-     */
-    async generateImage(
-        request: AIRequest<ClientImageGenerationRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): Promise<AIResponse<NormalizedImage[]>> {
-        return this.executeWithPolicy<
-            typeof CapabilityKeys.ImageGenerationCapabilityKey,
-            ClientImageGenerationRequest,
-            NormalizedImage[]
-        >(
-            CapabilityKeys.ImageGenerationCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageGenerationCapabilityKey).generateImage(request, ctx, signal)),
-            providerChain
-        );
-    }
-
-    /**
-     * Streaming image generation interface.
-     *
-     * Included for API symmetry and future expansion, even though
-     * current provider support is limited.
-     *
-     * @param request The AIRequest payload for image generation
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AsyncGenerator yielding AIResponseChunk objects
-     * @throws Error if the provider does not support image generation streaming capability
-     */
-    async *generateImageStream(
-        request: AIRequest<ClientImageGenerationRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
-        yield* this.executeWithPolicyStream<
-            typeof CapabilityKeys.ImageGenerationStreamCapabilityKey,
-            ClientImageGenerationRequest,
-            NormalizedImage[]
-        >(
-            CapabilityKeys.ImageGenerationStreamCapabilityKey,
-            request,
-            context,
-            (provider, ctx) => (provider.getCapability(CapabilityKeys.ImageGenerationStreamCapabilityKey).generateImageStream(request, ctx)),
-            providerChain
-        );
-    }
-
-    /**
-     * Image analysis interface.
-     *
-     * @param request The AIRequest payload for image analysis
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AIResponse containing generated image data
-     */
-    async analyzeImage(
-        request: AIRequest<ClientImageAnalysisRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): Promise<AIResponse<NormalizedImageAnalysis[]>> {
-        return this.executeWithPolicy<
-            typeof CapabilityKeys.ImageAnalysisCapabilityKey,
-            ClientImageAnalysisRequest,
-            NormalizedImageAnalysis[]
-        >(
-            CapabilityKeys.ImageAnalysisCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageAnalysisCapabilityKey).analyzeImage(request, ctx, signal)),
-            providerChain
-        );
-    }
-
-    /**
-     * Streaming image analysis interface.
-     *
-     * Included for API symmetry and future expansion, even though
-     * current provider support is limited.
-     *
-     * @param request The AIRequest payload for image analysis
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AsyncGenerator yielding AIResponseChunk objects
-     */
-    async *analyzeImageStream(
-        request: AIRequest<ClientImageAnalysisRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>> {
-        yield* this.executeWithPolicyStream<
-            typeof CapabilityKeys.ImageAnalysisStreamCapabilityKey,
-            ClientImageAnalysisRequest,
-            NormalizedImageAnalysis[]
-        >(
-            CapabilityKeys.ImageAnalysisStreamCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageAnalysisStreamCapabilityKey).analyzeImageStream(request, ctx, signal)),
-            providerChain
-        );
-    }
-
-    /**
-     * Image editing (non-streaming).
-     *
-     * @param request The AIRequest payload for image editing
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AIResponse containing edited image data
-     */
-    async editImage(
-        request: AIRequest<ClientImageEditRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): Promise<AIResponse<NormalizedImage[]>> {
-        return this.executeWithPolicy<typeof CapabilityKeys.ImageEditCapabilityKey, ClientImageEditRequest, NormalizedImage[]>(
-            CapabilityKeys.ImageEditCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageEditCapabilityKey).editImage(request, ctx, signal)),
-            providerChain
-        );
-    }
-
-    /**
-     * Streaming image edit interface.
-     *
-     * @param request The AIRequest payload for image editing
-     * @param context MultiModalExecutionContext for tracking history and events
-     * @param providerChain Provider chain override
-     * @returns AsyncGenerator yielding AIResponseChunk objects
-     */
-    async *editImageStream(
-        request: AIRequest<ClientImageEditRequest>,
-        context: MultiModalExecutionContext,
-        providerChain?: ProviderRef[]
-    ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
-        yield* this.executeWithPolicyStream<
-            typeof CapabilityKeys.ImageEditStreamCapabilityKey,
-            ClientImageEditRequest,
-            NormalizedImage[]
-        >(
-            CapabilityKeys.ImageEditStreamCapabilityKey,
-            request,
-            context,
-            (provider, ctx, signal) => (provider.getCapability(CapabilityKeys.ImageEditStreamCapabilityKey).editImageStream(request, ctx, signal)),
-            providerChain
-        );
-    }
-    /*
-        async generateAudio(
-            request: AIRequest<ClientAudioRequest>,
-            context: MultiModalExecutionContext,
-            providerChain?: ProviderRef[]
-        ): Promise<AIResponse<NormalizedAudio[]>> { ... }
-    
-        async generateVideo(
-            request: AIRequest<ClientVideoRequest>,
-            context: MultiModalExecutionContext,
-            providerChain?: ProviderRef[]
-        ): Promise<AIResponse<NormalizedVideo[]>> { ... }
-    
-        async uploadFile(
-            request: AIRequest<ClientFileRequest>,
-            context: MultiModalExecutionContext,
-            providerChain?: ProviderRef[]
-        ): Promise<AIResponse<NormalizedFile[]>> { ... }*/
 }
-

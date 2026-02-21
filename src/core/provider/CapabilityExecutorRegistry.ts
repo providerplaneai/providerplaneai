@@ -2,17 +2,21 @@ import {
     AIRequest,
     AIResponse,
     AIResponseChunk,
-    BaseProvider,
+    BuiltInCapabilityKey,
     CapabilityKeys,
     CapabilityKeyType,
     CapabilityMap,
+    CustomCapabilityKey,
+    ProviderCapability,
     MultiModalExecutionContext
 } from "#root/index.js";
 
+type CapabilityFor<C extends CapabilityKeyType> = C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability;
+
 export interface StreamingExecutor<C extends CapabilityKeyType, TInput, TOutput> {
     streaming: true;
-        invoke(
-        capability: CapabilityMap[C],
+    invoke(
+        capability: CapabilityFor<C>,
         input: AIRequest<TInput>,
         ctx: MultiModalExecutionContext,
         signal?: AbortSignal
@@ -22,11 +26,11 @@ export interface StreamingExecutor<C extends CapabilityKeyType, TInput, TOutput>
 export interface NonStreamingExecutor<C extends CapabilityKeyType, TInput, TOutput> {
     streaming: false;
     invoke(
-        capability: CapabilityMap[C],
+        capability: CapabilityFor<C>,
         input: AIRequest<TInput>,
         ctx: MultiModalExecutionContext,
         signal?: AbortSignal
-    ):Promise<TOutput>
+    ): Promise<AIResponse<TOutput>>
 }
 
 export type CapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput> = 
@@ -35,9 +39,19 @@ export type CapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput> =
 export class CapabilityExecutorRegistry {
     private executors = new Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>();
 
-    register<C extends CapabilityKeyType, TInput = any, TOutput = any>(
+    register<C extends BuiltInCapabilityKey, TInput = any, TOutput = any>(
         key: C,
         executor: CapabilityExecutor<C, TInput, TOutput>
+    ): this;
+
+    register<TInput = any, TOutput = any>(
+        key: CustomCapabilityKey,
+        executor: CapabilityExecutor<any, TInput, TOutput>
+    ): this;
+
+    register(
+        key: CapabilityKeyType,
+        executor: CapabilityExecutor<any, any, any>
     ) {
         this.executors.set(key, executor);
         return this; // Allow chaining
@@ -55,9 +69,19 @@ export class CapabilityExecutorRegistry {
         return exec as CapabilityExecutor<C, TInput, TOutput>;
     }
 
-    set<C extends CapabilityKeyType, TInput = any, TOutput = any>(
+    set<C extends BuiltInCapabilityKey, TInput = any, TOutput = any>(
         key: C,
         executor: CapabilityExecutor<C, TInput, TOutput>
+    ): void;
+
+    set<TInput = any, TOutput = any>(
+        key: CustomCapabilityKey,
+        executor: CapabilityExecutor<any, TInput, TOutput>
+    ): void;
+
+    set(
+        key: CapabilityKeyType,
+        executor: CapabilityExecutor<any, any, any>
     ) {
         this.executors.set(key, executor);
     }

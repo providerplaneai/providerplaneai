@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import config from "config";
-import { AIProviderType, AppConfig, ProviderConnectionConfig } from "#root/index.js";
+import { AIProviderType, AppConfig, ProviderConnectionConfig, validateNonNegativeInteger } from "#root/index.js";
 
 /**
  * Loads and validates the application configuration, merging config files and environment variables.
@@ -28,6 +28,8 @@ export function loadAppConfig(): AppConfig {
     }
 
     const appConfig: Record<any, any> = parsed.appConfig || {};
+    validateNonNegativeInteger(appConfig.maxConcurrency, "maxConcurrency");
+    validateNonNegativeInteger(appConfig.maxStoredResponseChunks, "maxStoredResponseChunks");
     const resolvedProviders: Record<string, Record<string, ProviderConnectionConfig>> = {};
 
     // For each provider type in config
