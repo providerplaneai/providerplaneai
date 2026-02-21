@@ -1,14 +1,14 @@
-import { 
-    AIProviderType, 
+import {
+    AIProviderType,
     BuiltInCapabilityKey,
-    CapabilityConfig, 
-    CapabilityExecutor, 
-    CapabilityKeyType, 
-    CapabilityMap, 
-    CapabilityUnsupportedError, 
+    CapabilityConfig,
+    CapabilityExecutor,
+    CapabilityKeyType,
+    CapabilityMap,
+    CapabilityUnsupportedError,
     CustomCapabilityKey,
     ProviderCapability,
-    ProviderConnectionConfig 
+    ProviderConnectionConfig
 } from "#root/index.js";
 
 /**
@@ -72,22 +72,28 @@ export abstract class BaseProvider {
         return this.capabilities;
     }
 
-    private resolveCapability<C extends CapabilityKeyType>(capability: C): (C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability) {
+    private resolveCapability<C extends CapabilityKeyType>(
+        capability: C
+    ): C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability {
         const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
         if (capabilities[capability]) {
-            return capabilities[capability] as (C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability);
+            return capabilities[capability] as C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability;
         }
 
         if (this.executors?.has(capability)) {
             // Client-registered executors may be used for custom capabilities and are resolved
             // through this fallback path by design.
-            return this.executors.get(capability) as unknown as (C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability);
+            return this.executors.get(capability) as unknown as C extends keyof CapabilityMap
+                ? CapabilityMap[C]
+                : ProviderCapability;
         }
 
         throw new CapabilityUnsupportedError(this.providerType, capability);
     }
 
-    public getCapability<C extends CapabilityKeyType>(capability: C): C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability {
+    public getCapability<C extends CapabilityKeyType>(
+        capability: C
+    ): C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability {
         return this.resolveCapability(capability);
     }
 

@@ -22,7 +22,7 @@ export type TimelineEventType =
 export interface TimelineEventBase {
     id: string; // Unique UUID for this event
     type: TimelineEventType;
-    timestamp: number; // Unix timestamp    
+    timestamp: number; // Unix timestamp
     artifacts: TimelineArtifacts;
     /**
      * Optional, inert execution metadata
@@ -72,12 +72,7 @@ export interface SystemEvent extends TimelineEventBase {
     /**
      * Machine-readable system action
      */
-    action:
-        | "attachArtifacts"
-        | "providerFallback"
-        | "streamChunk"
-        | "debug"
-        | "internal";
+    action: "attachArtifacts" | "providerFallback" | "streamChunk" | "debug" | "internal";
 
     /**
      * Optional human-readable description

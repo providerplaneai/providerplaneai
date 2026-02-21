@@ -14,12 +14,12 @@ import {
     ImageEditStreamCapability,
     ImageGenerationCapability,
     ImageGenerationStreamCapability,
-    ModerationCapability,    
+    ModerationCapability,
     NormalizedChatMessage,
     NormalizedEmbedding,
     NormalizedImage,
     NormalizedImageAnalysis,
-    NormalizedModeration,
+    NormalizedModeration
 } from "#root/index.js";
 
 /**

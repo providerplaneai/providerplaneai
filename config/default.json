@@ -1,7 +1,12 @@
 {
     "appConfig": {
-        "maxConcurrency": 100,
-        "maxStoredResponseChunks": 1000,        
+        "maxConcurrency": 128,
+        "maxQueueSize": 1024,
+        "maxRemoteImageBytes": 10485760,
+        "maxStoredResponseChunks": 1024,
+        "storeRawResponses": true,
+        "maxRawBytesPerJob": 1048576,
+        "remoteImageFetchTimeoutMs": 16384,
         "executionPolicy": {
             "providerChain": [
                 {

@@ -36,7 +36,7 @@ export class MultiModalExecutionContext {
     /**
      * Begin a new logical turn with a canonical user input.
      * Input can be a chat message, image request, or any other request type.
-     * 
+     *
      * @param input - The user input for this turn
      */
     beginTurn(input: NormalizedUserInput): void {
@@ -51,7 +51,7 @@ export class MultiModalExecutionContext {
         this.timeline.push(event);
     }
 
-    /** 
+    /**
      * Apply final assistant output
      * Chat is the only modality that produces a canonical "assistantMessage".
      */
@@ -84,10 +84,7 @@ export class MultiModalExecutionContext {
      * Intended for internal orchestration use only.
      */
     attachArtifactsFromResponse<T>(response: AIResponse<T>, artifacts?: Partial<TimelineArtifacts>): void {
-        const baseWithResponseArtifacts = this.mergeArtifacts(
-            this.createEmptyArtifacts(),
-            response.multimodalArtifacts
-        );
+        const baseWithResponseArtifacts = this.mergeArtifacts(this.createEmptyArtifacts(), response.multimodalArtifacts);
 
         const event: SystemEvent = {
             id: crypto.randomUUID(),
@@ -106,17 +103,16 @@ export class MultiModalExecutionContext {
      * Chunks are forwarded but NOT persisted as AIResponses.
      */
     yieldArtifacts(artifacts?: Partial<TimelineArtifacts>): void {
-        if (!artifacts) return;
+        if (!artifacts) {
+            return;
+        }
 
         const event: SystemEvent = {
             id: crypto.randomUUID(),
             type: "systemEvent",
             timestamp: Date.now(),
             action: "streamChunk",
-            artifacts: this.mergeArtifacts(
-                this.createEmptyArtifacts(),
-                artifacts
-            )
+            artifacts: this.mergeArtifacts(this.createEmptyArtifacts(), artifacts)
         };
 
         this.timeline.push(event);
@@ -136,7 +132,7 @@ export class MultiModalExecutionContext {
     private mergeArtifacts(base: TimelineArtifacts, addition?: Partial<TimelineArtifacts>): TimelineArtifacts {
         addition = addition ?? {};
 
-        const safeArray = <T>(v?: T[]): T[] => Array.isArray(v) ? v : [];
+        const safeArray = <T>(v?: T[]): T[] => (Array.isArray(v) ? v : []);
 
         return {
             chat: [...safeArray(base.chat), ...safeArray(addition.chat)],
@@ -152,7 +148,6 @@ export class MultiModalExecutionContext {
         };
     }
 
-
     /** Create an empty TimelineArtifacts object */
     private createEmptyArtifacts(): TimelineArtifacts {
         return {
@@ -165,7 +160,7 @@ export class MultiModalExecutionContext {
             audio: [],
             video: [],
             files: [],
-            custom: [],
+            custom: []
         };
     }
 
@@ -181,54 +176,50 @@ export class MultiModalExecutionContext {
     }
 
     getLatestChat(): NormalizedChatMessage[] {
-        return this.findLatest(e => e.artifacts.chat) ?? [];
+        return this.findLatest((e) => e.artifacts.chat) ?? [];
     }
 
     getLatestImages(): NormalizedImage[] {
-        return this.findLatest(e => e.artifacts.images) ?? [];
+        return this.findLatest((e) => e.artifacts.images) ?? [];
     }
 
     getLatestMasks(): NormalizedMask[] {
-        return this.findLatest(e => e.artifacts.masks) ?? [];
+        return this.findLatest((e) => e.artifacts.masks) ?? [];
     }
 
     getLatestAnalysis(): NormalizedImageAnalysis[] {
-        return this.findLatest(e => e.artifacts.analysis) ?? [];
+        return this.findLatest((e) => e.artifacts.analysis) ?? [];
     }
 
     getLatestEmbeddings(): NormalizedEmbedding[] {
-        return this.findLatest(e => e.artifacts.embeddings) ?? [];
+        return this.findLatest((e) => e.artifacts.embeddings) ?? [];
     }
 
     getLatestModeration(): NormalizedModeration[] {
-        return this.findLatest(e => e.artifacts.moderation) ?? [];
+        return this.findLatest((e) => e.artifacts.moderation) ?? [];
     }
 
     getLatestAudio(): NormalizedAudio[] {
-        return this.findLatest(e => e.artifacts.audio) ?? [];
+        return this.findLatest((e) => e.artifacts.audio) ?? [];
     }
 
     getLatestVideo(): NormalizedVideo[] {
-        return this.findLatest(e => e.artifacts.video) ?? [];
+        return this.findLatest((e) => e.artifacts.video) ?? [];
     }
 
     getLatestFile(): NormalizedFile[] {
-        return this.findLatest(e => e.artifacts.files) ?? [];
+        return this.findLatest((e) => e.artifacts.files) ?? [];
     }
 
     /** Helper to get latest ImageGenerationEvent specifically */
     getLatestImageGeneration(): ImageGenerationEvent | undefined {
-        return this.findLatest(
-            (e): ImageGenerationEvent | undefined =>
-                e.type === "imageGeneration" ? (e as ImageGenerationEvent) : undefined
+        return this.findLatest((e): ImageGenerationEvent | undefined =>
+            e.type === "imageGeneration" ? (e as ImageGenerationEvent) : undefined
         );
     }
 
     /** Helper to get latest ImageEditEvent specifically */
     getLatestImageEdit(): ImageEditEvent | undefined {
-        return this.findLatest(
-            (e): ImageEditEvent | undefined =>
-                e.type === "imageEdit" ? (e as ImageEditEvent) : undefined
-        );
+        return this.findLatest((e): ImageEditEvent | undefined => (e.type === "imageEdit" ? (e as ImageEditEvent) : undefined));
     }
 }

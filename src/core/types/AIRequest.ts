@@ -15,7 +15,7 @@ export interface AIRequest<TInput = unknown> {
     timeoutMs?: number;
 
     /** Optional cancellation signal */
-    signal?: AbortSignal;    
+    signal?: AbortSignal;
 
     /**
      * Optional provider-specific configuration overrides.

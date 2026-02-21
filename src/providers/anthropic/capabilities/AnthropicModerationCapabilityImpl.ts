@@ -131,63 +131,60 @@ export class AnthropicModerationCapabilityImpl implements ModerationCapability<
 
         // Execute one Claude call per input (Anthropic limitation)
         const responses = await Promise.all(
-            inputs.map(content =>
-                this.client.messages.create({
-                    model: merged.model ?? "claude-sonnet-4-20250514",
-                    max_tokens: merged.modelParams?.max_tokens ?? 512,
-                    messages: [
-                        {
-                            role: "user",
-                            content: MODERATION_PROMPT.replace("{{CONTENT}}", content)
-                        }
-                    ],
-                    ...(merged.modelParams ?? {}),
-                    ...(merged.providerParams ?? {})
-                }, { signal })
+            inputs.map((content) =>
+                this.client.messages.create(
+                    {
+                        model: merged.model ?? "claude-sonnet-4-20250514",
+                        max_tokens: merged.modelParams?.max_tokens ?? 512,
+                        messages: [
+                            {
+                                role: "user",
+                                content: MODERATION_PROMPT.replace("{{CONTENT}}", content)
+                            }
+                        ],
+                        ...(merged.modelParams ?? {}),
+                        ...(merged.providerParams ?? {})
+                    },
+                    { signal }
+                )
             )
         );
 
-        const normalized: NormalizedModeration[] =
-            responses.map((response, index) => {
-                const textBlock = response.content.find(b => b.type === "text");
-                if (!textBlock || textBlock.type !== "text") {
-                    throw new Error("Anthropic moderation returned no text");
+        const normalized: NormalizedModeration[] = responses.map((response, index) => {
+            const textBlock = response.content.find((b) => b.type === "text");
+            if (!textBlock || textBlock.type !== "text") {
+                throw new Error("Anthropic moderation returned no text");
+            }
+
+            const parsed: AnthropicModerationResult = JSON.parse(
+                textBlock.text
+                    .replace(/```json\n?/g, "")
+                    .replace(/```\n?/g, "")
+                    .trim()
+            );
+
+            const categoryScores = Object.fromEntries(Object.entries(parsed.categories).map(([k, v]) => [k, v ? 1.0 : 0.0]));
+
+            return {
+                id: crypto.randomUUID(),
+                flagged: parsed.flagged,
+                categories: parsed.categories,
+                categoryScores,
+                reason: parsed.explanation || undefined,
+                metadata: {
+                    provider: AIProvider.Anthropic,
+                    model: merged.model,
+                    inputIndex: index,
+                    requestId: context?.requestId
                 }
-
-                const parsed: AnthropicModerationResult = JSON.parse(
-                    textBlock.text
-                        .replace(/```json\n?/g, "")
-                        .replace(/```\n?/g, "")
-                        .trim()
-                );
-
-                const categoryScores = Object.fromEntries(
-                    Object.entries(parsed.categories).map(([k, v]) => [
-                        k,
-                        v ? 1.0 : 0.0
-                    ])
-                );
-
-                return {
-                    id: crypto.randomUUID(),
-                    flagged: parsed.flagged,
-                    categories: parsed.categories,
-                    categoryScores,
-                    reason: parsed.explanation || undefined,
-                    metadata: {
-                        provider: AIProvider.Anthropic,
-                        model: merged.model,
-                        inputIndex: index,
-                        requestId: context?.requestId
-                    }
-                };
-            });
+            };
+        });
 
         const totalTokens = responses.reduce((sum, r) => {
-            if (!r.usage) return sum;
-            return sum +
-                (r.usage.input_tokens ?? 0) +
-                (r.usage.output_tokens ?? 0);
+            if (!r.usage) {
+                return sum;
+            }
+            return sum + (r.usage.input_tokens ?? 0) + (r.usage.output_tokens ?? 0);
         }, 0);
 
         // Return a fully normalized response

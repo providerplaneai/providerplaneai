@@ -33,7 +33,7 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
-    ) { }
+    ) {}
 
     /**
      * Generates embeddings for one or more input strings.
@@ -93,9 +93,7 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
         }
 
         if (response.embeddings.length !== inputs.length) {
-            throw new Error(
-                `Gemini returned ${response.embeddings.length} embeddings for ${inputs.length} inputs`
-            );
+            throw new Error(`Gemini returned ${response.embeddings.length} embeddings for ${inputs.length} inputs`);
         }
 
         const normalized: NormalizedEmbedding[] = response.embeddings.map((e, idx) => {
@@ -117,7 +115,6 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
                 }
             };
         });
-
 
         return {
             output: normalized,

@@ -17,7 +17,11 @@ export interface ChatCapability<TChatInput = unknown, TChatOutput = unknown> ext
      * @param signal Optional abort signal
      * @returns AIResponse wrapping the assistant's reply
      */
-    chat(request: AIRequest<TChatInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<AIResponse<TChatOutput>>;
+    chat(
+        request: AIRequest<TChatInput>,
+        ctx: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<TChatOutput>>;
 }
 
 /**
@@ -38,5 +42,9 @@ export interface ChatStreamCapability<TChatInput = unknown, TChatOutput = unknow
      * @param signal Optional abort signal
      * @returns AsyncGenerator yielding AIResponseChunk objects
      */
-    chatStream(request: AIRequest<TChatInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): AsyncGenerator<AIResponseChunk<TChatOutput>>;
+    chatStream(
+        request: AIRequest<TChatInput>,
+        ctx: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<TChatOutput>>;
 }

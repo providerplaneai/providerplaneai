@@ -10,7 +10,6 @@ import { NormalizedArtifactBase } from "#root/index.js";
  * - Tool-generated artifacts
  */
 export interface NormalizedFile extends NormalizedArtifactBase {
-
     /** Original filename if provided */
     filename?: string;
 

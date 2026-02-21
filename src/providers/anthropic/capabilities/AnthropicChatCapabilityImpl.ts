@@ -22,10 +22,11 @@ import {
  * - NormalizedChatMessage output
  * - Streaming delta + accumulated output
  */
-export class AnthropicChatCapabilityImpl implements
-    ChatCapability<ClientChatRequest, NormalizedChatMessage>,
-    ChatStreamCapability<ClientChatRequest, NormalizedChatMessage> {
-
+export class AnthropicChatCapabilityImpl
+    implements
+        ChatCapability<ClientChatRequest, NormalizedChatMessage>,
+        ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
+{
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: Anthropic
@@ -40,7 +41,6 @@ export class AnthropicChatCapabilityImpl implements
         _executionContext?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedChatMessage>> {
-
         this.provider.ensureInitialized();
 
         if (signal?.aborted) {
@@ -53,18 +53,18 @@ export class AnthropicChatCapabilityImpl implements
             throw new Error("Received empty input messages");
         }
 
-        const merged = this.provider.getMergedOptions(
-            CapabilityKeys.ChatCapabilityKey,
-            options
-        );
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ChatCapabilityKey, options);
 
-        const response = await this.client.messages.create({
-            model: merged.model,
-            max_tokens: merged.modelParams?.max_tokens ?? 1024,
-            messages: this.buildMessages(input.messages),
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
-        }, { signal });
+        const response = await this.client.messages.create(
+            {
+                model: merged.model,
+                max_tokens: merged.modelParams?.max_tokens ?? 1024,
+                messages: this.buildMessages(input.messages),
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            },
+            { signal }
+        );
 
         const text = this.extractText(response);
 
@@ -102,7 +102,6 @@ export class AnthropicChatCapabilityImpl implements
         _executionContext?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage>> {
-
         this.provider.ensureInitialized();
 
         const { input, options, context } = request;
@@ -111,27 +110,25 @@ export class AnthropicChatCapabilityImpl implements
             throw new Error("Received empty input messages");
         }
 
-        const merged = this.provider.getMergedOptions(
-            CapabilityKeys.ChatStreamCapabilityKey,
-            options
-        );
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ChatStreamCapabilityKey, options);
 
-        const batchSize = Number(
-            merged?.generalParams?.chatStreamBatchSize ?? 64
-        );
+        const batchSize = Number(merged?.generalParams?.chatStreamBatchSize ?? 64);
 
         let responseId: string | undefined;
         let accumulatedText = "";
         let buffer = "";
 
         try {
-            const stream = this.client.messages.stream({
-                model: merged.model,
-                max_tokens: merged.modelParams?.max_tokens ?? 1024,
-                messages: this.buildMessages(input.messages),
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            }, { signal });
+            const stream = this.client.messages.stream(
+                {
+                    model: merged.model,
+                    max_tokens: merged.modelParams?.max_tokens ?? 1024,
+                    messages: this.buildMessages(input.messages),
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
+                },
+                { signal }
+            );
 
             for await (const event of stream) {
                 if (signal?.aborted) {
@@ -142,37 +139,20 @@ export class AnthropicChatCapabilityImpl implements
                     responseId ??= event.message?.id;
                 }
 
-                if (
-                    event.type === "content_block_delta" &&
-                    event.delta?.type === "text_delta"
-                ) {
+                if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
                     const text = event.delta.text;
                     accumulatedText += text;
                     buffer += text;
 
                     if (buffer.length >= batchSize) {
-                        yield this.createChunk(
-                            buffer,
-                            accumulatedText,
-                            responseId,
-                            context,
-                            merged.model,
-                            "incomplete"
-                        );
+                        yield this.createChunk(buffer, accumulatedText, responseId, context, merged.model, "incomplete");
                         buffer = "";
                     }
                 }
             }
 
             if (buffer.length > 0) {
-                yield this.createChunk(
-                    buffer,
-                    accumulatedText,
-                    responseId,
-                    context,
-                    merged.model,
-                    "incomplete"
-                );
+                yield this.createChunk(buffer, accumulatedText, responseId, context, merged.model, "incomplete");
             }
 
             let stopReason: Anthropic.Messages.StopReason | null = null;
@@ -184,7 +164,7 @@ export class AnthropicChatCapabilityImpl implements
             } catch {
                 /* ignored */
             }
-            
+
             yield this.createChunk(
                 "",
                 accumulatedText,
@@ -196,7 +176,6 @@ export class AnthropicChatCapabilityImpl implements
                 undefined,
                 finalUsage
             );
-
         } catch (err) {
             // Abort is NOT an error — do not emit a terminal chunk
             if (signal?.aborted || (err instanceof Error && err.message === "Stream aborted")) {
@@ -216,7 +195,6 @@ export class AnthropicChatCapabilityImpl implements
         error?: unknown,
         usage?: Anthropic.Messages.Usage
     ): AIResponseChunk<NormalizedChatMessage> {
-
         // Merge metadata from context + chunk info
         const messageMetadata = {
             ...(context?.metadata ?? {}),
@@ -238,9 +216,7 @@ export class AnthropicChatCapabilityImpl implements
         const output: NormalizedChatMessage = {
             id: responseId ?? crypto.randomUUID(),
             role: "assistant",
-            content: accumulatedText
-                ? [{ type: "text", text: accumulatedText }]
-                : [],
+            content: accumulatedText ? [{ type: "text", text: accumulatedText }] : [],
             metadata: messageMetadata
         };
 
@@ -264,7 +240,9 @@ export class AnthropicChatCapabilityImpl implements
         outputTokens?: number;
         totalTokens?: number;
     } {
-        if (!usage) return {};
+        if (!usage) {
+            return {};
+        }
 
         const inputTokens = usage.input_tokens;
         const outputTokens = usage.output_tokens;
@@ -283,26 +261,22 @@ export class AnthropicChatCapabilityImpl implements
     }
 
     private buildMessages(messages: ClientChatMessage[]): any[] {
-        return messages.map(m => ({
+        return messages.map((m) => ({
             role: m.role,
             content: this.mapParts(m.content)
         }));
     }
 
     private mapParts(parts: ClientMessagePart[]): any[] {
-        return parts.map(part => {
+        return parts.map((part) => {
             if (part.type !== "text") {
-                throw new Error(
-                    `Anthropic chat only supports text parts (got ${part.type})`
-                );
+                throw new Error(`Anthropic chat only supports text parts (got ${part.type})`);
             }
             return { type: "text", text: part.text };
         });
     }
 
-    private normalizeAnthropicStatus(
-        stopReason: Anthropic.Messages.StopReason | null | undefined
-    ): "completed" | "incomplete" {
+    private normalizeAnthropicStatus(stopReason: Anthropic.Messages.StopReason | null | undefined): "completed" | "incomplete" {
         switch (stopReason) {
             case "max_tokens":
             case "pause_turn":

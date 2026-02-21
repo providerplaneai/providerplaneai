@@ -98,7 +98,7 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
 
         if (signal?.aborted) {
             throw new Error("Request aborted");
-        }        
+        }
 
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.EmbedCapabilityKey, options);
@@ -160,7 +160,7 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
                 requestId: context?.requestId,
                 embeddingProvider: "voyage-ai"
             }
-        }));        
+        }));
 
         // Return a fully normalized response
         return {
@@ -173,7 +173,7 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
                 status: "completed",
                 tokensUsed: voyageResponse.usage?.total_tokens,
                 requestId: context?.requestId,
-                embeddingProvider: "voyage-ai", // Track that we used Voyage AI
+                embeddingProvider: "voyage-ai" // Track that we used Voyage AI
             }
         };
     }

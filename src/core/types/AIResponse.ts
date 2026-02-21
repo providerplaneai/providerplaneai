@@ -17,7 +17,7 @@ export interface AIResponse<TOutput = unknown> {
 
     /** Multimodal artifacts generated from provider call that should be stored in session */
     multimodalArtifacts?: TimelineArtifacts;
-    
+
     /**
      * Metadata about the request/response.
      * May include model used, provider, request ID, timing, and token usage.

@@ -25,14 +25,13 @@ import {
  * - Automatic and manual masks
  * - Normalized outputs for images and masks
  */
-export class OpenAIImageEditCapabilityImpl implements
-    ImageEditCapability<ClientImageEditRequest>,
-    ImageEditStreamCapability<ClientImageEditRequest> {
-
+export class OpenAIImageEditCapabilityImpl
+    implements ImageEditCapability<ClientImageEditRequest>, ImageEditStreamCapability<ClientImageEditRequest>
+{
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
-    ) { }
+    ) {}
 
     /**
      * Non-streaming image edit.
@@ -50,27 +49,34 @@ export class OpenAIImageEditCapabilityImpl implements
         this.provider.ensureInitialized();
 
         const { input, options, context } = request;
-        if (!input?.prompt) throw new Error("Edit prompt is required for image editing");
-        if (signal?.aborted) throw new Error("Image editing aborted before request started");
+        if (!input?.prompt) {
+            throw new Error("Edit prompt is required for image editing");
+        }
+        if (signal?.aborted) {
+            throw new Error("Image editing aborted before request started");
+        }
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageEditCapabilityKey, options);
         const { content, masks: rawMasks } = await this.prepareEditContent(input, executionContext);
 
-        const response = await this.client.responses.create({
-            model: merged.model ?? "gpt-4.1",
-            input: [{ role: "user", content }],
-            tools: [
-                {
-                    type: "image_generation",
-                    size: input.params?.size,
-                    quality: input.params?.quality,
-                    style: input.params?.style,
-                    background: input.params?.background
-                }
-            ],
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
-        }, { signal });
+        const response = await this.client.responses.create(
+            {
+                model: merged.model ?? "gpt-4.1",
+                input: [{ role: "user", content }],
+                tools: [
+                    {
+                        type: "image_generation",
+                        size: input.params?.size,
+                        quality: input.params?.quality,
+                        style: input.params?.style,
+                        background: input.params?.background
+                    }
+                ],
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            },
+            { signal }
+        );
 
         let imageIndex = 0;
         const images: NormalizedImage[] = [];
@@ -112,7 +118,9 @@ export class OpenAIImageEditCapabilityImpl implements
         this.provider.ensureInitialized();
 
         const { input, options, context } = request;
-        if (!input?.prompt) throw new Error("Edit prompt is required for image editing");
+        if (!input?.prompt) {
+            throw new Error("Edit prompt is required for image editing");
+        }
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageEditCapabilityKey, options);
         let responseId: string | undefined;
@@ -123,42 +131,53 @@ export class OpenAIImageEditCapabilityImpl implements
             const { content, masks: rawMasks } = await this.prepareEditContent(input, executionContext);
             const masks = this.normalizeEditedMasks(rawMasks);
 
-            const stream = this.client.responses.stream({
-                model: merged.model ?? "gpt-4.1",
-                input: [{ role: "user", content }],
-                tools: [
-                    {
-                        type: "image_generation",
-                        size: input.params?.size,
-                        quality: input.params?.quality,
-                        style: input.params?.style,
-                        background: input.params?.background
-                    }
-                ],
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            }, { signal });
+            const stream = this.client.responses.stream(
+                {
+                    model: merged.model ?? "gpt-4.1",
+                    input: [{ role: "user", content }],
+                    tools: [
+                        {
+                            type: "image_generation",
+                            size: input.params?.size,
+                            quality: input.params?.quality,
+                            style: input.params?.style,
+                            background: input.params?.background
+                        }
+                    ],
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
+                },
+                { signal }
+            );
 
             for await (const event of stream) {
-                if (signal?.aborted) throw new Error("Image editing aborted during streaming");
+                if (signal?.aborted) {
+                    throw new Error("Image editing aborted during streaming");
+                }
 
                 if (!responseId && event.type === "response.created" && "response" in event && event.response?.id) {
                     responseId = event.response.id;
                 }
 
-                if (event.type !== "response.completed") continue;
+                if (event.type !== "response.completed") {
+                    continue;
+                }
 
                 const outputItems = event.response.output ?? [];
                 const newImages: NormalizedImage[] = [];
 
                 for (const item of outputItems) {
                     const images = this.normalizeEditedImages(item, imageIndex);
-                    if (!images.length) continue;
+                    if (!images.length) {
+                        continue;
+                    }
                     imageIndex += images.length;
                     newImages.push(...images);
                 }
 
-                if (!newImages.length) continue;
+                if (!newImages.length) {
+                    continue;
+                }
 
                 yield {
                     delta: newImages,
@@ -175,7 +194,9 @@ export class OpenAIImageEditCapabilityImpl implements
                     }
                 };
 
-                if (!masksYielded) masksYielded = true;
+                if (!masksYielded) {
+                    masksYielded = true;
+                }
             }
 
             yield {
@@ -192,7 +213,9 @@ export class OpenAIImageEditCapabilityImpl implements
                 }
             };
         } catch (err) {
-            if (signal?.aborted) return;
+            if (signal?.aborted) {
+                return;
+            }
 
             yield {
                 output: [],
@@ -227,9 +250,9 @@ export class OpenAIImageEditCapabilityImpl implements
         executionContext: MultiModalExecutionContext
     ): { content: any[]; masks: ClientReferenceImage[] } {
         const content: any[] = [];
-        const timelineImages = executionContext.getTimeline().flatMap(t => t.artifacts?.images ?? []);
+        const timelineImages = executionContext.getTimeline().flatMap((t) => t.artifacts?.images ?? []);
 
-        let baseImage: ClientReferenceImage | undefined = input.referenceImages?.find(i => i.role === "subject");
+        let baseImage: ClientReferenceImage | undefined = input.referenceImages?.find((i) => i.role === "subject");
         if (!baseImage && timelineImages.length) {
             const last = timelineImages[timelineImages.length - 1];
             baseImage = {
@@ -242,14 +265,16 @@ export class OpenAIImageEditCapabilityImpl implements
             };
         }
 
-        if (!baseImage) throw new Error("Image edit requires a subject image");
+        if (!baseImage) {
+            throw new Error("Image edit requires a subject image");
+        }
 
         content.push({
             type: "input_image",
             image_url: ensureDataUri(baseImage.url ?? baseImage.base64!, baseImage.mimeType)
         });
 
-        const masks = input.referenceImages?.filter(i => i.role === "mask") ?? [];
+        const masks = input.referenceImages?.filter((i) => i.role === "mask") ?? [];
         for (const mask of masks) {
             content.push({
                 type: "input_image",
@@ -257,7 +282,7 @@ export class OpenAIImageEditCapabilityImpl implements
             });
         }
 
-        const extraRefs = input.referenceImages?.filter(i => i.role === "reference") ?? [];
+        const extraRefs = input.referenceImages?.filter((i) => i.role === "reference") ?? [];
         for (const ref of extraRefs) {
             if (ref.url || ref.base64) {
                 content.push({
@@ -276,7 +301,9 @@ export class OpenAIImageEditCapabilityImpl implements
      * Normalize base64 images from the provider into standardized objects.
      */
     private normalizeEditedImages(item: any, startIndex: number): NormalizedImage[] {
-        if (!item || item.type !== "image_generation_call") return [];
+        if (!item || item.type !== "image_generation_call") {
+            return [];
+        }
 
         const images: NormalizedImage[] = [];
         let index = startIndex;
@@ -292,7 +319,9 @@ export class OpenAIImageEditCapabilityImpl implements
             });
         } else if (Array.isArray(item.result)) {
             for (const b64 of item.result) {
-                if (typeof b64 !== "string") continue;
+                if (typeof b64 !== "string") {
+                    continue;
+                }
                 images.push({
                     id: item.id,
                     base64: b64,
@@ -320,7 +349,7 @@ export class OpenAIImageEditCapabilityImpl implements
      * output image when multiple images are generated.
      */
     private normalizeEditedMasks(masks: ClientReferenceImage[]): NormalizedMask[] {
-        return masks.map(m => ({
+        return masks.map((m) => ({
             id: m.id,
             base64: m.base64,
             url: m.url,

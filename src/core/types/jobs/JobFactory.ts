@@ -1,14 +1,20 @@
-import { AIResponse, AIResponseChunk, GenericJob, JobChunk, JobSnapshot, MultiModalExecutionContext, JobLifecycleHooks } from "#root/index.js";
+import {
+    AIResponse,
+    AIResponseChunk,
+    GenericJob,
+    JobChunk,
+    JobSnapshot,
+    MultiModalExecutionContext,
+    JobLifecycleHooks
+} from "#root/index.js";
 
 /**
  * JobFactory<TInput, TOutput>
- * 
+ *
  * Reconstructs a GenericJob from a persisted snapshot, restoring its
  * executor, streaming, and hooks so it can be rerun.
  */
-export type JobFactory<TInput, TOutput> = (
-    snapshot: JobSnapshot<TInput, TOutput>
-) => GenericJob<TInput, TOutput>;
+export type JobFactory<TInput, TOutput> = (snapshot: JobSnapshot<TInput, TOutput>) => GenericJob<TInput, TOutput>;
 
 /**
  * Example factory function.
@@ -46,4 +52,3 @@ export function createJobFactory<TInput, TOutput>(
         return job;
     };
 }
-

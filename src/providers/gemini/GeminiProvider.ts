@@ -105,7 +105,7 @@ export class GeminiProvider
 
         // Register supported capabilities
         this.registerCapability(
-            CapabilityKeys.ChatCapabilityKey, 
+            CapabilityKeys.ChatCapabilityKey,
             this as ChatCapability<ClientChatRequest, NormalizedChatMessage>
         );
         this.registerCapability(
@@ -127,11 +127,11 @@ export class GeminiProvider
         this.registerCapability(
             CapabilityKeys.ImageGenerationStreamCapabilityKey,
             this as ImageGenerationStreamCapability<ClientImageGenerationRequest, NormalizedImage[]>
-        );        
+        );
         this.registerCapability(
             CapabilityKeys.ImageAnalysisCapabilityKey,
             this as ImageAnalysisCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
-        );      
+        );
         this.registerCapability(
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
@@ -147,8 +147,11 @@ export class GeminiProvider
      * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing generated text
      */
-    async chat(req: AIRequest<ClientChatRequest>, executionContext: MultiModalExecutionContext, signal?: AbortSignal)
-    : Promise<AIResponse<NormalizedChatMessage>> {
+    async chat(
+        req: AIRequest<ClientChatRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedChatMessage>> {
         if (!this.chatDelegate || typeof this.chatDelegate.chat !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ChatCapabilityKey);
         }
@@ -255,7 +258,6 @@ export class GeminiProvider
         return this.imageGenerationDelegate.generateImageStream(req, executionContext, signal);
     }
 
-
     /**
      * Execute an image analysis request
      *
@@ -294,5 +296,5 @@ export class GeminiProvider
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisStreamCapabilityKey);
         }
         return this.imageAnalysisDelegate.analyzeImageStream(req, executionContext, signal);
-    }    
+    }
 }

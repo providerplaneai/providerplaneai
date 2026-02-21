@@ -199,6 +199,34 @@ console.log(response.output);
 
 ---
 
+## Performance & Throughput
+
+ProviderPlaneAI exposes explicit runtime limits so high-throughput behavior is predictable.
+
+### Core Limits
+
+- `appConfig.maxConcurrency`: max jobs executing at once (`0` disables execution).
+- `appConfig.maxQueueSize`: max queued jobs waiting to execute.
+- `appConfig.maxStoredResponseChunks`: max in-memory orchestration chunks retained per job.
+- `appConfig.storeRawResponses`: whether raw provider payloads are retained for diagnostics.
+- `appConfig.maxRawBytesPerJob`: byte budget for retained raw payloads per job.
+- `appConfig.maxRemoteImageBytes`: byte cap when decoding/fetching reference images.
+- `appConfig.remoteImageFetchTimeoutMs`: timeout for remote image fetch operations.
+
+### Runtime Observability
+
+Use `jobManager.getQueueLength()` and `jobManager.getRunningCount()` to monitor pressure in real time.
+
+### High-Throughput Guidance
+
+- Start with bounded queueing (`maxQueueSize`) to protect process memory under burst traffic.
+- Keep `maxStoredResponseChunks` small for streaming-heavy workloads.
+- Prefer `storeRawResponses: false` in production unless you need deep diagnostics.
+- If raw payload diagnostics are needed, set a strict `maxRawBytesPerJob` budget.
+- Monitor queue depth (`jobManager.getQueueLength()`) and running jobs (`jobManager.getRunningCount()`) to tune concurrency.
+
+---
+
 ## API Overview
 
 ### AIClient Methods

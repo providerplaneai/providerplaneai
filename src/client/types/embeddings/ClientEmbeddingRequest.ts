@@ -11,5 +11,5 @@ export interface ClientEmbeddingRequest extends ClientRequestBase {
     inputId?: string;
 
     /** Optional semantic hint about the embedding (e.g., "query", "document") */
-    purpose?: string;    
+    purpose?: string;
 }

@@ -1,13 +1,13 @@
-import { 
-    NormalizedAudio, 
-    NormalizedChatMessage, 
-    NormalizedEmbedding, 
-    NormalizedFile, 
-    NormalizedImage, 
-    NormalizedImageAnalysis, 
-    NormalizedMask, 
-    NormalizedModeration, 
-    NormalizedVideo 
+import {
+    NormalizedAudio,
+    NormalizedChatMessage,
+    NormalizedEmbedding,
+    NormalizedFile,
+    NormalizedImage,
+    NormalizedImageAnalysis,
+    NormalizedMask,
+    NormalizedModeration,
+    NormalizedVideo
 } from "#root/index.js";
 
 /**
@@ -19,7 +19,7 @@ export interface TimelineArtifacts {
     images?: NormalizedImage[];
     masks?: NormalizedMask[];
     embeddings?: NormalizedEmbedding[];
-    moderation?: NormalizedModeration[];    
+    moderation?: NormalizedModeration[];
     chat?: NormalizedChatMessage[];
     audio?: NormalizedAudio[];
     video?: NormalizedVideo[];

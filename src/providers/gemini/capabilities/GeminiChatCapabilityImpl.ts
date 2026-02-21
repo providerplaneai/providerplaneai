@@ -15,14 +15,11 @@ import {
     NormalizedChatMessage
 } from "#root/index.js";
 
-export class GeminiChatCapabilityImpl
-    implements
-    ChatCapability<ClientChatRequest>,
-    ChatStreamCapability<ClientChatRequest> {
+export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatRequest>, ChatStreamCapability<ClientChatRequest> {
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
-    ) { }
+    ) {}
 
     async chat(
         request: AIRequest<ClientChatRequest>,
@@ -37,10 +34,7 @@ export class GeminiChatCapabilityImpl
             throw new Error("Received empty input messages");
         }
 
-        const merged = this.provider.getMergedOptions(
-            CapabilityKeys.ChatCapabilityKey,
-            options
-        );
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ChatCapabilityKey, options);
 
         const response = await this.client.models.generateContent({
             model: (merged.model ?? "gemini-2.5-flash-latest").replace(/^models\//, ""),
@@ -56,9 +50,7 @@ export class GeminiChatCapabilityImpl
         const message: NormalizedChatMessage = {
             id,
             role: "assistant",
-            content: text
-                ? [{ type: "text", text }]
-                : []
+            content: text ? [{ type: "text", text }] : []
         };
 
         return {
@@ -105,14 +97,20 @@ export class GeminiChatCapabilityImpl
             });
 
             for await (const chunk of stream) {
-                if (signal?.aborted) return;
+                if (signal?.aborted) {
+                    return;
+                }
                 latestUsage = this.extractUsage(chunk);
 
                 const deltaText = chunk.text ?? "";
-                if (!deltaText) continue;
+                if (!deltaText) {
+                    continue;
+                }
 
                 // Set responseId once
-                if (!responseId && chunk.responseId) responseId = chunk.responseId;
+                if (!responseId && chunk.responseId) {
+                    responseId = chunk.responseId;
+                }
 
                 buffer += deltaText;
                 accumulatedText += deltaText;
@@ -161,22 +159,13 @@ export class GeminiChatCapabilityImpl
                 latestUsage
             );
         } catch (err) {
-            if (signal?.aborted) return;
+            if (signal?.aborted) {
+                return;
+            }
 
-            yield this.createChunk(
-                "",
-                "",
-                responseId,
-                context,
-                merged.model,
-                "error",
-                true,
-                err,
-                latestUsage
-            );
+            yield this.createChunk("", "", responseId, context, merged.model, "error", true, err, latestUsage);
         }
     }
-
 
     /**
      * Helper to build a streaming chunk with proper NormalizedChatMessage and metadata
@@ -232,7 +221,9 @@ export class GeminiChatCapabilityImpl
         totalTokens?: number;
     } {
         const usage = response?.usageMetadata;
-        if (!usage) return {};
+        if (!usage) {
+            return {};
+        }
         return {
             inputTokens: usage.promptTokenCount,
             outputTokens: usage.candidatesTokenCount,
@@ -297,5 +288,4 @@ export class GeminiChatCapabilityImpl
 
         return contents;
     }
-
 }

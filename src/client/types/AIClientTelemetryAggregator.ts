@@ -82,7 +82,9 @@ export class AIClientTelemetryAggregator {
 
     private getOrInit(map: Map<string, TelemetryTotals>, key: string): TelemetryTotals {
         const existing = map.get(key);
-        if (existing) return existing;
+        if (existing) {
+            return existing;
+        }
 
         const created = emptyTotals();
         map.set(key, created);

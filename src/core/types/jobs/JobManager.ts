@@ -16,7 +16,10 @@ export interface JobManagerHooks {
 
 export interface JobManagerOptions {
     maxConcurrency?: number;
+    maxQueueSize?: number;
     maxStoredResponseChunks?: number;
+    storeRawResponses?: boolean;
+    maxRawBytesPerJob?: number;
     hooks?: JobManagerHooks;
 
     /** Optional persistence hooks */
@@ -35,7 +38,10 @@ export class JobManager {
 
     constructor(private options?: JobManagerOptions) {
         this.setMaxConcurrency(this.options?.maxConcurrency);
+        this.setMaxQueueSize(this.options?.maxQueueSize);
         this.setMaxStoredResponseChunks(this.options?.maxStoredResponseChunks);
+        this.setStoreRawResponses(this.options?.storeRawResponses);
+        this.setMaxRawBytesPerJob(this.options?.maxRawBytesPerJob);
 
         // Restore persisted jobs
         this.restorePersistedJobs();
@@ -58,11 +64,50 @@ export class JobManager {
     }
 
     setMaxStoredResponseChunks(maxStoredResponseChunks: number | undefined) {
-        if (maxStoredResponseChunks !== undefined && (!Number.isInteger(maxStoredResponseChunks) || maxStoredResponseChunks < 0)) {
+        if (
+            maxStoredResponseChunks !== undefined &&
+            (!Number.isInteger(maxStoredResponseChunks) || maxStoredResponseChunks < 0)
+        ) {
             throw new Error("JobManager: maxStoredResponseChunks must be a non-negative integer");
         }
         this.options = this.options ?? {};
         this.options.maxStoredResponseChunks = maxStoredResponseChunks;
+    }
+
+    getMaxQueueSize(): number | undefined {
+        return this.options?.maxQueueSize;
+    }
+
+    setMaxQueueSize(maxQueueSize: number | undefined) {
+        if (maxQueueSize !== undefined && (!Number.isInteger(maxQueueSize) || maxQueueSize < 0)) {
+            throw new Error("JobManager: maxQueueSize must be a non-negative integer");
+        }
+        this.options = this.options ?? {};
+        this.options.maxQueueSize = maxQueueSize;
+    }
+
+    getStoreRawResponses(): boolean | undefined {
+        return this.options?.storeRawResponses;
+    }
+
+    setStoreRawResponses(storeRawResponses: boolean | undefined) {
+        if (storeRawResponses !== undefined && typeof storeRawResponses !== "boolean") {
+            throw new Error("JobManager: storeRawResponses must be a boolean");
+        }
+        this.options = this.options ?? {};
+        this.options.storeRawResponses = storeRawResponses;
+    }
+
+    getMaxRawBytesPerJob(): number | undefined {
+        return this.options?.maxRawBytesPerJob;
+    }
+
+    setMaxRawBytesPerJob(maxRawBytesPerJob: number | undefined) {
+        if (maxRawBytesPerJob !== undefined && (!Number.isInteger(maxRawBytesPerJob) || maxRawBytesPerJob < 0)) {
+            throw new Error("JobManager: maxRawBytesPerJob must be a non-negative integer");
+        }
+        this.options = this.options ?? {};
+        this.options.maxRawBytesPerJob = maxRawBytesPerJob;
     }
 
     getQueueLength(): number {
@@ -83,7 +128,9 @@ export class JobManager {
     }
 
     private restorePersistedJobs() {
-        if (!this.options?.loadPersistedJobs) return;
+        if (!this.options?.loadPersistedJobs) {
+            return;
+        }
 
         const snapshots = this.options.loadPersistedJobs();
 
@@ -105,31 +152,46 @@ export class JobManager {
                         snap.input,
                         snap.streaming?.enabled ?? false,
                         async () => {
-                            throw new Error(
-                                `Restored job '${snap.id}' cannot be executed: ${message}`
-                            );
+                            throw new Error(`Restored job '${snap.id}' cannot be executed: ${message}`);
                         },
                         undefined,
                         this.options?.maxStoredResponseChunks,
-                        { capability: snap.capability, providerChain: snap.providerChain }
+                        {
+                            capability: snap.capability,
+                            providerChain: snap.providerChain,
+                            storeRawResponses: this.options?.storeRawResponses,
+                            maxRawBytesPerJob: this.options?.maxRawBytesPerJob
+                        }
                     );
                 }
             } else {
-                job = new GenericJob<any, any>(snap.input, snap.streaming?.enabled ?? false,
-                    async () => { throw new Error("Restored job cannot be executed"); },
+                job = new GenericJob<any, any>(
+                    snap.input,
+                    snap.streaming?.enabled ?? false,
+                    async () => {
+                        throw new Error("Restored job cannot be executed");
+                    },
                     undefined,
                     this.options?.maxStoredResponseChunks,
-                    { capability: snap.capability, providerChain: snap.providerChain });
+                    {
+                        capability: snap.capability,
+                        providerChain: snap.providerChain,
+                        storeRawResponses: this.options?.storeRawResponses,
+                        maxRawBytesPerJob: this.options?.maxRawBytesPerJob
+                    }
+                );
             }
             job.restoreFromSnapshot(snap);
             this.wireJob(job);
 
             this.jobs.set(job.id, job);
         }
-    }    
+    }
 
     addJob<TInput, TOutput>(job: GenericJob<TInput, TOutput>) {
-        if (this.jobs.has(job.id)) throw new Error(`JobManager: job '${job.id}' already exists`);
+        if (this.jobs.has(job.id)) {
+            throw new Error(`JobManager: job '${job.id}' already exists`);
+        }
 
         this.wireJob(job);
 
@@ -149,10 +211,19 @@ export class JobManager {
         if (this.options?.maxConcurrency === 0) {
             throw new Error("JobManager: maxConcurrency is 0; job execution is disabled");
         }
+        if (this.options?.maxQueueSize !== undefined && this.jobQueue.length >= this.options.maxQueueSize) {
+            throw new Error("JobManager: queue is full");
+        }
         const job = this.getJob<TInput, TOutput>(id);
-        if (!job) throw new Error(`JobManager: job '${id}' not found`);
-        if (job.status === "running") throw new Error(`JobManager: job '${id}' is already running`);
-        if (this.jobQueue.some(q => q.job.id === id)) throw new Error(`JobManager: job '${id}' is already queued`);
+        if (!job) {
+            throw new Error(`JobManager: job '${id}' not found`);
+        }
+        if (job.status === "running") {
+            throw new Error(`JobManager: job '${id}' is already running`);
+        }
+        if (this.jobQueue.some((q) => q.job.id === id)) {
+            throw new Error(`JobManager: job '${id}' is already queued`);
+        }
         job.onChunk = onChunk;
 
         this.jobQueue.push({ job, ctx });
@@ -166,8 +237,12 @@ export class JobManager {
         onChunk?: (chunk: JobChunk<TOutput>) => void
     ): GenericJob<TInput, TOutput> {
         const job = this.getJob<TInput, TOutput>(id);
-        if (!job) throw new Error(`JobManager: job '${id}' not found`);
-        if(job.status === "running") throw new Error(`JobManager: job '${id}' is running and cannot be rerun`);
+        if (!job) {
+            throw new Error(`JobManager: job '${id}' not found`);
+        }
+        if (job.status === "running") {
+            throw new Error(`JobManager: job '${id}' is running and cannot be rerun`);
+        }
 
         // Reset job state
         job.reset();
@@ -182,7 +257,9 @@ export class JobManager {
             this.runningCount++;
             let finalized = false;
             const finalize = () => {
-                if (finalized) return;
+                if (finalized) {
+                    return;
+                }
                 finalized = true;
                 this.controllers.delete(job.id);
                 this.runningCount--;
@@ -211,13 +288,13 @@ export class JobManager {
                 .then(() => {
                     this.options?.hooks?.onComplete?.(job.toSnapshot());
                 })
-                .catch(err => {
+                .catch((err) => {
                     this.options?.hooks?.onError?.(err, job.toSnapshot());
                 })
                 .finally(finalize);
 
             // Guard against unexpected run-time exceptions (e.g. hook throws before completionPromise is settled).
-            runPromise.catch(err => {
+            runPromise.catch((err) => {
                 const normalized = err instanceof Error ? err : new Error(String(err));
                 this.options?.hooks?.onError?.(normalized, job.toSnapshot());
                 finalize();
@@ -227,10 +304,12 @@ export class JobManager {
 
     abortJob(id: string, reason?: string) {
         const job = this.getJob(id);
-        if (!job) throw new Error(`JobManager: job '${id}' not found`);
+        if (!job) {
+            throw new Error(`JobManager: job '${id}' not found`);
+        }
 
         // Remove queued entries so aborted pending jobs do not execute later.
-        this.jobQueue = this.jobQueue.filter(q => q.job.id !== id);
+        this.jobQueue = this.jobQueue.filter((q) => q.job.id !== id);
 
         const controller = this.controllers.get(id);
         if (controller) {
@@ -245,7 +324,7 @@ export class JobManager {
     }
 
     listJobs(): JobSnapshot<any, any>[] {
-        return Array.from(this.jobs.values()).map(j => j.toSnapshot());
+        return Array.from(this.jobs.values()).map((j) => j.toSnapshot());
     }
 
     private persist() {
@@ -255,22 +334,32 @@ export class JobManager {
     }
 
     subscribe<TInput, TOutput>(jobId: string, subscriber: JobSubscriber<TInput, TOutput>) {
-        if (!this.subscribers.has(jobId)) this.subscribers.set(jobId, new Set());
+        if (!this.subscribers.has(jobId)) {
+            this.subscribers.set(jobId, new Set());
+        }
         this.subscribers.get(jobId)!.add(subscriber);
 
         const job = this.jobs.get(jobId);
-        if (job) subscriber(job.toSnapshot());
+        if (job) {
+            subscriber(job.toSnapshot());
+        }
 
         return () => this.subscribers.get(jobId)?.delete(subscriber);
     }
 
     private notifySubscribers<TInput, TOutput>(jobId: string) {
         const job = this.jobs.get(jobId);
-        if (!job) return;
+        if (!job) {
+            return;
+        }
         const subs = this.subscribers.get(jobId);
-        if (!subs) return;
+        if (!subs) {
+            return;
+        }
 
         const snapshot = job.toSnapshot();
-        for (const sub of subs) sub(snapshot);
+        for (const sub of subs) {
+            sub(snapshot);
+        }
     }
 }

@@ -47,7 +47,11 @@ export interface ImageGenerationStreamCapability<TInput = any, TOutput = Normali
      * @param ctx Execution context
      * @returns AsyncGenerator yielding AIResponseChunk objects
      */
-    generateImageStream(request: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): AsyncGenerator<AIResponseChunk<TOutput>>;
+    generateImageStream(
+        request: AIRequest<TInput>,
+        ctx: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<TOutput>>;
 }
 
 /**
@@ -75,7 +79,11 @@ export interface ImageAnalysisCapability<TInput = unknown, TOutput = NormalizedI
      * @param ctx Execution context
      * @returns A normalized AIResponse containing image analysis results.
      */
-    analyzeImage(request: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<AIResponse<TOutput>>;
+    analyzeImage(
+        request: AIRequest<TInput>,
+        ctx: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<TOutput>>;
 }
 
 /**
@@ -106,7 +114,11 @@ export interface ImageAnalysisStreamCapability<
      * @template TInput Input type for image analysis request
      * @template TOutput Output type (partial chunks or final data)
      */
-    analyzeImageStream(request: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): AsyncGenerator<AIResponseChunk<TOutput>>;
+    analyzeImageStream(
+        request: AIRequest<TInput>,
+        ctx: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<TOutput>>;
 }
 
 /**
@@ -174,5 +186,9 @@ export interface ImageEditStreamCapability<TInput = unknown, TOutput = Normalize
      * @param ctx Execution context
      * @returns AsyncGenerator yielding AIResponseChunk objects containing partial or complete normalized images
      */
-    editImageStream(request: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): AsyncGenerator<AIResponseChunk<TOutput>>;
+    editImageStream(
+        request: AIRequest<TInput>,
+        ctx: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<TOutput>>;
 }

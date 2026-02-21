@@ -30,11 +30,12 @@ export interface NonStreamingExecutor<C extends CapabilityKeyType, TInput, TOutp
         input: AIRequest<TInput>,
         ctx: MultiModalExecutionContext,
         signal?: AbortSignal
-    ): Promise<AIResponse<TOutput>>
+    ): Promise<AIResponse<TOutput>>;
 }
 
-export type CapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput> = 
-    StreamingExecutor<C, TInput, TOutput> | NonStreamingExecutor<C, TInput, TOutput>;
+export type CapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput> =
+    | StreamingExecutor<C, TInput, TOutput>
+    | NonStreamingExecutor<C, TInput, TOutput>;
 
 export class CapabilityExecutorRegistry {
     private executors = new Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>();
@@ -44,20 +45,14 @@ export class CapabilityExecutorRegistry {
         executor: CapabilityExecutor<C, TInput, TOutput>
     ): this;
 
-    register<TInput = any, TOutput = any>(
-        key: CustomCapabilityKey,
-        executor: CapabilityExecutor<any, TInput, TOutput>
-    ): this;
+    register<TInput = any, TOutput = any>(key: CustomCapabilityKey, executor: CapabilityExecutor<any, TInput, TOutput>): this;
 
-    register(
-        key: CapabilityKeyType,
-        executor: CapabilityExecutor<any, any, any>
-    ) {
+    register(key: CapabilityKeyType, executor: CapabilityExecutor<any, any, any>) {
         this.executors.set(key, executor);
         return this; // Allow chaining
     }
 
-    getExecutors(){
+    getExecutors() {
         return this.executors;
     }
 
@@ -74,15 +69,9 @@ export class CapabilityExecutorRegistry {
         executor: CapabilityExecutor<C, TInput, TOutput>
     ): void;
 
-    set<TInput = any, TOutput = any>(
-        key: CustomCapabilityKey,
-        executor: CapabilityExecutor<any, TInput, TOutput>
-    ): void;
+    set<TInput = any, TOutput = any>(key: CustomCapabilityKey, executor: CapabilityExecutor<any, TInput, TOutput>): void;
 
-    set(
-        key: CapabilityKeyType,
-        executor: CapabilityExecutor<any, any, any>
-    ) {
+    set(key: CapabilityKeyType, executor: CapabilityExecutor<any, any, any>) {
         this.executors.set(key, executor);
     }
 
@@ -100,121 +89,91 @@ export function createDefaultExecutors(): CapabilityExecutorRegistry {
        CHAT (non-streaming)
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ChatCapabilityKey,
-        {
-            streaming: false,
-            invoke: (capability, input, ctx, signal) => capability.chat(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ChatCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.chat(input, ctx, signal)
+    });
 
     /* =========================================================
        CHAT STREAM
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ChatStreamCapabilityKey,
-        {
-            streaming: true,
-            invoke: (capability, input, ctx, signal) => capability.chatStream(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ChatStreamCapabilityKey, {
+        streaming: true,
+        invoke: (capability, input, ctx, signal) => capability.chatStream(input, ctx, signal)
+    });
 
     /* =========================================================
        IMAGE GENERATION (non-streaming)
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ImageGenerationCapabilityKey,
-        {
-            streaming: false,
-            invoke: (capability, input, ctx, signal) => capability.generateImage(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ImageGenerationCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.generateImage(input, ctx, signal)
+    });
 
     /* =========================================================
        IMAGE GENERATION STREAM
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ImageGenerationStreamCapabilityKey,
-        {
-            streaming: true,
-            invoke: (capability, input, ctx, signal) => capability.generateImageStream(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ImageGenerationStreamCapabilityKey, {
+        streaming: true,
+        invoke: (capability, input, ctx, signal) => capability.generateImageStream(input, ctx, signal)
+    });
 
     /* =========================================================
        IMAGE ANALYSIS (non-streaming)
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ImageAnalysisCapabilityKey,
-        {
-            streaming: false,
-            invoke: (capability, input, ctx, signal) => capability.analyzeImage(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ImageAnalysisCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.analyzeImage(input, ctx, signal)
+    });
 
     /* =========================================================
        IMAGE ANALYSIS STREAM
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ImageAnalysisStreamCapabilityKey,
-        {
-            streaming: true,
-            invoke: (capability, input, ctx, signal) => capability.analyzeImageStream(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ImageAnalysisStreamCapabilityKey, {
+        streaming: true,
+        invoke: (capability, input, ctx, signal) => capability.analyzeImageStream(input, ctx, signal)
+    });
 
     /* =========================================================
        IMAGE EDIT (non-streaming)
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ImageEditCapabilityKey,
-        {
-            streaming: false,
-            invoke: (capability, input, ctx, signal) => capability.editImage(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ImageEditCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.editImage(input, ctx, signal)
+    });
 
     /* =========================================================
        IMAGE EDIT STREAM
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ImageEditStreamCapabilityKey,
-        {
-            streaming: true,
-            invoke: (capability, input, ctx, signal) => capability.editImageStream(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ImageEditStreamCapabilityKey, {
+        streaming: true,
+        invoke: (capability, input, ctx, signal) => capability.editImageStream(input, ctx, signal)
+    });
 
     /* =========================================================
        EMBEDDINGS
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.EmbedCapabilityKey,
-        {
-            streaming: false,
-            invoke: (capability, input, ctx, signal) => capability.embed(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.EmbedCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.embed(input, ctx, signal)
+    });
 
     /* =========================================================
        MODERATION
        ========================================================= */
 
-    registry.register(
-        CapabilityKeys.ModerationCapabilityKey,
-        {
-            streaming: false,
-            invoke: (capability, input, ctx, signal) => capability.moderation(input, ctx, signal)
-        }
-    );
+    registry.register(CapabilityKeys.ModerationCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.moderation(input, ctx, signal)
+    });
 
     return registry;
 }

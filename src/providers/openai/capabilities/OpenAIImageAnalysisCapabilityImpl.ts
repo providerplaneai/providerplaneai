@@ -18,7 +18,7 @@ import {
  * OpenAIImageAnalysisCapabilityImpl: Implements image analysis for OpenAI using the Vision API and tool schema.
  *
  * Uses OpenAI Vision via the Responses API to analyze images and emit structured JSON results using a tool schema.
- * 
+ *
  * IMPORTANT:
  * - OpenAI provides *semantic* understanding only
  * - No reliable bounding boxes, coordinates, or confidence scores
@@ -28,10 +28,9 @@ import {
  * @returns AIResponse containing normalized images
  * @throws Error if prompt is missing or analysis fails
  */
-export class OpenAIImageAnalysisCapabilityImpl implements
-    ImageAnalysisCapability<ClientImageAnalysisRequest>,
-    ImageAnalysisStreamCapability<ClientImageAnalysisRequest> {
-
+export class OpenAIImageAnalysisCapabilityImpl
+    implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
+{
     /**
      * OpenAI-compatible schema for semantic image analysis.
      *
@@ -112,7 +111,7 @@ export class OpenAIImageAnalysisCapabilityImpl implements
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
-    ) { }
+    ) {}
 
     /**
      * Analyze one or more images using OpenAI vision models.
@@ -171,22 +170,25 @@ export class OpenAIImageAnalysisCapabilityImpl implements
             text: input.prompt ?? "Analyze the provided image(s) and return structured results."
         });
 
-        const response = await this.client.responses.create({
-            model: merged.model ?? "gpt-4.1",
-            input: [{ role: "user", content }],
-            tools: [
-                {
-                    ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
-                    parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
-                }
-            ],
-            tool_choice: {
-                type: "function",
-                name: "image_analysis"
+        const response = await this.client.responses.create(
+            {
+                model: merged.model ?? "gpt-4.1",
+                input: [{ role: "user", content }],
+                tools: [
+                    {
+                        ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
+                        parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
+                    }
+                ],
+                tool_choice: {
+                    type: "function",
+                    name: "image_analysis"
+                },
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
             },
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
-        }, { signal });
+            { signal }
+        );
 
         // Parse the output from OpenAI
         // Only process items that are function calls for our tool
@@ -198,7 +200,7 @@ export class OpenAIImageAnalysisCapabilityImpl implements
             }
 
             try {
-                const parsed = JSON.parse(item.arguments);                
+                const parsed = JSON.parse(item.arguments);
                 const normalized = this.normalizeAnalyses(parsed);
                 analyses.push(...normalized);
             } catch (err) {
@@ -279,22 +281,25 @@ export class OpenAIImageAnalysisCapabilityImpl implements
 
         let responseId: string | undefined;
         try {
-            const stream = this.client.responses.stream({
-                model: merged.model ?? "gpt-4.1",
-                input: [{ role: "user", content }],
-                tools: [
-                    {
-                        ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
-                        parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
-                    }
-                ],
-                tool_choice: {
-                    type: "function",
-                    name: "image_analysis"
+            const stream = this.client.responses.stream(
+                {
+                    model: merged.model ?? "gpt-4.1",
+                    input: [{ role: "user", content }],
+                    tools: [
+                        {
+                            ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
+                            parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
+                        }
+                    ],
+                    tool_choice: {
+                        type: "function",
+                        name: "image_analysis"
+                    },
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
                 },
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            }, { signal });
+                { signal }
+            );
 
             // Iterate over streamed events from OpenAI
             for await (const event of stream) {
@@ -304,14 +309,12 @@ export class OpenAIImageAnalysisCapabilityImpl implements
 
                 if (
                     !responseId &&
-                    (event.type === "response.created" ||
-                        event.type === "response.completed") &&
+                    (event.type === "response.created" || event.type === "response.completed") &&
                     "response" in event &&
                     event.response?.id
                 ) {
                     responseId = event.response.id;
                 }
-
 
                 // Only process completed output items
                 if (event.type !== "response.output_item.done") {
@@ -345,7 +348,6 @@ export class OpenAIImageAnalysisCapabilityImpl implements
                     }
                 };
             }
-
         } catch (err) {
             // Abort is NOT an error — do not emit a terminal chunk
             if (signal?.aborted) {
@@ -370,20 +372,16 @@ export class OpenAIImageAnalysisCapabilityImpl implements
         }
     }
 
-    private normalizeAnalyses(
-        payload: NormalizedImageAnalysis | NormalizedImageAnalysis[]
-    ): NormalizedImageAnalysis[] {
+    private normalizeAnalyses(payload: NormalizedImageAnalysis | NormalizedImageAnalysis[]): NormalizedImageAnalysis[] {
         const items = Array.isArray(payload) ? payload : payload ? [payload] : [];
 
-        return items.map(item => ({
+        return items.map((item) => ({
             id: item.id ?? crypto.randomUUID(),
             description: item.description,
             tags: item.tags?.filter(Boolean),
-            objects: item.objects?.map(o => ({ label: o.label })),
-            text: item.text?.map(t => ({ text: t.text })),
-            safety: item.safety
-                ? { flagged: Boolean(item.safety.flagged) }
-                : undefined
+            objects: item.objects?.map((o) => ({ label: o.label })),
+            text: item.text?.map((t) => ({ text: t.text })),
+            safety: item.safety ? { flagged: Boolean(item.safety.flagged) } : undefined
         }));
     }
 }

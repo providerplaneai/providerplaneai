@@ -10,8 +10,8 @@ export interface TimelineSnapshot {
 
     /** Optional session-level metadata */
     metadata?: {
-        sessionName?: string;  // Logical grouping
-        createdAt?: number;    // Unix timestamp (ms)
+        sessionName?: string; // Logical grouping
+        createdAt?: number; // Unix timestamp (ms)
         [key: string]: unknown;
     };
 }

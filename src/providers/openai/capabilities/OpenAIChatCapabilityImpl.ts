@@ -31,10 +31,11 @@ import { abortableStream } from "#root/core/utils/AbortableStream.js";
  * @template TChatInput - Client chat request input type
  * @template TChatOutput - Chat output type
  */
-export class OpenAIChatCapabilityImpl implements
-    ChatCapability<ClientChatRequest, NormalizedChatMessage>,
-    ChatStreamCapability<ClientChatRequest, NormalizedChatMessage> {
-
+export class OpenAIChatCapabilityImpl
+    implements
+        ChatCapability<ClientChatRequest, NormalizedChatMessage>,
+        ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
+{
     /**
      * Creates a new OpenAI chat capability implementation.
      *
@@ -44,7 +45,7 @@ export class OpenAIChatCapabilityImpl implements
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
-    ) { }
+    ) {}
 
     /**
      * Executes a non-streaming chat request using OpenAI Responses API.
@@ -78,12 +79,15 @@ export class OpenAIChatCapabilityImpl implements
         const merged = this.provider.getMergedOptions(CapabilityKeys.ChatCapabilityKey, options);
 
         // Call OpenAI Responses API with chat messages
-        const response: OpenAI.Responses.Response = await this.client.responses.create({
-            model: merged.model,
-            input: this.buildMessages(input.messages),
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
-        }, { signal });
+        const response: OpenAI.Responses.Response = await this.client.responses.create(
+            {
+                model: merged.model,
+                input: this.buildMessages(input.messages),
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            },
+            { signal }
+        );
 
         const text = this.extractAssistantText(response);
 
@@ -158,12 +162,15 @@ export class OpenAIChatCapabilityImpl implements
             }
 
             // Open a streaming connection for current messages
-            const stream = await this.client.responses.stream({
-                model: merged.model,
-                input: this.buildMessages(input.messages),
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            }, { signal });
+            const stream = await this.client.responses.stream(
+                {
+                    model: merged.model,
+                    input: this.buildMessages(input.messages),
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
+                },
+                { signal }
+            );
 
             // Buffer partial deltas until we flush
             let buffer = "";
@@ -171,8 +178,11 @@ export class OpenAIChatCapabilityImpl implements
             // Iterate over events from the provider stream
             for await (const event of abortableStream(stream, signal)) {
                 // Some events carry response metadata (created/completed)
-                if (!responseId && (event.type === "response.created" || event.type === "response.completed") &&
-                    "response" in event && event.response?.id
+                if (
+                    !responseId &&
+                    (event.type === "response.created" || event.type === "response.completed") &&
+                    "response" in event &&
+                    event.response?.id
                 ) {
                     responseId = event.response.id;
                 }
@@ -190,14 +200,7 @@ export class OpenAIChatCapabilityImpl implements
                     accumulatedText += deltaText;
 
                     if (buffer.length >= batchSize) {
-                        yield this.createChunk(
-                            buffer,
-                            accumulatedText,
-                            responseId,
-                            context,
-                            merged.model,
-                            "incomplete"
-                        );
+                        yield this.createChunk(buffer, accumulatedText, responseId, context, merged.model, "incomplete");
                         buffer = "";
                     }
                 }
@@ -243,7 +246,7 @@ export class OpenAIChatCapabilityImpl implements
         // Merge metadata from context + chunk info
         const messageMetadata = {
             ...(context?.metadata ?? {}),
-            provider: AIProvider.OpenAI,  // or replace with your current provider dynamically
+            provider: AIProvider.OpenAI, // or replace with your current provider dynamically
             model,
             status,
             requestId: context?.requestId,
@@ -273,7 +276,6 @@ export class OpenAIChatCapabilityImpl implements
         };
     }
 
-
     /**
      * Convert string text to a NormalizedChatMessage object
      *
@@ -299,15 +301,17 @@ export class OpenAIChatCapabilityImpl implements
             metadata: {
                 ...(model ? { model } : {}),
                 ...(status ? { status } : {}),
-                ...(usage ? {
-                    usage: {
-                        totalTokens: usage.total_tokens,
-                        outputTokens: usage.output_tokens,
-                        inputTokens: usage.input_tokens
-                    }
-                } : {})
+                ...(usage
+                    ? {
+                          usage: {
+                              totalTokens: usage.total_tokens,
+                              outputTokens: usage.output_tokens,
+                              inputTokens: usage.input_tokens
+                          }
+                      }
+                    : {})
             }
-        }
+        };
     }
 
     private extractAssistantText(response: OpenAI.Responses.Response): string {
@@ -365,18 +369,29 @@ export class OpenAIChatCapabilityImpl implements
      * @returns Array of converted messages for OpenAI
      */
     private mapParts(parts: ClientMessagePart[]): any[] {
-        return parts.map(part => {
+        return parts.map((part) => {
             if (part.type !== "text" && !part.url && !part.base64) {
                 throw new Error(`${part.type} part must have url or base64`);
             }
 
             switch (part.type) {
-                case "text": return { type: "input_text", text: part.text };
-                case "image": return { type: "input_image", image_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
-                case "audio": return { type: "input_audio", audio_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
-                case "video": return { type: "input_video", video_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
-                case "file": return { type: "input_file", file_url: part.url ?? ensureDataUri(part.base64!, part.mimeType), filename: part.filename, mime_type: part.mimeType };
-                default: throw new Error(`Unsupported message part: ${(part as any).type}`);
+                case "text":
+                    return { type: "input_text", text: part.text };
+                case "image":
+                    return { type: "input_image", image_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                case "audio":
+                    return { type: "input_audio", audio_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                case "video":
+                    return { type: "input_video", video_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                case "file":
+                    return {
+                        type: "input_file",
+                        file_url: part.url ?? ensureDataUri(part.base64!, part.mimeType),
+                        filename: part.filename,
+                        mime_type: part.mimeType
+                    };
+                default:
+                    throw new Error(`Unsupported message part: ${(part as any).type}`);
             }
         });
     }

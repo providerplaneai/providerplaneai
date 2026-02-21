@@ -74,12 +74,15 @@ export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
         const merged = this.provider.getMergedOptions(CapabilityKeys.EmbedCapabilityKey, options);
 
         // OpenAI supports batch embeddings in a single API call
-        const response: OpenAI.Embeddings.CreateEmbeddingResponse = await this.client.embeddings.create({
-            model: merged.model ?? "text-embedding-3-large",
-            input: input.input,
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
-        }, {signal});
+        const response: OpenAI.Embeddings.CreateEmbeddingResponse = await this.client.embeddings.create(
+            {
+                model: merged.model ?? "text-embedding-3-large",
+                input: input.input,
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            },
+            { signal }
+        );
 
         if (!response.data || response.data.length === 0) {
             throw new Error("OpenAI returned no embeddings");
@@ -99,7 +102,7 @@ export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
                 tokensUsed: (response as any)?.usage?.total_tokens,
                 requestId: context?.requestId
             }
-        }));        
+        }));
 
         // Return normalized AIResponse
         return {

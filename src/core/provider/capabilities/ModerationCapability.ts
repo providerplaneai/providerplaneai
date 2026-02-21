@@ -8,9 +8,7 @@ import { AIRequest, AIResponse, MultiModalExecutionContext, NormalizedModeration
  * @template TModerationInput Input type for moderation request
  * @template TOutput Output type (single or array of moderation results)
  */
-export interface ModerationCapability<
-    TModerationInput = any,
-    TOutput = NormalizedModeration[]> extends ProviderCapability {
+export interface ModerationCapability<TModerationInput = any, TOutput = NormalizedModeration[]> extends ProviderCapability {
     /**
      * Evaluate input for moderation purposes.
      *
@@ -19,5 +17,9 @@ export interface ModerationCapability<
      * @param signal AbortSignal for request cancellation
      * @returns AIResponse wrapping moderation results
      */
-    moderation(req: AIRequest<TModerationInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<AIResponse<TOutput>>;
+    moderation(
+        req: AIRequest<TModerationInput>,
+        ctx: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<TOutput>>;
 }

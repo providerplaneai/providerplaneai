@@ -1,0 +1,9 @@
+{
+    "compilerOptions": {
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "strict": true,
+        "types": ["node", "vitest/config"]
+    },
+    "include": ["vitest.config.ts"]
+}

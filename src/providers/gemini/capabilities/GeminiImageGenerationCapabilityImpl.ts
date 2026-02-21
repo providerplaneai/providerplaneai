@@ -39,10 +39,11 @@ type ImagenAspectRatioEntry = (typeof IMAGEN_ASPECT_RATIOS)[number];
  * - Handles aspect ratio mapping, reference weight, and prompt tagging
  * - Returns normalized images with base64, mime type, and metadata
  */
-export class GeminiImageGenerationCapabilityImpl implements
-    ImageGenerationCapability<ClientImageGenerationRequest>,
-    ImageGenerationStreamCapability<ClientImageGenerationRequest> {
-
+export class GeminiImageGenerationCapabilityImpl
+    implements
+        ImageGenerationCapability<ClientImageGenerationRequest>,
+        ImageGenerationStreamCapability<ClientImageGenerationRequest>
+{
     /**
      * Creates a new Gemini image generation capability.
      *
@@ -52,7 +53,7 @@ export class GeminiImageGenerationCapabilityImpl implements
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
-    ) { }
+    ) {}
 
     /**
      * Generates images using Gemini / Imagen 4 API.
@@ -113,7 +114,7 @@ export class GeminiImageGenerationCapabilityImpl implements
         }
 
         // 3. Execute Imagen 4 Generation
-        const response = await (this.client.models as any).generateImages({
+        const response = (await (this.client.models as any).generateImages({
             model: merged.model ?? "imagen-4.0-generate-001",
             prompt: finalPrompt,
             referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
@@ -125,7 +126,7 @@ export class GeminiImageGenerationCapabilityImpl implements
                 // Safety setting for person generation
                 personGeneration: "allow_adult"
             }
-        }) as GenerateImagesResponse;
+        })) as GenerateImagesResponse;
 
         if (signal?.aborted) {
             throw new Error("Image generation aborted after API call");
@@ -180,10 +181,7 @@ export class GeminiImageGenerationCapabilityImpl implements
             throw new Error("Prompt is required for image generation");
         }
 
-        const merged = this.provider.getMergedOptions(
-            CapabilityKeys.ImageGenerationStreamCapabilityKey,
-            options
-        );
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ImageGenerationStreamCapabilityKey, options);
 
         let responseId: string | undefined;
 
@@ -212,7 +210,7 @@ export class GeminiImageGenerationCapabilityImpl implements
             }
 
             // Execute generation
-            const response = await (this.client.models as any).generateImages({
+            const response = (await (this.client.models as any).generateImages({
                 model: merged.model ?? "imagen-4.0-generate-001",
                 prompt: finalPrompt,
                 referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
@@ -222,7 +220,7 @@ export class GeminiImageGenerationCapabilityImpl implements
                     referenceImageWeight: this.mapWeight(input.referenceImages?.[0]?.weight),
                     personGeneration: "allow_adult"
                 }
-            }) as GenerateImagesResponse;
+            })) as GenerateImagesResponse;
 
             if (signal?.aborted) {
                 throw new Error("Image generation aborted after API call");
@@ -260,7 +258,9 @@ export class GeminiImageGenerationCapabilityImpl implements
                 }
             };
         } catch (err) {
-            if (signal?.aborted) return;
+            if (signal?.aborted) {
+                return;
+            }
 
             yield {
                 output: [],

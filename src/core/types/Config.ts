@@ -119,8 +119,18 @@ export interface AppConfig {
     appConfig?: {
         /** Maximum number of concurrent jobs allowed */
         maxConcurrency?: number;
+        /** Maximum number of queued jobs allowed (undefined means unbounded) */
+        maxQueueSize?: number;
         /** Maximum number of response chunks to store */
-        maxStoredResponseChunks?: number;        
+        maxStoredResponseChunks?: number;
+        /** Whether to retain raw provider payloads in job response/chunk diagnostics */
+        storeRawResponses?: boolean;
+        /** Maximum raw response bytes retained per job (undefined means unbounded) */
+        maxRawBytesPerJob?: number;
+        /** Timeout (ms) when fetching remote images by URL */
+        remoteImageFetchTimeoutMs?: number;
+        /** Maximum bytes allowed when decoding/fetching images */
+        maxRemoteImageBytes?: number;
         /** Execution policy configuration */
         executionPolicy: ExecutionPolicyConfig;
     };

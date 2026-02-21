@@ -49,7 +49,7 @@ export interface Job<TInput = any, TOutput = any> {
     readonly input: TInput;
     readonly output?: TOutput;
     readonly status: JobStatus;
-    readonly error?: Error;    
+    readonly error?: Error;
 
     run(ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<void>;
 }

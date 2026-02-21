@@ -47,10 +47,7 @@ const MODERATION_SCHEMA = {
  * - Normalizes Gemini-specific responses into provider-agnostic ModerationResult
  * - Tracks metadata and request context for observability
  */
-export class GeminiModerationCapabilityImpl implements ModerationCapability<
-    ClientModerationRequest,
-    NormalizedModeration[]
-> {
+export class GeminiModerationCapabilityImpl implements ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
     /**
      * Constructs a new Gemini moderation capability.
      *
@@ -60,7 +57,7 @@ export class GeminiModerationCapabilityImpl implements ModerationCapability<
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
-    ) { }
+    ) {}
 
     /**
      * Executes moderation on one or more input strings.
@@ -104,54 +101,44 @@ export class GeminiModerationCapabilityImpl implements ModerationCapability<
 
         // Execute one Gemini call per input (no hybrid abort logic)
         const responses = await Promise.all(
-            inputs.map(text => {
+            inputs.map((text) => {
                 const prompt =
                     `Analyze the following content for safety violations. ` +
                     `Respond strictly according to policy.\n\nContent:\n"${text}"`;
 
-                return this.client.models.generateContent(
-                    {
-                        model: merged.model ?? "gemini-2.5-flash-lite",
-                        contents: [
-                            { role: "user", parts: [{ text: prompt }] }
-                        ],
-                        config: {
-                            responseMimeType: "application/json",
-                            responseSchema: MODERATION_SCHEMA,
-                            temperature: 0
-                        },
-                        ...(merged.modelParams ?? {}),
-                        ...(merged.providerParams ?? {})
-                    }
-                );
+                return this.client.models.generateContent({
+                    model: merged.model ?? "gemini-2.5-flash-lite",
+                    contents: [{ role: "user", parts: [{ text: prompt }] }],
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: MODERATION_SCHEMA,
+                        temperature: 0
+                    },
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
+                });
             })
         );
 
-        const normalized: NormalizedModeration[] =
-            responses.map((response, index) => {
-                const parsed = JSON.parse(response.text ?? "{}");
+        const normalized: NormalizedModeration[] = responses.map((response, index) => {
+            const parsed = JSON.parse(response.text ?? "{}");
 
-                const categories = Object.fromEntries(
-                    Object.entries(parsed.categories ?? {}).map(([k, v]) => [
-                        k,
-                        Boolean(v)
-                    ])
-                );
+            const categories = Object.fromEntries(Object.entries(parsed.categories ?? {}).map(([k, v]) => [k, Boolean(v)]));
 
-                return {
-                    id: crypto.randomUUID(),
-                    flagged: Boolean(parsed.flagged),
-                    categories,
-                    categoryScores: undefined, // Gemini provides no confidence scores
-                    reason: parsed.reasoning || undefined,
-                    metadata: {
-                        provider: AIProvider.Gemini,
-                        model: merged.model,
-                        inputIndex: index,
-                        requestId: context?.requestId
-                    }
-                };
-            });
+            return {
+                id: crypto.randomUUID(),
+                flagged: Boolean(parsed.flagged),
+                categories,
+                categoryScores: undefined, // Gemini provides no confidence scores
+                reason: parsed.reasoning || undefined,
+                metadata: {
+                    provider: AIProvider.Gemini,
+                    model: merged.model,
+                    inputIndex: index,
+                    requestId: context?.requestId
+                }
+            };
+        });
 
         // Return fully normalized AIResponse
         return {

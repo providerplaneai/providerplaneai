@@ -106,8 +106,9 @@ export class OpenAIProvider
 
         // Register supported capabilities
         this.registerCapability(
-            CapabilityKeys.ChatCapabilityKey, 
-            this as ChatCapability<ClientChatRequest, NormalizedChatMessage>);
+            CapabilityKeys.ChatCapabilityKey,
+            this as ChatCapability<ClientChatRequest, NormalizedChatMessage>
+        );
         this.registerCapability(
             CapabilityKeys.ChatStreamCapabilityKey,
             this as ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
@@ -156,8 +157,8 @@ export class OpenAIProvider
      * @returns AIResponse containing generated text
      */
     async chat(
-        req: AIRequest<ClientChatRequest>, 
-        executionContext: MultiModalExecutionContext, 
+        req: AIRequest<ClientChatRequest>,
+        executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedChatMessage>> {
         if (!this.chatDelegate || typeof this.chatDelegate.chat !== "function") {

@@ -24,14 +24,13 @@ Do not merge images.
 Use imageIndex based on the order provided.
 `;
 
-export class AnthropicImageAnalysisCapabilityImpl implements
-    ImageAnalysisCapability<ClientImageAnalysisRequest>,
-    ImageAnalysisStreamCapability<ClientImageAnalysisRequest> {
-
+export class AnthropicImageAnalysisCapabilityImpl
+    implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
+{
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: Anthropic
-    ) { }
+    ) {}
 
     /* ------------------------------------------------------------------ */
     /* Non-streaming image analysis                                        */
@@ -42,35 +41,37 @@ export class AnthropicImageAnalysisCapabilityImpl implements
         _executionContext?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedImageAnalysis[]>> {
-
         this.provider.ensureInitialized();
-        if (signal?.aborted) throw new Error("Image analysis aborted before request started");
+        if (signal?.aborted) {
+            throw new Error("Image analysis aborted before request started");
+        }
 
         const { input, options, context } = request;
         const images = input.images ?? [];
-        if (!images.length) throw new Error("At least one image is required for analysis");
+        if (!images.length) {
+            throw new Error("At least one image is required for analysis");
+        }
 
-        const merged = this.provider.getMergedOptions(
-            CapabilityKeys.ImageAnalysisCapabilityKey,
-            options
-        );
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisCapabilityKey, options);
 
         const results: NormalizedImageAnalysis[] = [];
 
         // Analyze images sequentially to ensure robust per-image JSON parsing
         for (const image of images) {
-            if (signal?.aborted) break;
+            if (signal?.aborted) {
+                break;
+            }
 
-            const response = await this.client.messages.create({
-                model: merged.model ?? "claude-sonnet-4-20250514",
-                max_tokens: merged.modelParams?.max_tokens ?? 1024,
-                messages: this.buildVisionMessages(
-                    input.prompt ?? DEFAULT_ANTHROPIC_VISION_PROMPT,
-                    [image]
-                ),
-                ...merged.modelParams,
-                ...merged.providerParams
-            }, { signal });
+            const response = await this.client.messages.create(
+                {
+                    model: merged.model ?? "claude-sonnet-4-20250514",
+                    max_tokens: merged.modelParams?.max_tokens ?? 1024,
+                    messages: this.buildVisionMessages(input.prompt ?? DEFAULT_ANTHROPIC_VISION_PROMPT, [image]),
+                    ...merged.modelParams,
+                    ...merged.providerParams
+                },
+                { signal }
+            );
 
             const text = this.extractText(response);
             const parsed = this.normalizeAnalyses(this.stripJsonFences(text), image.id);
@@ -101,39 +102,41 @@ export class AnthropicImageAnalysisCapabilityImpl implements
         _executionContext?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>> {
-
         this.provider.ensureInitialized();
 
         const { input, options, context } = request;
         const images = input.images ?? [];
-        if (!images.length) throw new Error("At least one image is required for analysis");
+        if (!images.length) {
+            throw new Error("At least one image is required for analysis");
+        }
 
-        const merged = this.provider.getMergedOptions(
-            CapabilityKeys.ImageAnalysisStreamCapabilityKey,
-            options
-        );
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisStreamCapabilityKey, options);
 
         // Sequentially stream each image for robustness
         for (const image of images) {
-            if (signal?.aborted) return;
+            if (signal?.aborted) {
+                return;
+            }
 
             let responseId: string | undefined;
             let accumulatedText = "";
 
             try {
-                const stream = await this.client.messages.stream({
-                    model: merged.model ?? "claude-sonnet-4-20250514",
-                    max_tokens: merged.modelParams?.max_tokens ?? 1024,
-                    messages: this.buildVisionMessages(
-                        input.prompt ?? DEFAULT_ANTHROPIC_VISION_PROMPT,
-                        [image]
-                    ),
-                    ...merged.modelParams,
-                    ...merged.providerParams
-                }, { signal });
+                const stream = await this.client.messages.stream(
+                    {
+                        model: merged.model ?? "claude-sonnet-4-20250514",
+                        max_tokens: merged.modelParams?.max_tokens ?? 1024,
+                        messages: this.buildVisionMessages(input.prompt ?? DEFAULT_ANTHROPIC_VISION_PROMPT, [image]),
+                        ...merged.modelParams,
+                        ...merged.providerParams
+                    },
+                    { signal }
+                );
 
                 for await (const event of stream) {
-                    if (signal?.aborted) return;
+                    if (signal?.aborted) {
+                        return;
+                    }
 
                     if (event.type === "message_start") {
                         responseId ??= event.message?.id;
@@ -144,7 +147,13 @@ export class AnthropicImageAnalysisCapabilityImpl implements
 
                         // Yield delta as partial output
                         yield {
-                            delta: [{id: responseId ?? crypto.randomUUID(), description: event.delta.text, sourceImageId: image.id }],
+                            delta: [
+                                {
+                                    id: responseId ?? crypto.randomUUID(),
+                                    description: event.delta.text,
+                                    sourceImageId: image.id
+                                }
+                            ],
                             output: this.normalizeAnalyses(this.stripJsonFences(accumulatedText), image.id),
                             done: false,
                             id: responseId ?? crypto.randomUUID(),
@@ -175,9 +184,10 @@ export class AnthropicImageAnalysisCapabilityImpl implements
                         requestId: context?.requestId
                     }
                 };
-
             } catch (err) {
-                if (signal?.aborted) return;
+                if (signal?.aborted) {
+                    return;
+                }
 
                 yield {
                     delta: [],
@@ -202,10 +212,7 @@ export class AnthropicImageAnalysisCapabilityImpl implements
     /* Helpers                                                             */
     /* ------------------------------------------------------------------ */
 
-    private normalizeAnalyses(
-        payload: string | unknown,
-        sourceImageId?: string
-    ): NormalizedImageAnalysis[] {
+    private normalizeAnalyses(payload: string | unknown, sourceImageId?: string): NormalizedImageAnalysis[] {
         let root: any;
 
         if (typeof payload === "string") {
@@ -218,7 +225,9 @@ export class AnthropicImageAnalysisCapabilityImpl implements
             root = payload;
         }
 
-        if (!root) return [];
+        if (!root) {
+            return [];
+        }
 
         const items = Array.isArray(root) ? root : [root];
 
@@ -228,9 +237,13 @@ export class AnthropicImageAnalysisCapabilityImpl implements
             if (!description || typeof description !== "string") {
                 const strings: string[] = [];
                 const walk = (v: unknown) => {
-                    if (typeof v === "string" && v.trim()) strings.push(v.trim());
-                    else if (Array.isArray(v)) v.forEach(walk);
-                    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+                    if (typeof v === "string" && v.trim()) {
+                        strings.push(v.trim());
+                    } else if (Array.isArray(v)) {
+                        v.forEach(walk);
+                    } else if (v && typeof v === "object") {
+                        Object.values(v).forEach(walk);
+                    }
                 };
                 walk(item);
                 description = strings.shift() ?? undefined;
@@ -264,8 +277,8 @@ export class AnthropicImageAnalysisCapabilityImpl implements
                         new Set(
                             description
                                 .split(/[,.;]/)
-                                .map(s => s.trim())
-                                .filter(s => s.length > 3 && s.length < 40)
+                                .map((s) => s.trim())
+                                .filter((s) => s.length > 3 && s.length < 40)
                         )
                     );
                 }
@@ -278,7 +291,7 @@ export class AnthropicImageAnalysisCapabilityImpl implements
                     .filter((o: any) => o && typeof o.label === "string")
                     .map((o: any) => ({ label: o.label }));
             } else if (tags && tags.length > 0) {
-                objects = tags.map(t => ({ label: t }));
+                objects = tags.map((t) => ({ label: t }));
             }
             return {
                 id: crypto.randomUUID(),
@@ -286,7 +299,7 @@ export class AnthropicImageAnalysisCapabilityImpl implements
                 description,
                 tags: tags?.length ? tags : undefined,
                 objects: objects?.length ? objects : undefined,
-                safety: {flagged: item.safety !== "safe"}
+                safety: { flagged: item.safety !== "safe" }
             };
         });
     }
@@ -298,11 +311,10 @@ export class AnthropicImageAnalysisCapabilityImpl implements
             .join("");
     }
 
-    private buildVisionMessages(
-        prompt: string,
-        images: ClientReferenceImage[]
-    ): any[] {
-        if (!prompt) throw new Error("Vision prompt is required");
+    private buildVisionMessages(prompt: string, images: ClientReferenceImage[]): any[] {
+        if (!prompt) {
+            throw new Error("Vision prompt is required");
+        }
 
         const content: any[] = [];
 
@@ -314,7 +326,9 @@ export class AnthropicImageAnalysisCapabilityImpl implements
                 throw new Error(`Anthropic vision requires base64 images (got ${img.sourceType})`);
             }
 
-            if (img.description) content.push({ type: "text", text: img.description });
+            if (img.description) {
+                content.push({ type: "text", text: img.description });
+            }
 
             content.push({
                 type: "image",

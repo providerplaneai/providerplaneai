@@ -1,7 +1,4 @@
-export async function* abortableStream<T>(
-    iterable: AsyncIterable<T>,
-    signal?: AbortSignal
-): AsyncGenerator<T> {
+export async function* abortableStream<T>(iterable: AsyncIterable<T>, signal?: AbortSignal): AsyncGenerator<T> {
     const iterator = iterable[Symbol.asyncIterator]();
 
     const onAbort = () => {
@@ -25,7 +22,9 @@ export async function* abortableStream<T>(
                 })
             ]);
 
-            if ((result as IteratorResult<T>).done) break;
+            if ((result as IteratorResult<T>).done) {
+                break;
+            }
             yield (result as IteratorResult<T>).value;
         }
     } finally {

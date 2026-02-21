@@ -25,9 +25,7 @@ import {
  * OpenAI provides a dedicated moderation API (omni-moderation-latest),
  * which returns flagged status, categories, and category confidence scores.
  */
-export class OpenAIModerationCapabilityImpl implements
-    ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
-
+export class OpenAIModerationCapabilityImpl implements ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
     /**
      * Constructs a new OpenAI moderation capability.
      *
@@ -37,7 +35,7 @@ export class OpenAIModerationCapabilityImpl implements
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
-    ) { }
+    ) {}
 
     /**
      * Performs moderation on one or more input strings.
@@ -80,55 +78,44 @@ export class OpenAIModerationCapabilityImpl implements
         const merged = this.provider.getMergedOptions(CapabilityKeys.ModerationCapabilityKey, options);
 
         // Call OpenAI moderation API
-        const response = await this.client.moderations.create({
-            model: merged.model ?? "omni-moderation-latest",
-            input: inputs,
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
-        }, { signal });
+        const response = await this.client.moderations.create(
+            {
+                model: merged.model ?? "omni-moderation-latest",
+                input: inputs,
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            },
+            { signal }
+        );
 
         if (!response.results || response.results.length === 0) {
             throw new Error("OpenAI returned no moderation results");
         }
 
-        const normalized: NormalizedModeration[] =
-            response.results.map((r, index) => {
-                const categories = Object.fromEntries(
-                    Object.entries(r.categories ?? {}).map(([k, v]) => [
-                        k,
-                        Boolean(v)
-                    ])
-                );
+        const normalized: NormalizedModeration[] = response.results.map((r, index) => {
+            const categories = Object.fromEntries(Object.entries(r.categories ?? {}).map(([k, v]) => [k, Boolean(v)]));
 
-                const categoryScores = Object.fromEntries(
-                    Object.entries(r.category_scores ?? {}).map(([k, v]) => [
-                        k,
-                        Number(v)
-                    ])
-                );
+            const categoryScores = Object.fromEntries(Object.entries(r.category_scores ?? {}).map(([k, v]) => [k, Number(v)]));
 
-                const reason = Object.entries(categories)
-                    .filter(([, flagged]) => flagged)
-                    .map(([k]) => k)
-                    .join(", ");
+            const reason = Object.entries(categories)
+                .filter(([, flagged]) => flagged)
+                .map(([k]) => k)
+                .join(", ");
 
-                return {
-                    id: crypto.randomUUID(),
-                    flagged: r.flagged,
-                    categories,
-                    categoryScores:
-                        Object.keys(categoryScores).length
-                            ? categoryScores
-                            : undefined,
-                    reason: reason || undefined,
-                    metadata: {
-                        provider: AIProvider.OpenAI,
-                        model: merged.model ?? "omni-moderation-latest",
-                        inputIndex: index,
-                        requestId: context?.requestId
-                    }
-                };
-            });
+            return {
+                id: crypto.randomUUID(),
+                flagged: r.flagged,
+                categories,
+                categoryScores: Object.keys(categoryScores).length ? categoryScores : undefined,
+                reason: reason || undefined,
+                metadata: {
+                    provider: AIProvider.OpenAI,
+                    model: merged.model ?? "omni-moderation-latest",
+                    inputIndex: index,
+                    requestId: context?.requestId
+                }
+            };
+        });
 
         return {
             output: normalized,

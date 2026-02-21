@@ -1,5 +1,8 @@
 # Ignore the test file and test folder
 src/test.ts
+src/playground.ts
+src/job1.ts
+src/job2.ts
 src/__tests__/**
 examples/**
 src/examples/**

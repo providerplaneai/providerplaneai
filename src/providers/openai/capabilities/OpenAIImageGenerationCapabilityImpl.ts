@@ -25,9 +25,11 @@ import {
  * Usage:
  *   Instantiate with a parent provider and OpenAI client, then call `generateImage` or `generateImageStream`.
  */
-export class OpenAIImageGenerationCapabilityImpl implements
-    ImageGenerationCapability<ClientImageGenerationRequest>,
-    ImageGenerationStreamCapability<ClientImageGenerationRequest> {
+export class OpenAIImageGenerationCapabilityImpl
+    implements
+        ImageGenerationCapability<ClientImageGenerationRequest>,
+        ImageGenerationStreamCapability<ClientImageGenerationRequest>
+{
     /**
      * Constructor for OpenAI image generation capability implementation.
      * @param provider Parent provider instance for lifecycle/config access
@@ -36,7 +38,7 @@ export class OpenAIImageGenerationCapabilityImpl implements
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
-    ) { }
+    ) {}
 
     /**
      * Generates images using OpenAI Responses API (non-streaming).
@@ -76,19 +78,24 @@ export class OpenAIImageGenerationCapabilityImpl implements
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageGenerationCapabilityKey, options);
 
         // Generate images via OpenAI Responses API
-        const response = await this.client.responses.create({
-            model: merged.model ?? "gpt-4.1",
-            input: [{ role: "user", content: this.buildContent(input) }],
-            tools: [{
-                type: "image_generation",
-                size: input.params?.size,
-                background: input.params?.background,
-                quality: input.params?.quality,
-                style: input.params?.style
-            }],
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
-        }, { signal });
+        const response = await this.client.responses.create(
+            {
+                model: merged.model ?? "gpt-4.1",
+                input: [{ role: "user", content: this.buildContent(input) }],
+                tools: [
+                    {
+                        type: "image_generation",
+                        size: input.params?.size,
+                        background: input.params?.background,
+                        quality: input.params?.quality,
+                        style: input.params?.style
+                    }
+                ],
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            },
+            { signal }
+        );
 
         const images = this.parseImages(response.output ?? []);
 
@@ -109,11 +116,11 @@ export class OpenAIImageGenerationCapabilityImpl implements
     /**
      * Streaming image generation using OpenAI Responses API.
      * Emits partial image chunks as they become available.
-     * 
+     *
      * Note:
      * OpenAI image generation streams lifecycle events only.
      * Image payloads are delivered atomically once generation completes.
-     * Consumers should expect exactly one image-bearing chunk.    
+     * Consumers should expect exactly one image-bearing chunk.
      *
      * Steps:
      * - Validates prompt
@@ -148,19 +155,24 @@ export class OpenAIImageGenerationCapabilityImpl implements
         let responseId: string | undefined;
         let imageIndex = 0;
         try {
-            const stream = this.client.responses.stream({
-                model: merged.model ?? "gpt-4.1",
-                input: [{ role: "user", content: this.buildContent(input) }],
-                tools: [{
-                    type: "image_generation",
-                    size: input.params?.size,
-                    background: input.params?.background,
-                    quality: input.params?.quality,
-                    style: input.params?.style
-                }],
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            }, { signal });
+            const stream = this.client.responses.stream(
+                {
+                    model: merged.model ?? "gpt-4.1",
+                    input: [{ role: "user", content: this.buildContent(input) }],
+                    tools: [
+                        {
+                            type: "image_generation",
+                            size: input.params?.size,
+                            background: input.params?.background,
+                            quality: input.params?.quality,
+                            style: input.params?.style
+                        }
+                    ],
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
+                },
+                { signal }
+            );
 
             // Consume stream and yield image ONCE when ready
             for await (const event of stream) {
@@ -264,14 +276,10 @@ Description: ${input.prompt}
     }
 
     private parseImages(outputItems: any[]): NormalizedImage[] {
-
         return outputItems
-            .filter(item => item.type === "image_generation_call")
-            .map(item => {
-                const base64 =
-                    item.result ??
-                    item.image_base64 ??
-                    item.b64_json;
+            .filter((item) => item.type === "image_generation_call")
+            .map((item) => {
+                const base64 = item.result ?? item.image_base64 ?? item.b64_json;
 
                 if (!base64) {
                     return null;
@@ -282,7 +290,7 @@ Description: ${input.prompt}
                     base64,
                     url: ensureDataUri(base64, "image/png"),
                     mimeType: "image/png",
-                    raw: item,
+                    raw: item
                 } as NormalizedImage;
             })
             .filter(Boolean) as NormalizedImage[];

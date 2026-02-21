@@ -70,10 +70,9 @@ type GeminiImageAnalysisPayload = {
  * - JSON structure is enforced via prompting only
  * - Bounding boxes and confidence scores are optional / best-effort
  */
-export class GeminiImageAnalysisCapabilityImpl implements
-    ImageAnalysisCapability<ClientImageAnalysisRequest>,
-    ImageAnalysisStreamCapability<ClientImageAnalysisRequest> {
-
+export class GeminiImageAnalysisCapabilityImpl
+    implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
+{
     /**
      * @param provider Parent provider instance
      * @param client Initialized GoogleGenAI client
@@ -81,7 +80,7 @@ export class GeminiImageAnalysisCapabilityImpl implements
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
-    ) { }
+    ) {}
 
     /**
      * Analyze one or more images using Gemini multimodal models.
@@ -121,7 +120,7 @@ export class GeminiImageAnalysisCapabilityImpl implements
                 role: "user",
                 parts: [
                     { text: prompt },
-                    ...images.map(img => ({
+                    ...images.map((img) => ({
                         inlineData: {
                             mimeType: img.mimeType ?? "image/png",
                             data: img.base64!
@@ -131,17 +130,15 @@ export class GeminiImageAnalysisCapabilityImpl implements
             }
         ];
 
-        const response = await this.client.models.generateContent(
-            {
-                model: merged.model ?? "gemini-2.5-pro",
-                contents,
-                config: {
-                    temperature: 0,
-                    ...(merged.modelParams ?? {})
-                },
-                ...(merged.providerParams ?? {})
-            }
-        );
+        const response = await this.client.models.generateContent({
+            model: merged.model ?? "gemini-2.5-pro",
+            contents,
+            config: {
+                temperature: 0,
+                ...(merged.modelParams ?? {})
+            },
+            ...(merged.providerParams ?? {})
+        });
 
         const parsed = parseBestEffortJson<GeminiImageAnalysisPayload>(response.text ?? "");
 
@@ -196,10 +193,7 @@ export class GeminiImageAnalysisCapabilityImpl implements
             throw new Error("At least one image is required for analysis");
         }
 
-        const merged = this.provider.getMergedOptions(
-            CapabilityKeys.ImageAnalysisStreamCapabilityKey,
-            options
-        );
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisStreamCapabilityKey, options);
 
         let responseId: string | undefined;
         let accumulatedText = "";
@@ -212,7 +206,7 @@ export class GeminiImageAnalysisCapabilityImpl implements
                         role: "user",
                         parts: [
                             { text: prompt },
-                            ...images.map(img => ({
+                            ...images.map((img) => ({
                                 inlineData: {
                                     mimeType: img.mimeType ?? "image/png",
                                     data: img.base64!
@@ -228,12 +222,15 @@ export class GeminiImageAnalysisCapabilityImpl implements
                 ...(merged.providerParams ?? {})
             });
 
-
             // Gemini streaming is treated as transport only.
             for await (const chunk of stream) {
-                if (signal?.aborted) throw new Error("Request aborted");
+                if (signal?.aborted) {
+                    throw new Error("Request aborted");
+                }
                 responseId ??= chunk.responseId;
-                if (chunk.text) accumulatedText += chunk.text;
+                if (chunk.text) {
+                    accumulatedText += chunk.text;
+                }
             }
 
             const parsed = parseBestEffortJson<GeminiImageAnalysisPayload>(accumulatedText);
@@ -251,11 +248,13 @@ export class GeminiImageAnalysisCapabilityImpl implements
                     model: merged.model,
                     status: "completed",
                     requestId: context?.requestId,
-                    countsMatch: parsed.length === images.length    
+                    countsMatch: parsed.length === images.length
                 }
             };
         } catch (err) {
-            if (signal?.aborted) return;
+            if (signal?.aborted) {
+                return;
+            }
 
             yield {
                 output: [],
@@ -284,7 +283,7 @@ export class GeminiImageAnalysisCapabilityImpl implements
             id: images[item.imageIndex ?? index]?.id ?? crypto.randomUUID(),
             description: item.description,
             tags: item.tags?.filter(Boolean),
-            text: item.text?.map(t => ({
+            text: item.text?.map((t) => ({
                 text: t.text,
                 confidence: t.confidence
             })),

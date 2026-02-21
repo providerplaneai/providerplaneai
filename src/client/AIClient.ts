@@ -7,7 +7,6 @@ import {
     AppConfig,
     BaseProvider,
     CapabilityKeys,
-    CapabilityMap,
     loadAppConfig,
     MultiModalExecutionContext,
     ProviderRef,
@@ -87,20 +86,35 @@ export class AIClient {
         const appConfig = loadAppConfig();
         this.appConfig = appConfig;
         const configuredMaxConcurrency = appConfig.appConfig?.maxConcurrency;
+        const configuredMaxQueueSize = appConfig.appConfig?.maxQueueSize;
         const configuredMaxStoredResponseChunks = appConfig.appConfig?.maxStoredResponseChunks;
+        const configuredStoreRawResponses = appConfig.appConfig?.storeRawResponses;
+        const configuredMaxRawBytesPerJob = appConfig.appConfig?.maxRawBytesPerJob;
 
         if (jobManager) {
             if (jobManager.getMaxConcurrency() === undefined) {
                 jobManager.setMaxConcurrency(configuredMaxConcurrency);
             }
+            if (jobManager.getMaxQueueSize() === undefined) {
+                jobManager.setMaxQueueSize(configuredMaxQueueSize);
+            }
             if (jobManager.getMaxStoredResponseChunks() === undefined) {
                 jobManager.setMaxStoredResponseChunks(configuredMaxStoredResponseChunks);
+            }
+            if (jobManager.getStoreRawResponses() === undefined) {
+                jobManager.setStoreRawResponses(configuredStoreRawResponses);
+            }
+            if (jobManager.getMaxRawBytesPerJob() === undefined) {
+                jobManager.setMaxRawBytesPerJob(configuredMaxRawBytesPerJob);
             }
             this._jobManager = jobManager;
         } else {
             this._jobManager = new JobManager({
                 maxConcurrency: configuredMaxConcurrency,
-                maxStoredResponseChunks: configuredMaxStoredResponseChunks
+                maxQueueSize: configuredMaxQueueSize,
+                maxStoredResponseChunks: configuredMaxStoredResponseChunks,
+                storeRawResponses: configuredStoreRawResponses,
+                maxRawBytesPerJob: configuredMaxRawBytesPerJob
             });
         }
 
@@ -164,25 +178,19 @@ export class AIClient {
         // Always register the provider instance after assuring initialization state
         providerMap.set(connectionName, provider);
         this.providers.set(providerType, providerMap);
-        provider.setClientExecutors(this.executors?.getExecutors() ?? new Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>());
+        provider.setClientExecutors(
+            this.executors?.getExecutors() ?? new Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>()
+        );
     }
 
     // overload — non-streaming
-    public registerCapabilityExecutor<
-        C extends BuiltInCapabilityKey,
-        TInput,
-        TOutput
-    >(
+    public registerCapabilityExecutor<C extends BuiltInCapabilityKey, TInput, TOutput>(
         capability: C,
         executor: NonStreamingExecutor<C, TInput, TOutput>
     ): void;
 
     // overload — streaming
-    public registerCapabilityExecutor<
-        C extends BuiltInCapabilityKey,
-        TInput,
-        TOutput
-    >(
+    public registerCapabilityExecutor<C extends BuiltInCapabilityKey, TInput, TOutput>(
         capability: C,
         executor: StreamingExecutor<C, TInput, TOutput>
     ): void;
@@ -194,8 +202,8 @@ export class AIClient {
 
     public registerCapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput>(
         capability: C,
-        executor: | StreamingExecutor<C, TInput, TOutput> | NonStreamingExecutor<C, TInput, TOutput>) {
-
+        executor: StreamingExecutor<C, TInput, TOutput> | NonStreamingExecutor<C, TInput, TOutput>
+    ) {
         if (this.executors.has(capability)) {
             throw new Error(`Executor for capability ${capability} is already registered`);
         }
@@ -206,7 +214,6 @@ export class AIClient {
                 p.setClientExecutors(this.executors.getExecutors());
             }
         }
-
     }
 
     /**
@@ -278,24 +285,34 @@ export class AIClient {
         request: AIRequest<TInput>,
         options?: {
             maxStoredResponseChunks?: number;
+            storeRawResponses?: boolean;
+            maxRawBytesPerJob?: number;
             providerChain?: ProviderRef[];
             addToManager?: boolean;
             lifecycleHooks?: JobLifecycleHooks<TOutput>;
         }
     ): GenericJob<AIRequest<TInput>, TOutput> {
-
         const executor = this.executors.get<C, TInput, TOutput>(capability);
 
         const streaming: boolean = executor?.streaming;
-        const maxStoredResponseChunks = options?.maxStoredResponseChunks
-            ?? this._jobManager.getMaxStoredResponseChunks()
-            ?? this.appConfig.appConfig?.maxStoredResponseChunks;
+        const maxStoredResponseChunks =
+            options?.maxStoredResponseChunks ??
+            this._jobManager.getMaxStoredResponseChunks() ??
+            this.appConfig.appConfig?.maxStoredResponseChunks;
+        const storeRawResponses =
+            options?.storeRawResponses ??
+            this._jobManager.getStoreRawResponses() ??
+            this.appConfig.appConfig?.storeRawResponses ??
+            true;
+        const maxRawBytesPerJob =
+            options?.maxRawBytesPerJob ??
+            this._jobManager.getMaxRawBytesPerJob() ??
+            this.appConfig.appConfig?.maxRawBytesPerJob;
 
         const job = new GenericJob<AIRequest<TInput>, TOutput>(
             request,
             streaming,
             async (input, ctx: MultiModalExecutionContext, signal, onChunk) => {
-
                 if (executor.streaming === true) {
                     let finalOutput: TOutput | undefined;
                     let finalInternalChunk: AIResponseChunk<TOutput> | undefined;
@@ -305,18 +322,22 @@ export class AIClient {
                     const mergedArtifacts: TimelineArtifacts = {};
 
                     for await (const chunk of this.executeWithPolicyStream<C, TInput, TOutput>(
-                        capability, input, ctx,
+                        capability,
+                        input,
+                        ctx,
                         (provider, cctx, sig) => executor.invoke(provider.getCapability(capability), input, cctx, sig),
                         options?.providerChain
                     )) {
                         signal?.throwIfAborted();
-                        if (chunk.id) latestChunkId = chunk.id;
-                        if (chunk.raw !== undefined) latestChunkRaw = chunk.raw;
+                        if (chunk.id) {
+                            latestChunkId = chunk.id;
+                        }
+                        if (chunk.raw !== undefined) {
+                            latestChunkRaw = chunk.raw;
+                        }
                         if (chunk.metadata) {
-                            mergedMetadata = {
-                                ...(mergedMetadata ?? {}),
-                                ...chunk.metadata
-                            };
+                            mergedMetadata = mergedMetadata ?? {};
+                            Object.assign(mergedMetadata, chunk.metadata);
                         }
                         if (chunk.multimodalArtifacts) {
                             this.mergeTimelineArtifacts(mergedArtifacts, chunk.multimodalArtifacts);
@@ -333,10 +354,7 @@ export class AIClient {
                     }
 
                     if (finalOutput !== undefined && onChunk) {
-                        onChunk(
-                            { final: finalOutput },
-                            finalInternalChunk ?? { output: finalOutput, done: true }
-                        );
+                        onChunk({ final: finalOutput }, finalInternalChunk ?? { output: finalOutput, done: true });
                     }
                     if (finalOutput === undefined) {
                         throw new Error(`AIClient: capability '${capability}' stream completed without final output`);
@@ -354,8 +372,10 @@ export class AIClient {
                     };
                 } else {
                     const result = await this.executeWithPolicy<C, TInput, TOutput>(
-                        capability, input, ctx,
-                        (provider, cctx, sig) => executor.invoke(provider.getCapability(capability), input, cctx, sig),       
+                        capability,
+                        input,
+                        ctx,
+                        (provider, cctx, sig) => executor.invoke(provider.getCapability(capability), input, cctx, sig),
                         options?.providerChain
                     );
 
@@ -371,7 +391,12 @@ export class AIClient {
             },
             options?.lifecycleHooks,
             maxStoredResponseChunks,
-            { capability, providerChain: options?.providerChain }
+            {
+                capability,
+                providerChain: options?.providerChain,
+                storeRawResponses,
+                maxRawBytesPerJob
+            }
         );
 
         if (options?.addToManager ?? true) {
@@ -397,10 +422,7 @@ export class AIClient {
         capability: C,
         request: AIRequest<TReq>,
         context: MultiModalExecutionContext,
-        executeFn: (
-            provider: BaseProvider,
-            ctx: MultiModalExecutionContext,
-            signal?: AbortSignal) => Promise<AIResponse<TRes>>,
+        executeFn: (provider: BaseProvider, ctx: MultiModalExecutionContext, signal?: AbortSignal) => Promise<AIResponse<TRes>>,
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<TRes>> {
         // Use chain from config if none explicitly provided
@@ -512,7 +534,6 @@ export class AIClient {
         ) => AsyncGenerator<AIResponseChunk<TRes>>,
         providerChain?: ProviderRef[]
     ): AsyncGenerator<AIResponseChunk<TRes>> {
-
         // Use chain from config if none explicitly provided
         const chain = providerChain ?? this.appConfig.appConfig?.executionPolicy?.providerChain ?? [];
         if (!chain.length) {
@@ -597,10 +618,7 @@ export class AIClient {
                     ...attemptCtx,
                     durationMs: Date.now() - startTime,
                     chunksEmitted: chunksEmitted + (pendingChunk ? 1 : 0),
-                    ...this.extractAttemptUsage(
-                        latestChunkMetadata ?? pendingChunk?.metadata,
-                        pendingChunk?.raw
-                    )
+                    ...this.extractAttemptUsage(latestChunkMetadata ?? pendingChunk?.metadata, pendingChunk?.raw)
                 };
                 attempts.push(success);
                 this.lifeCycleHooks?.onAttemptSuccess?.(success);
@@ -610,7 +628,7 @@ export class AIClient {
                         ...pendingChunk,
                         metadata: {
                             ...(pendingChunk.metadata ?? {}),
-                            providerAttempts: attempts.map(a => ({ ...a }))
+                            providerAttempts: attempts.map((a) => this.sanitizeAttemptForMetadata(a))
                         }
                     };
 
@@ -661,16 +679,28 @@ export class AIClient {
         throw new AllProvidersFailedError(capability, chain, errors);
     }
 
-    private withProviderAttemptsMetadata<TRes>(
-        result: AIResponse<TRes>,
-        attempts: ProviderAttemptResult[]
-    ): AIResponse<TRes> {
+    private withProviderAttemptsMetadata<TRes>(result: AIResponse<TRes>, attempts: ProviderAttemptResult[]): AIResponse<TRes> {
         return {
             ...result,
             metadata: {
                 ...(result.metadata ?? {}),
-                providerAttempts: attempts.map(a => ({ ...a }))
+                providerAttempts: attempts.map((a) => this.sanitizeAttemptForMetadata(a))
             }
+        };
+    }
+
+    private sanitizeAttemptForMetadata(attempt: ProviderAttemptResult): Record<string, unknown> {
+        return {
+            capability: attempt.capability,
+            providerType: attempt.providerType,
+            attemptIndex: attempt.attemptIndex,
+            durationMs: attempt.durationMs,
+            chunksEmitted: attempt.chunksEmitted,
+            inputTokens: attempt.inputTokens,
+            outputTokens: attempt.outputTokens,
+            totalTokens: attempt.totalTokens,
+            estimatedCostUsd: attempt.estimatedCostUsd,
+            ...(attempt.error ? { error: "Provider attempt failed" } : {})
         };
     }
 
@@ -681,20 +711,22 @@ export class AIClient {
         const m = metadata ?? {};
         const usage = this.extractRawUsage(raw);
 
-        const inputTokens = this.readNumber(m, "inputTokens")
-            ?? this.readNumber(usage, "input_tokens")
-            ?? this.readNumber(usage, "prompt_tokens")
-            ?? this.readNumber(usage, "promptTokenCount");
-        const outputTokens = this.readNumber(m, "outputTokens")
-            ?? this.readNumber(usage, "output_tokens")
-            ?? this.readNumber(usage, "completion_tokens")
-            ?? this.readNumber(usage, "candidatesTokenCount");
-        const totalTokens = this.readNumber(m, "totalTokens")
-            ?? this.readNumber(m, "tokensUsed")
-            ?? this.readNumber(usage, "total_tokens")
-            ?? this.readNumber(usage, "totalTokenCount");
-        const estimatedCostUsd = this.readNumber(m, "estimatedCostUsd")
-            ?? this.readNumber(m, "costUsd");
+        const inputTokens =
+            this.readNumber(m, "inputTokens") ??
+            this.readNumber(usage, "input_tokens") ??
+            this.readNumber(usage, "prompt_tokens") ??
+            this.readNumber(usage, "promptTokenCount");
+        const outputTokens =
+            this.readNumber(m, "outputTokens") ??
+            this.readNumber(usage, "output_tokens") ??
+            this.readNumber(usage, "completion_tokens") ??
+            this.readNumber(usage, "candidatesTokenCount");
+        const totalTokens =
+            this.readNumber(m, "totalTokens") ??
+            this.readNumber(m, "tokensUsed") ??
+            this.readNumber(usage, "total_tokens") ??
+            this.readNumber(usage, "totalTokenCount");
+        const estimatedCostUsd = this.readNumber(m, "estimatedCostUsd") ?? this.readNumber(m, "costUsd");
 
         return {
             inputTokens,
@@ -742,31 +774,31 @@ export class AIClient {
     private modalityForCapability(capability: CapabilityKeyType): NormalizedUserInput["modality"] {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
-            case CapabilityKeys.ChatStreamCapabilityKey: return "chat";
-            case CapabilityKeys.EmbedCapabilityKey: return "embedding";
-            case CapabilityKeys.ModerationCapabilityKey: return "moderation";
+            case CapabilityKeys.ChatStreamCapabilityKey:
+                return "chat";
+            case CapabilityKeys.EmbedCapabilityKey:
+                return "embedding";
+            case CapabilityKeys.ModerationCapabilityKey:
+                return "moderation";
             case CapabilityKeys.ImageGenerationCapabilityKey:
-            case CapabilityKeys.ImageGenerationStreamCapabilityKey: return "imageGeneration";
+            case CapabilityKeys.ImageGenerationStreamCapabilityKey:
+                return "imageGeneration";
             case CapabilityKeys.ImageEditCapabilityKey:
-            case CapabilityKeys.ImageEditStreamCapabilityKey: return "imageEdit";
+            case CapabilityKeys.ImageEditStreamCapabilityKey:
+                return "imageEdit";
             case CapabilityKeys.ImageAnalysisCapabilityKey:
-            case CapabilityKeys.ImageAnalysisStreamCapabilityKey: return "imageAnalysis";
+            case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
+                return "imageAnalysis";
             default:
                 return "custom";
         }
     }
 
-    private applyOutputToContext(
-        capability: CapabilityKeyType,
-        output: unknown,
-        context: MultiModalExecutionContext
-    ) {
+    private applyOutputToContext(capability: CapabilityKeyType, output: unknown, context: MultiModalExecutionContext) {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey:
-                context.applyAssistantMessage(
-                    this.expectObject<NormalizedChatMessage>(capability, output, "chat output")
-                );
+                context.applyAssistantMessage(this.expectObject<NormalizedChatMessage>(capability, output, "chat output"));
                 break;
 
             case CapabilityKeys.EmbedCapabilityKey:
@@ -819,9 +851,17 @@ export class AIClient {
             if (request.signal.aborted) {
                 controller.abort(request.signal.reason);
             } else {
-                request.signal.addEventListener("abort", () => {
+                const forwardAbort = () => {
                     controller.abort(request.signal?.reason);
-                });
+                };
+                request.signal.addEventListener("abort", forwardAbort, { once: true });
+                controller.signal.addEventListener(
+                    "abort",
+                    () => {
+                        request.signal?.removeEventListener("abort", forwardAbort);
+                    },
+                    { once: true }
+                );
             }
         }
 
@@ -843,7 +883,9 @@ export class AIClient {
     private mergeTimelineArtifacts(target: TimelineArtifacts, next: TimelineArtifacts) {
         for (const key of Object.keys(next) as (keyof TimelineArtifacts)[]) {
             const incoming = next[key];
-            if (!incoming || incoming.length === 0) continue;
+            if (!incoming || incoming.length === 0) {
+                continue;
+            }
 
             if (!target[key]) {
                 target[key] = [];
@@ -853,10 +895,7 @@ export class AIClient {
         }
     }
 
-    private buildArtifactsFromOutput(
-        capability: CapabilityKeyType,
-        output: unknown
-    ): TimelineArtifacts | undefined {
+    private buildArtifactsFromOutput(capability: CapabilityKeyType, output: unknown): TimelineArtifacts | undefined {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey:
@@ -879,22 +918,14 @@ export class AIClient {
         }
     }
 
-    private expectArray<T>(
-        capability: CapabilityKeyType,
-        value: unknown,
-        label: string
-    ): T[] {
+    private expectArray<T>(capability: CapabilityKeyType, value: unknown, label: string): T[] {
         if (!Array.isArray(value)) {
             throw new Error(`AIClient: invalid ${label} for capability '${capability}' (expected array)`);
         }
         return value as T[];
     }
 
-    private expectObject<T extends object>(
-        capability: CapabilityKeyType,
-        value: unknown,
-        label: string
-    ): T {
+    private expectObject<T extends object>(capability: CapabilityKeyType, value: unknown, label: string): T {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
             throw new Error(`AIClient: invalid ${label} for capability '${capability}' (expected object)`);
         }
