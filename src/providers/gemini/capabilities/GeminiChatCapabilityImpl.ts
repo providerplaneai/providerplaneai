@@ -10,7 +10,6 @@ import {
     ChatStreamCapability,
     ClientChatMessage,
     ClientChatRequest,
-    ClientTextPart,
     MultiModalExecutionContext,
     NormalizedChatMessage
 } from "#root/index.js";

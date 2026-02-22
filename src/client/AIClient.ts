@@ -12,7 +12,6 @@ import {
     ProviderRef,
     withRequestContext,
     withRequestContextStream,
-    AIClientLifecycleHooks,
     AllProvidersFailedError,
     AnthropicProvider,
     DuplicateProviderRegistrationError,
@@ -33,58 +32,91 @@ import {
     CapabilityKeyType,
     GenericJob,
     JobManager,
-    JobLifecycleHooks,
     createDefaultExecutors,
     CapabilityExecutorRegistry,
     CapabilityExecutor,
     NonStreamingExecutor,
-    StreamingExecutor
+    StreamingExecutor,
+    AIClientLifecycleHooks,
+    JobLifecycleHooks
 } from "#root/index.js";
 
 /**
- * Main orchestrator and entry point for ProviderPlaneAI consumers.
+ * Main orchestrator for ProviderPlaneAI consumers.
  *
- * Responsibilities:
+ * ## Responsibilities
  * - Load and manage application configuration
  * - Register, initialize, and route to AI providers
  * - Enforce capability availability and fail-fast error handling
  * - Manage session lifecycle and event timelines
  * - Provide job-first, provider-agnostic orchestration for all capabilities
  *
- * Design:
+ * ## Design
  * - No provider-specific logic or AI implementation details
  * - Providers are opaque containers of capabilities
  * - Focuses on orchestration, error handling, and capability-based routing
  *
- * Usage:
- *   Instantiate once, register providers, and use for all AI requests and session management.
+ * ## Usage
+ * Instantiate once, register providers, and use for all AI requests and session management.
+ *
+ * @remarks
+ * This class is the central hub for all AI operations, ensuring that consumers interact with a unified interface regardless of provider or capability.
  */
 export class AIClient {
     /**
      * Provider registry:
      *   Provider type (e.g. OpenAI, Anthropic)
-     *     → connection name (e.g. "default", "prod", "staging")
-     *       → provider instance
+     *     -> connection name (e.g. "default", "prod", "staging")
+     *       -> provider instance
+     *
      * Allows multiple credentials or environments per provider.
+     *
+     * @private
      */
     private providers: Map<AIProviderType, Map<string, BaseProvider>> = new Map();
 
+    /**
+     * Registry of capability executors.
+     * Maps capability keys to their executor implementations.
+     * @private
+     */
     private executors: CapabilityExecutorRegistry;
 
     /**
      * Application configuration loaded from config files and environment variables.
      * Resolved once at construction and passed to providers during initialization.
-     * AIClient does not interpret provider-specific config.
+     *
+     * AIClient does not interpret provider-specific config, but wires core app-level
+     * options (concurrency, queue, chunk retention, raw retention, etc.) through to JobManager.
+     *
+     * @private
      */
     private appConfig: AppConfig;
 
-    /** Optional lifecycle hooks for metrics and instrumentation */
-    private lifeCycleHooks?: AIClientLifecycleHooks;
+    /**
+     * Optional lifecycle hooks for metrics, observability, and instrumentation.
+     * Can be set only once per client instance.
+     * @private
+     */
+    private lifecycleHooks?: AIClientLifecycleHooks;
+
+    /**
+     * Job manager instance for managing job execution and lifecycle.
+     * @private
+     */
     private _jobManager: JobManager;
 
+    /**
+     * Constructs a new AIClient instance.
+     *
+     * @param jobManager Optional custom JobManager instance.
+     * @param executors Optional custom CapabilityExecutorRegistry.
+     */
     constructor(jobManager?: JobManager, executors?: CapabilityExecutorRegistry) {
+        // Load application configuration from files and environment variables
         const appConfig = loadAppConfig();
         this.appConfig = appConfig;
+        // Extract core app-level options for job manager wiring
         const configuredMaxConcurrency = appConfig.appConfig?.maxConcurrency;
         const configuredMaxQueueSize = appConfig.appConfig?.maxQueueSize;
         const configuredMaxStoredResponseChunks = appConfig.appConfig?.maxStoredResponseChunks;
@@ -92,23 +124,30 @@ export class AIClient {
         const configuredMaxRawBytesPerJob = appConfig.appConfig?.maxRawBytesPerJob;
 
         if (jobManager) {
+            // If a custom JobManager is provided, ensure its config is set or fallback to appConfig
             if (jobManager.getMaxConcurrency() === undefined) {
+                // Set max concurrency from config if not already set
                 jobManager.setMaxConcurrency(configuredMaxConcurrency);
             }
             if (jobManager.getMaxQueueSize() === undefined) {
+                // Set max queue size from config if not already set
                 jobManager.setMaxQueueSize(configuredMaxQueueSize);
             }
             if (jobManager.getMaxStoredResponseChunks() === undefined) {
+                // Set max stored response chunks from config if not already set
                 jobManager.setMaxStoredResponseChunks(configuredMaxStoredResponseChunks);
             }
             if (jobManager.getStoreRawResponses() === undefined) {
+                // Set storeRawResponses from config if not already set
                 jobManager.setStoreRawResponses(configuredStoreRawResponses);
             }
             if (jobManager.getMaxRawBytesPerJob() === undefined) {
+                // Set max raw bytes per job from config if not already set
                 jobManager.setMaxRawBytesPerJob(configuredMaxRawBytesPerJob);
             }
             this._jobManager = jobManager;
         } else {
+            // Otherwise, create a new JobManager using config values
             this._jobManager = new JobManager({
                 maxConcurrency: configuredMaxConcurrency,
                 maxQueueSize: configuredMaxQueueSize,
@@ -118,7 +157,11 @@ export class AIClient {
             });
         }
 
-        // Auto-register providers from the provider chain
+        // Register capability executors first so auto-registered providers receive the full executor map.
+        // Manual registration is still supported and can override this.
+        this.executors = executors ?? createDefaultExecutors();
+
+        // Auto-register providers declared in appConfig.executionPolicy.providerChain.
         for (const provider of appConfig?.appConfig?.executionPolicy?.providerChain || []) {
             const { connectionName, providerType } = provider;
             if (providerType === AIProvider.OpenAI) {
@@ -131,37 +174,43 @@ export class AIClient {
                 throw new Error(`Invalid provider: ${providerType}`);
             }
         }
-
-        this.executors = executors ?? createDefaultExecutors();
     }
 
     /**
-     * Set lifecycle hooks for metrics and instrumentation.
+     * Set lifecycle hooks for metrics, observability, and instrumentation.
+     * Can only be set once per client instance.
+     *
+     * @param lifecycleHooks The hooks to set on client lifecycle events.
+     * @throws Error if hooks are already set.
      */
-    setLifeCycleHooks(lifeCycleHooks: AIClientLifecycleHooks) {
-        if (this.lifeCycleHooks) {
+    setLifecycleHooks(lifecycleHooks: AIClientLifecycleHooks) {
+        // Only allow hooks to be set once per client instance
+        if (this.lifecycleHooks) {
             throw new Error("Lifecycle hooks already set");
         }
-        this.lifeCycleHooks = lifeCycleHooks;
+        this.lifecycleHooks = lifecycleHooks;
     }
 
     /**
      * Registers and initializes a provider instance.
      *
-     * Important invariants:
-     * - A provider + connectionName pair may only be registered once
-     * - Providers are initialized lazily at registration time
-     * - Capability registration is the provider’s responsibility, not the client’s
+     * Invariants:
+     * - A provider + connectionName pair may only be registered once.
+     * - Providers are initialized lazily at registration time with config from appConfig.
+     * - Capability registration is the provider’s responsibility, not the client’s.
+     * - Executors are set on the provider after registration.
      *
-     * @param provider The provider instance to register
-     * @param providerType The type of the provider (e.g. OpenAI, Anthropic)
-     * @param connectionName Optional connection name; defaults to "default"
-     * @throws Error if the provider + connectionName is already registered or missing config
+     * @param provider The provider instance to register.
+     * @param providerType The type of the provider (e.g. OpenAI, Anthropic).
+     * @param connectionName Optional connection name; defaults to "default".
+     * @throws DuplicateProviderRegistrationError if the provider + connectionName is already registered.
+     * @throws ExecutionPolicyError if the provider configuration is missing.
      */
     public registerProvider(provider: BaseProvider, providerType: AIProviderType, connectionName: string = "default") {
         const providerMap = this.providers.get(providerType) || new Map();
 
         if (providerMap?.has(connectionName)) {
+            // Prevent accidental double registration
             throw new DuplicateProviderRegistrationError(providerType, connectionName);
         }
 
@@ -183,23 +232,51 @@ export class AIClient {
         );
     }
 
-    // overload — non-streaming
+    /**
+     * Registers a non-streaming capability executor for a built-in capability.
+     *
+     * @param capability The built-in capability key.
+     * @param executor The non-streaming executor instance.
+     */
     public registerCapabilityExecutor<C extends BuiltInCapabilityKey, TInput, TOutput>(
         capability: C,
         executor: NonStreamingExecutor<C, TInput, TOutput>
     ): void;
 
-    // overload — streaming
+    /**
+     * Registers a streaming capability executor for a built-in capability.
+     *
+     * @param capability The built-in capability key.
+     * @param executor The streaming executor instance.
+     */
     public registerCapabilityExecutor<C extends BuiltInCapabilityKey, TInput, TOutput>(
         capability: C,
         executor: StreamingExecutor<C, TInput, TOutput>
     ): void;
 
+    /**
+     * Registers a custom capability executor (streaming or non-streaming).
+     *
+     * @param capability The custom capability key.
+     * @param executor The executor instance.
+     */
     public registerCapabilityExecutor<TInput, TOutput>(
         capability: CustomCapabilityKey,
         executor: StreamingExecutor<any, TInput, TOutput> | NonStreamingExecutor<any, TInput, TOutput>
     ): void;
 
+    /**
+     * Registers a capability executor for a given capability key.
+     * Throws if an executor is already registered for the capability.
+     * Automatically updates all registered providers with the new executors map.
+     *
+     * @template C Capability key type
+     * @template TInput Input type for the executor
+     * @template TOutput Output type for the executor
+     * @param capability The capability key.
+     * @param executor The executor instance.
+     * @throws Error if an executor is already registered for the capability.
+     */
     public registerCapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput>(
         capability: C,
         executor: StreamingExecutor<C, TInput, TOutput> | NonStreamingExecutor<C, TInput, TOutput>
@@ -209,6 +286,7 @@ export class AIClient {
         }
         this.executors.set(capability, executor);
 
+        // Propagate executor updates to all registered providers so new capabilities are immediately available.
         for (const provider of this.providers.values()) {
             for (const p of provider.values()) {
                 p.setClientExecutors(this.executors.getExecutors());
@@ -223,18 +301,20 @@ export class AIClient {
      * - Missing providers are a configuration error, not a recoverable state
      *
      * @template T The type of the provider, typically a BaseProvider combined with a capability interface
-     * @param type Provider type to resolve
-     * @param connectionName Optional connection name; defaults to "default"
-     * @returns The requested provider instance
-     * @throws Error if the provider type or connection name is not registered
+     * @param type Provider type to resolve.
+     * @param connectionName Optional connection name; defaults to "default".
+     * @returns The requested provider instance.
+     * @throws Error if the provider type or connection name is not registered.
      */
     public getProvider<T extends BaseProvider>(type: AIProviderType, connectionName: string = "default"): T {
+        // Look up the provider map for the given type
         const connections = this.providers.get(type);
         if (!connections) {
             throw new Error(`No providers registered for ${type}`);
         }
 
         const provider = connections.get(connectionName);
+        // Look up the provider instance for the given connection name
         if (!provider) {
             throw new Error(`No provider registered for ${type} with connection '${connectionName}'`);
         }
@@ -253,10 +333,11 @@ export class AIClient {
      * It does NOT perform routing or ranking.
      *
      * @template C Capability key type
-     * @param capability The capability key to search for
-     * @returns Array of providers that implement the requested capability
+     * @param capability The capability key to search for.
+     * @returns Array of providers that implement the requested capability.
      */
     public findProvidersByCapability<C extends CapabilityKeyType>(capability: C): BaseProvider[] {
+        // Collect all providers that implement the requested capability
         const result: BaseProvider[] = [];
         for (const providerMap of this.providers.values()) {
             for (const provider of providerMap.values()) {
@@ -270,15 +351,39 @@ export class AIClient {
 
     /**
      * Advanced access to the job manager.
-     * Most consumers should create jobs via createCapabilityJob(...) and execute via this manager.
+     * Most consumers should create jobs via {@link createCapabilityJob} and execute via this manager.
+     * @returns The JobManager instance.
      */
     public get jobManager() {
+        // Return the JobManager instance for advanced job management
         return this._jobManager;
     }
 
     /**
-     * Primary execution API for consumers.
-     * Creates a capability job that can be queued, observed, persisted, and rerun.
+     * Creates a new job for executing a capability with full lifecycle management.
+     *
+     * This is the primary entry point for consumers to submit AI requests.
+     * The returned job can be queued, observed, persisted, rerun, and supports streaming or non-streaming execution.
+     *
+     * Features:
+     * - Supports custom per-job overrides for chunk retention, raw payload retention, and byte budget.
+     * - Allows specifying a custom provider chain for fallback/routing.
+     * - Optionally attaches custom lifecycle hooks for job-level observability.
+     * - By default, adds the job to the JobManager for execution and tracking.
+     *
+     * @template C Capability key type (e.g., chat, image, embedding)
+     * @template TInput Input type for the capability
+     * @template TOutput Output type for the capability
+     * @param capability The capability key to execute (must be registered).
+     * @param request The AIRequest payload (input, options, context, etc.).
+     * @param options Optional per-job overrides:
+     *   - maxStoredResponseChunks: Max number of response chunks to retain
+     *   - storeRawResponses: Whether to retain raw provider payloads
+     *   - maxRawBytesPerJob: Max bytes of raw payloads to retain
+     *   - providerChain: Custom provider fallback chain for this job
+     *   - addToManager: If false, does not add job to JobManager (manual control)
+     *   - lifecycleHooks: Custom hooks for this job's lifecycle events
+     * @returns A GenericJob instance representing the full execution lifecycle.
      */
     public createCapabilityJob<C extends CapabilityKeyType, TInput, TOutput>(
         capability: C,
@@ -292,6 +397,10 @@ export class AIClient {
             lifecycleHooks?: JobLifecycleHooks<TOutput>;
         }
     ): GenericJob<AIRequest<TInput>, TOutput> {
+        // Look up executor for capability
+        // Determine streaming mode for job
+        // Resolve chunk/raw retention options (job > manager > config)
+        // Create job instance with resolved options and execution logic
         const executor = this.executors.get<C, TInput, TOutput>(capability);
 
         const streaming: boolean = executor?.streaming;
@@ -314,6 +423,7 @@ export class AIClient {
             streaming,
             async (input, ctx: MultiModalExecutionContext, signal, onChunk) => {
                 if (executor.streaming === true) {
+                    // Streaming mode: merge chunks, update artifacts, and handle output
                     let finalOutput: TOutput | undefined;
                     let finalInternalChunk: AIResponseChunk<TOutput> | undefined;
                     let latestChunkId: string | undefined;
@@ -321,6 +431,7 @@ export class AIClient {
                     let mergedMetadata: AIResponse<TOutput>["metadata"] | undefined;
                     const mergedArtifacts: TimelineArtifacts = {};
 
+                    // Iterate over streamed chunks from provider chain
                     for await (const chunk of this.executeWithPolicyStream<C, TInput, TOutput>(
                         capability,
                         input,
@@ -329,38 +440,49 @@ export class AIClient {
                         options?.providerChain
                     )) {
                         signal?.throwIfAborted();
+                        // Track latest chunk id and raw payload
                         if (chunk.id) {
                             latestChunkId = chunk.id;
                         }
                         if (chunk.raw !== undefined) {
+                            // Track latest chunk raw payload
                             latestChunkRaw = chunk.raw;
                         }
+                        // Merge chunk metadata for diagnostics
                         if (chunk.metadata) {
                             mergedMetadata = mergedMetadata ?? {};
                             Object.assign(mergedMetadata, chunk.metadata);
                         }
+                        // Merge multimodal artifacts for timeline/context
                         if (chunk.multimodalArtifacts) {
                             this.mergeTimelineArtifacts(mergedArtifacts, chunk.multimodalArtifacts);
                         }
 
+                        // Emit chunk delta to consumer if present
                         if (chunk.delta !== undefined && onChunk) {
                             onChunk({ delta: chunk.delta }, chunk);
                         }
 
+                        // Track final output and chunk for completion
                         if (chunk.output !== undefined) {
                             finalOutput = chunk.output;
                             finalInternalChunk = chunk;
                         }
                     }
 
+                    // Emit final output to consumer
                     if (finalOutput !== undefined && onChunk) {
                         onChunk({ final: finalOutput }, finalInternalChunk ?? { output: finalOutput, done: true });
                     }
+                    // Error if stream completes without output
                     if (finalOutput === undefined) {
                         throw new Error(`AIClient: capability '${capability}' stream completed without final output`);
                     }
+                    // Fallback to build artifacts if none were merged
                     const fallbackArtifacts = this.buildArtifactsFromOutput(capability, finalOutput);
                     return {
+                        // Return merged output, artifacts, and metadata
+                        // Non-streaming mode: invoke executor and handle output
                         output: finalOutput,
                         id: finalInternalChunk?.id ?? latestChunkId,
                         rawResponse: finalInternalChunk?.raw ?? latestChunkRaw,
@@ -371,6 +493,7 @@ export class AIClient {
                         }
                     };
                 } else {
+                    // Non-streaming mode: invoke executor and handle output
                     const result = await this.executeWithPolicy<C, TInput, TOutput>(
                         capability,
                         input,
@@ -379,6 +502,7 @@ export class AIClient {
                         options?.providerChain
                     );
 
+                    // Return result if artifacts present or output is undefined
                     if (result.multimodalArtifacts || result.output === undefined) {
                         return result;
                     }
@@ -400,6 +524,7 @@ export class AIClient {
         );
 
         if (options?.addToManager ?? true) {
+            // Optionally add job to manager for execution/tracking
             this._jobManager.addJob(job);
         }
 
@@ -409,14 +534,18 @@ export class AIClient {
     /**
      * Executes a capability call across a provider chain with fallback support.
      *
+     * Attempts each provider in order until one succeeds, or throws if all fail.
+     *
      * @template C Capability key (e.g., ChatCapability, ImageAnalysisCapability)
-     * @param capability The capability being invoked
-     * @param request The request object created by the caller
-     * @param context The multimodal execution context to attach this request to
-     * @param executeFn Function that executes the call on a provider
-     * @param providerChain Optional ordered list of providers to try; defaults to appConfig.executionPolicy.providerChain
-     * @returns Result of the first successful provider call
-     * @throws AllProvidersFailedError if all providers fail
+     * @template TReq Input type for the capability
+     * @template TRes Output type for the capability
+     * @param capability The capability being invoked.
+     * @param request The request object created by the caller.
+     * @param context The multimodal execution context to attach this request to.
+     * @param executeFn Function that executes the call on a provider.
+     * @param providerChain Optional ordered list of providers to try; defaults to appConfig.executionPolicy.providerChain.
+     * @returns Result of the first successful provider call.
+     * @throws AllProvidersFailedError if all providers fail.
      */
     private async executeWithPolicy<C extends CapabilityKeyType, TReq, TRes>(
         capability: C,
@@ -438,7 +567,7 @@ export class AIClient {
         const attempts: ProviderAttemptResult[] = [];
 
         // Metrics hook: execution start
-        this.lifeCycleHooks?.onExecutionStart?.(capability, chain);
+        this.lifecycleHooks?.onExecutionStart?.(capability, chain);
 
         // Attempt each provider in order
         for (let i = 0; i < chain.length; i++) {
@@ -454,11 +583,13 @@ export class AIClient {
             };
 
             // Metrics hook: provider attempt start
-            this.lifeCycleHooks?.onAttemptStart?.(attemptCtx);
+            this.lifecycleHooks?.onAttemptStart?.(attemptCtx);
 
             try {
                 const provider = this.getProvider<BaseProvider>(providerType, connectionName);
+                // Resolve provider instance for this attempt
                 if (!provider.hasCapability(capability)) {
+                    // Skip provider if it does not implement the capability
                     continue;
                 }
 
@@ -466,10 +597,12 @@ export class AIClient {
 
                 const result: AIResponse<TRes> = await withRequestContext(request, () => executeFn(provider, context, signal));
                 if (result.error) {
+                    // Throw if provider returns error
                     throw result.error;
                 }
 
                 if (result.output !== undefined) {
+                    // Apply output to context for timeline/artifact tracking
                     this.applyOutputToContext(capability, result.output, context);
                 }
 
@@ -480,11 +613,12 @@ export class AIClient {
                     ...this.extractAttemptUsage(result.metadata, result.rawResponse)
                 };
                 attempts.push(success);
-                this.lifeCycleHooks?.onAttemptSuccess?.(success);
-                this.lifeCycleHooks?.onExecutionEnd?.(capability, chain);
+                this.lifecycleHooks?.onAttemptSuccess?.(success);
+                this.lifecycleHooks?.onExecutionEnd?.(capability, chain);
 
                 return this.withProviderAttemptsMetadata(result, attempts);
             } catch (err) {
+                // Handle provider failure, record error and fire hooks
                 const failure: ProviderAttemptResult = {
                     ...attemptCtx,
                     durationMs: Date.now() - startTime,
@@ -494,34 +628,36 @@ export class AIClient {
                 errors.push(failure);
                 attempts.push(failure);
                 // Metrics hook: provider attempt failed
-                this.lifeCycleHooks?.onAttemptFailure?.(failure);
+                this.lifecycleHooks?.onAttemptFailure?.(failure);
             }
         }
 
-        this.lifeCycleHooks?.onExecutionFailure?.(capability, chain, errors);
-        this.lifeCycleHooks?.onExecutionEnd?.(capability, chain);
+        this.lifecycleHooks?.onExecutionFailure?.(capability, chain, errors);
+        this.lifecycleHooks?.onExecutionEnd?.(capability, chain);
 
         throw new AllProvidersFailedError(capability, chain, errors);
+        // Throw if all providers fail
     }
 
     /**
      * Executes a streaming capability call across a provider chain with fallback support.
      *
-     * Attempts each provider in order until one successfully yields chunks.
-     * If a provider fails mid-stream, automatically falls back to the next provider.
+     * This method attempts each provider in the chain in order, yielding streamed chunks as soon as they are available.
+     * If a provider fails mid-stream, it automatically falls back to the next provider in the chain.
+     * Previously yielded chunks are not replayed; only new chunks from the fallback provider are yielded.
      *
-     * Note:
-     * If a provider fails after yielding one or more chunks, the stream will
-     * fall back to the next provider. Previously yielded chunks are not replayed.
+     * Metrics and lifecycle hooks are triggered for each attempt, chunk emission, and overall execution.
      *
      * @template C Capability key (e.g., ChatStreamCapability, ImageGenerationStreamCapability)
-     * @param capability The capability being invoked
-     * @param request The request object created by the caller
-     * @param context The multimodal execution context to attach this request to
-     * @param executeFn Function that executes the call on a provider and returns an AsyncGenerator
-     * @param providerChain Optional ordered list of providers to try; defaults to appConfig.executionPolicy.providerChain
-     * @returns AsyncGenerator yielding chunks from the first successful provider
-     * @throws AllProvidersFailedError if all providers fail immediately
+     * @template TReq Input type for the capability
+     * @template TRes Output type for the capability
+     * @param capability The capability being invoked.
+     * @param request The request object created by the caller.
+     * @param context The multimodal execution context to attach this request to.
+     * @param executeFn Function that executes the call on a provider and returns an AsyncGenerator.
+     * @param providerChain Optional ordered list of providers to try; defaults to appConfig.executionPolicy.providerChain.
+     * @returns AsyncGenerator yielding chunks from the first successful provider.
+     * @throws AllProvidersFailedError if all providers fail immediately.
      */
     private async *executeWithPolicyStream<C extends CapabilityKeyType, TReq, TRes>(
         capability: C,
@@ -534,19 +670,23 @@ export class AIClient {
         ) => AsyncGenerator<AIResponseChunk<TRes>>,
         providerChain?: ProviderRef[]
     ): AsyncGenerator<AIResponseChunk<TRes>> {
-        // Use chain from config if none explicitly provided
+        // Use provider chain from config if none explicitly provided
         const chain = providerChain ?? this.appConfig.appConfig?.executionPolicy?.providerChain ?? [];
         if (!chain.length) {
+            // Fail-fast if no provider chain is defined
             throw new ExecutionPolicyError(`No provider chain defined for ${capability}`);
         }
 
-        // Begin the turn once before provider iteration
+        // Begin the turn once before provider iteration for timeline/context
         context.beginTurn(this.normalizeUserInput(capability, request));
 
+        // Track errors and attempts for diagnostics and reporting
         const errors: ProviderAttemptResult[] = [];
         const attempts: ProviderAttemptResult[] = [];
-        this.lifeCycleHooks?.onExecutionStart?.(capability, chain);
+        // Metrics hook: execution start
+        this.lifecycleHooks?.onExecutionStart?.(capability, chain);
 
+        // Attempt each provider in order, yielding chunks until one succeeds or all fail
         for (let i = 0; i < chain.length; i++) {
             const { providerType, connectionName } = chain[i];
             const startTime = Date.now();
@@ -554,6 +694,7 @@ export class AIClient {
             let chunksEmitted = 0;
             let pendingChunk: AIResponseChunk<TRes> | undefined;
 
+            // Build attempt context for metrics and hooks
             const attemptCtx: ProviderAttemptContext = {
                 capability,
                 providerType,
@@ -562,26 +703,32 @@ export class AIClient {
                 startTime
             };
 
-            this.lifeCycleHooks?.onAttemptStart?.(attemptCtx);
+            // Metrics hook: provider attempt start
+            this.lifecycleHooks?.onAttemptStart?.(attemptCtx);
 
             try {
+                // Resolve provider instance for this attempt
                 const provider = this.getProvider<BaseProvider>(providerType, connectionName);
+                // Skip provider if it does not implement the capability
                 if (!provider.hasCapability(capability)) {
                     continue;
                 }
 
+                // Create abort signal for timeout/cancellation
                 const signal = this.createExecutionSignal(request);
 
                 let finalOutput: TRes | undefined;
                 let latestChunkMetadata: AIResponseChunk<TRes>["metadata"] | undefined;
+                // Stream chunks from the provider, yielding as they arrive
                 for await (const chunk of withRequestContextStream(request, () => executeFn(provider, context, signal))) {
                     signal.throwIfAborted();
 
+                    // Throw if chunk signals error
                     if (chunk.error) {
                         throw chunk.error;
                     }
 
-                    // Attach any multimodal artifacts incrementally
+                    // Attach any multimodal artifacts incrementally to context
                     if (chunk.multimodalArtifacts) {
                         context.yieldArtifacts(chunk.multimodalArtifacts);
                     }
@@ -590,13 +737,15 @@ export class AIClient {
                     if (chunk.output !== undefined) {
                         finalOutput = chunk.output;
                     }
+                    // Track latest chunk metadata for usage/cost reporting
                     if (chunk.metadata) {
                         latestChunkMetadata = chunk.metadata;
                     }
 
+                    // If a previous chunk is buffered, yield it now (buffering allows metadata augmentation)
                     if (pendingChunk) {
                         yield pendingChunk;
-                        this.lifeCycleHooks?.onChunkEmitted?.({
+                        this.lifecycleHooks?.onChunkEmitted?.({
                             capability,
                             providerType,
                             connectionName,
@@ -607,13 +756,16 @@ export class AIClient {
                         chunksEmitted++;
                     }
 
+                    // Buffer the current chunk for possible augmentation
                     pendingChunk = chunk;
                 }
 
+                // Apply output to context for timeline/artifact tracking
                 if (finalOutput !== undefined) {
                     this.applyOutputToContext(capability, finalOutput, context);
                 }
 
+                // Build success attempt result for metrics and reporting
                 const success: ProviderAttemptResult = {
                     ...attemptCtx,
                     durationMs: Date.now() - startTime,
@@ -621,8 +773,9 @@ export class AIClient {
                     ...this.extractAttemptUsage(latestChunkMetadata ?? pendingChunk?.metadata, pendingChunk?.raw)
                 };
                 attempts.push(success);
-                this.lifeCycleHooks?.onAttemptSuccess?.(success);
+                this.lifecycleHooks?.onAttemptSuccess?.(success);
 
+                // Yield the final buffered chunk, attaching provider attempt metadata
                 if (pendingChunk) {
                     const chunkWithAttempts: AIResponseChunk<TRes> = {
                         ...pendingChunk,
@@ -633,7 +786,7 @@ export class AIClient {
                     };
 
                     yield chunkWithAttempts;
-                    this.lifeCycleHooks?.onChunkEmitted?.({
+                    this.lifecycleHooks?.onChunkEmitted?.({
                         capability,
                         providerType,
                         connectionName,
@@ -642,13 +795,15 @@ export class AIClient {
                     });
                 }
 
-                this.lifeCycleHooks?.onExecutionEnd?.(capability, chain);
+                // Metrics hook: execution end
+                this.lifecycleHooks?.onExecutionEnd?.(capability, chain);
                 return;
             } catch (err) {
-                // Flush buffered chunk so successful partial output from this attempt isn't dropped.
+                // Flush buffered chunk before fallback so partial successful output is preserved.
+                // We buffer one chunk to allow final-chunk metadata augmentation on success paths.
                 if (pendingChunk) {
                     yield pendingChunk;
-                    this.lifeCycleHooks?.onChunkEmitted?.({
+                    this.lifecycleHooks?.onChunkEmitted?.({
                         capability,
                         providerType,
                         connectionName,
@@ -660,6 +815,7 @@ export class AIClient {
                     pendingChunk = undefined;
                 }
 
+                // Build failure attempt result for metrics and reporting
                 const failure: ProviderAttemptResult = {
                     ...attemptCtx,
                     durationMs: Date.now() - startTime,
@@ -669,16 +825,24 @@ export class AIClient {
 
                 errors.push(failure);
                 attempts.push(failure);
-                this.lifeCycleHooks?.onAttemptFailure?.(failure);
+                this.lifecycleHooks?.onAttemptFailure?.(failure);
             }
         }
 
-        this.lifeCycleHooks?.onExecutionFailure?.(capability, chain, errors);
-        this.lifeCycleHooks?.onExecutionEnd?.(capability, chain);
+        // All providers failed; fire hooks and throw error
+        this.lifecycleHooks?.onExecutionFailure?.(capability, chain, errors);
+        this.lifecycleHooks?.onExecutionEnd?.(capability, chain);
 
         throw new AllProvidersFailedError(capability, chain, errors);
     }
 
+    /**
+     * Attaches provider attempt metadata to an AIResponse.
+     *
+     * @param result The AIResponse to augment.
+     * @param attempts The list of provider attempt results.
+     * @returns The AIResponse with providerAttempts metadata included.
+     */
     private withProviderAttemptsMetadata<TRes>(result: AIResponse<TRes>, attempts: ProviderAttemptResult[]): AIResponse<TRes> {
         return {
             ...result,
@@ -689,6 +853,12 @@ export class AIClient {
         };
     }
 
+    /**
+     * Sanitizes a provider attempt result for inclusion in response metadata.
+     *
+     * @param attempt The provider attempt result.
+     * @returns A sanitized metadata object.
+     */
     private sanitizeAttemptForMetadata(attempt: ProviderAttemptResult): Record<string, unknown> {
         return {
             capability: attempt.capability,
@@ -699,15 +869,22 @@ export class AIClient {
             inputTokens: attempt.inputTokens,
             outputTokens: attempt.outputTokens,
             totalTokens: attempt.totalTokens,
-            estimatedCostUsd: attempt.estimatedCostUsd,
+            estimatedCost: attempt.estimatedCost,
             ...(attempt.error ? { error: "Provider attempt failed" } : {})
         };
     }
 
+    /**
+     * Extracts usage statistics from response metadata or raw payload.
+     *
+     * @param metadata The response or chunk metadata.
+     * @param raw The raw provider payload.
+     * @returns An object with inputTokens, outputTokens, totalTokens, and estimatedCost.
+     */
     private extractAttemptUsage(
         metadata?: AIResponse<unknown>["metadata"] | AIResponseChunk<unknown>["metadata"],
         raw?: unknown
-    ): Pick<ProviderAttemptResult, "inputTokens" | "outputTokens" | "totalTokens" | "estimatedCostUsd"> {
+    ): Pick<ProviderAttemptResult, "inputTokens" | "outputTokens" | "totalTokens" | "estimatedCost"> {
         const m = metadata ?? {};
         const usage = this.extractRawUsage(raw);
 
@@ -726,21 +903,32 @@ export class AIClient {
             this.readNumber(m, "tokensUsed") ??
             this.readNumber(usage, "total_tokens") ??
             this.readNumber(usage, "totalTokenCount");
-        const estimatedCostUsd = this.readNumber(m, "estimatedCostUsd") ?? this.readNumber(m, "costUsd");
+        const estimatedCost = this.readNumber(m, "estimatedCost") ?? this.readNumber(m, "cost");
 
         return {
             inputTokens,
             outputTokens,
             totalTokens,
-            estimatedCostUsd
+            estimatedCost
         };
     }
 
+    /**
+     * Reads a finite number from a source object by key.
+     * @param source The object to read from.
+     * @param key The key to look up.
+     * @returns The number if present and finite, otherwise undefined.
+     */
     private readNumber(source: Record<string, unknown>, key: string): number | undefined {
         const value = source[key];
         return typeof value === "number" && Number.isFinite(value) ? value : undefined;
     }
 
+    /**
+     * Extracts a usage object from a raw provider payload.
+     * @param raw The raw provider payload.
+     * @returns The usage object if found, otherwise an empty object.
+     */
     private extractRawUsage(raw: unknown): Record<string, unknown> {
         if (!raw || typeof raw !== "object") {
             return {};
@@ -760,7 +948,14 @@ export class AIClient {
         return {};
     }
 
+    /**
+     * Normalizes user input for context tracking and timeline management.
+     * @param capability The capability key.
+     * @param request The AIRequest object.
+     * @returns A NormalizedUserInput object.
+     */
     private normalizeUserInput<T>(capability: CapabilityKeyType, request: AIRequest<T>): NormalizedUserInput {
+        // Normalize user input for context/timeline tracking
         return {
             id: crypto.randomUUID(),
             modality: this.modalityForCapability(capability),
@@ -771,29 +966,48 @@ export class AIClient {
         };
     }
 
+    /**
+     * Infers the modality for a given capability key.
+     * @param capability The capability key.
+     * @returns The inferred modality string.
+     */
     private modalityForCapability(capability: CapabilityKeyType): NormalizedUserInput["modality"] {
+        // Map capability keys to modality strings for analytics/context
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey:
+                // Chat-related capabilities
                 return "chat";
             case CapabilityKeys.EmbedCapabilityKey:
+                // Embedding capability
                 return "embedding";
             case CapabilityKeys.ModerationCapabilityKey:
+                // Moderation capability
                 return "moderation";
             case CapabilityKeys.ImageGenerationCapabilityKey:
             case CapabilityKeys.ImageGenerationStreamCapabilityKey:
+                // Image generation capabilities
                 return "imageGeneration";
             case CapabilityKeys.ImageEditCapabilityKey:
             case CapabilityKeys.ImageEditStreamCapabilityKey:
+                // Image edit capabilities
                 return "imageEdit";
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
+                // Image analysis capabilities
                 return "imageAnalysis";
             default:
+                // Custom or unknown capability
                 return "custom";
         }
     }
 
+    /**
+     * Applies output to the execution context for timeline and artifact tracking.
+     * @param capability The capability key.
+     * @param output The output to apply.
+     * @param context The execution context.
+     */
     private applyOutputToContext(capability: CapabilityKeyType, output: unknown, context: MultiModalExecutionContext) {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
@@ -838,6 +1052,11 @@ export class AIClient {
         }
     }
 
+    /**
+     * Creates an AbortSignal for a request, handling timeouts and cancellation.
+     * @param request The AIRequest object.
+     * @returns An AbortSignal for the request.
+     */
     private createExecutionSignal(request: AIRequest<any>): AbortSignal {
         // If caller already provided a signal *and* no timeout, reuse it directly
         if (request.signal && !request.timeoutMs) {
@@ -880,6 +1099,12 @@ export class AIClient {
         return controller.signal;
     }
 
+    /**
+     * Merges timeline artifacts from one object into another.
+     *
+     * @param target The target TimelineArtifacts object.
+     * @param next The next TimelineArtifacts object to merge in.
+     */
     private mergeTimelineArtifacts(target: TimelineArtifacts, next: TimelineArtifacts) {
         for (const key of Object.keys(next) as (keyof TimelineArtifacts)[]) {
             const incoming = next[key];
@@ -895,7 +1120,14 @@ export class AIClient {
         }
     }
 
+    /**
+     * Builds timeline artifacts from a capability output.
+     * @param capability The capability key.
+     * @param output The output to extract artifacts from.
+     * @returns TimelineArtifacts if available, otherwise undefined.
+     */
     private buildArtifactsFromOutput(capability: CapabilityKeyType, output: unknown): TimelineArtifacts | undefined {
+        // Build artifacts for built-in capabilities; custom capabilities return undefined
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey:
@@ -918,14 +1150,32 @@ export class AIClient {
         }
     }
 
+    /**
+     * Asserts that a value is an array, throws if not.
+     * @param capability The capability key.
+     * @param value The value to check.
+     * @param label Label for error messages.
+     * @returns The value as an array.
+     * @throws Error if value is not an array.
+     */
     private expectArray<T>(capability: CapabilityKeyType, value: unknown, label: string): T[] {
+        // Ensure value is an array, otherwise throw
         if (!Array.isArray(value)) {
             throw new Error(`AIClient: invalid ${label} for capability '${capability}' (expected array)`);
         }
         return value as T[];
     }
 
+    /**
+     * Asserts that a value is an object (not array), throws if not.
+     * @param capability The capability key.
+     * @param value The value to check.
+     * @param label Label for error messages.
+     * @returns The value as an object.
+     * @throws Error if value is not an object.
+     */
     private expectObject<T extends object>(capability: CapabilityKeyType, value: unknown, label: string): T {
+        // Ensure value is a non-array object, otherwise throw
         if (!value || typeof value !== "object" || Array.isArray(value)) {
             throw new Error(`AIClient: invalid ${label} for capability '${capability}' (expected object)`);
         }

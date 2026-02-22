@@ -146,7 +146,7 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
         const vectors = voyageResponse.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
 
         // Map to NormalizedEmbedding[]
-        const normalized: NormalizedEmbedding[] = vectors.map((vector, idx) => ({
+        const normalized: NormalizedEmbedding[] = vectors.map((vector, _idx) => ({
             id: crypto.randomUUID(),
             vector,
             dimensions: vector.length,

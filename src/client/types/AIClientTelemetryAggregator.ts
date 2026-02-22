@@ -1,5 +1,9 @@
 import { AIClientLifecycleHooks, CapabilityKeyType, ProviderAttemptResult } from "#root/index.js";
 
+/**
+ * Aggregates telemetry statistics for AIClient attempts.
+ * Includes counts, token usage, duration, and estimated cost.
+ */
 export interface TelemetryTotals {
     attempts: number;
     successes: number;
@@ -8,15 +12,21 @@ export interface TelemetryTotals {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
-    estimatedCostUsd: number;
+    estimatedCost: number;
 }
 
+/**
+ * Summary of telemetry statistics, grouped overall, by provider, and by capability.
+ */
 export interface TelemetrySummary {
     overall: TelemetryTotals;
     byProvider: Record<string, TelemetryTotals>;
     byCapability: Record<string, TelemetryTotals>;
 }
 
+/**
+ * Returns a new TelemetryTotals object with all fields zeroed.
+ */
 function emptyTotals(): TelemetryTotals {
     return {
         attempts: 0,
@@ -26,10 +36,14 @@ function emptyTotals(): TelemetryTotals {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
-        estimatedCostUsd: 0
+        estimatedCost: 0
     };
 }
 
+/**
+ * Aggregates and summarizes telemetry data for AIClient executions.
+ * Provides hooks for recording attempt results and methods for resetting and summarizing data.
+ */
 export class AIClientTelemetryAggregator {
     private overall: TelemetryTotals = emptyTotals();
     private byProvider = new Map<string, TelemetryTotals>();
@@ -77,7 +91,7 @@ export class AIClientTelemetryAggregator {
         target.inputTokens += result.inputTokens ?? 0;
         target.outputTokens += result.outputTokens ?? 0;
         target.totalTokens += result.totalTokens ?? 0;
-        target.estimatedCostUsd += result.estimatedCostUsd ?? 0;
+        target.estimatedCost += result.estimatedCost ?? 0;
     }
 
     private getOrInit(map: Map<string, TelemetryTotals>, key: string): TelemetryTotals {

@@ -15,7 +15,6 @@ import {
     MultiModalExecutionContext,
     NormalizedChatMessage
 } from "#root/index.js";
-import { abortableStream } from "#root/core/utils/AbortableStream.js";
 
 /**
  * OpenAIChatCapabilityImpl: Implements OpenAI Responses API chat functionality.
@@ -176,7 +175,7 @@ export class OpenAIChatCapabilityImpl
             let buffer = "";
 
             // Iterate over events from the provider stream
-            for await (const event of abortableStream(stream, signal)) {
+            for await (const event of stream) {
                 // Some events carry response metadata (created/completed)
                 if (
                     !responseId &&

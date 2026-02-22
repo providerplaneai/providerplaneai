@@ -1,11 +1,22 @@
-import { ClientReferenceImage, JobSnapshot } from "#root/index.js";
 import config from "config";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { ClientReferenceImage, JobSnapshot } from "#root/index.js";
 
+/**
+ * Default timeout (ms) for remote image fetches. Infinity disables timeout.
+ */
 const DEFAULT_REMOTE_IMAGE_FETCH_TIMEOUT_MS = Infinity;
+/**
+ * Default maximum allowed remote image size in bytes (512 MB).
+ */
 const DEFAULT_MAX_REMOTE_IMAGE_BYTES = 512 * 1024 * 1024; // 512 MB
 
+/**
+ * Summarizes a job snapshot as a comma-separated string for logging/debugging.
+ * @param snapshot The job snapshot to summarize
+ * @returns Summary string
+ */
 export function summarizeSnapshot(snapshot: JobSnapshot<any, any>) {
     return [
         `id=${snapshot.id}`,
@@ -17,6 +28,11 @@ export function summarizeSnapshot(snapshot: JobSnapshot<any, any>) {
     ].join(", ");
 }
 
+/**
+ * Logs provider attempt metadata for debugging provider fallback chains.
+ * @param label Log label
+ * @param metadata Metadata object containing providerAttempts
+ */
 export function logProviderAttempts(label: string, metadata: Record<string, any> | undefined) {
     const attempts = metadata?.providerAttempts;
     if (!Array.isArray(attempts) || attempts.length === 0) {
@@ -26,6 +42,11 @@ export function logProviderAttempts(label: string, metadata: Record<string, any>
     console.log(`[${label}] providerAttempts:`, JSON.stringify(attempts, null, 2));
 }
 
+/**
+ * Logs raw payload budget diagnostics for a job or provider.
+ * @param label Log label
+ * @param metadata Metadata object with raw payload budget fields
+ */
 export function logRawBudgetDiagnostics(label: string, metadata: Record<string, any> | undefined) {
     console.log(
         `[${label}] raw diagnostics:`,
@@ -42,23 +63,25 @@ export function logRawBudgetDiagnostics(label: string, metadata: Record<string, 
     );
 }
 
+/**
+ * Validates that a value is a boolean, or undefined. Throws if not.
+ * @param value The value to validate
+ * @param fieldName Name of the field for error messages
+ */
 export function validateBoolean(value: unknown, fieldName: string) {
     if (value === undefined) {
         return;
     }
     if (typeof value !== "boolean") {
-        throw new Error(`Invalid appConfig.${fieldName}: expected a boolean`);
+        throw new Error(`Invalid field ${fieldName}: expected a boolean`);
     }
 }
 
 /**
  * Ensures a string is a valid Data URI for base64-encoded content.
- *
- * - Returns as-is if already a Data URI
- * - Otherwise, prepends the appropriate data URI prefix
- *
- * @param base64OrUri - Base64 string or existing Data URI
- * @param mimeType - MIME type for base64 input (default: "application/octet-stream")
+ * Returns as-is if already a Data URI, otherwise prepends the appropriate prefix.
+ * @param base64OrUri Base64 string or existing Data URI
+ * @param mimeType MIME type for base64 input (default: "application/octet-stream")
  * @returns Proper Data URI string
  */
 export function ensureDataUri(base64OrUri: string, mimeType = "application/octet-stream"): string {
@@ -67,8 +90,7 @@ export function ensureDataUri(base64OrUri: string, mimeType = "application/octet
 
 /**
  * Converts a ClientReferenceImage with base64 content into a Data URI string.
- *
- * @param img - Reference image object containing base64 data
+ * @param img Reference image object containing base64 data
  * @throws Error if `img.base64` is not provided
  * @returns Data URI string
  */
@@ -83,11 +105,8 @@ export function toDataUrl(img: ClientReferenceImage): string {
 
 /**
  * Resolves a reference image URL or Data URI into a Buffer of bytes.
- *
- * - Decodes base64 Data URIs directly
- * - Fetches remote images if not a Data URI
- *
- * @param url - URL or Data URI of the image
+ * Decodes base64 Data URIs directly, or fetches remote images if not a Data URI.
+ * @param url URL or Data URI of the image
  * @throws Error if the Data URI is invalid or fetching the remote image fails
  * @returns Promise that resolves to a Buffer containing the image bytes
  */
@@ -158,6 +177,10 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
     }
 }
 
+/**
+ * Gets image fetch timeout and max size limits from config, with defaults.
+ * @returns Object with remoteImageFetchTimeoutMs and maxRemoteImageBytes
+ */
 function getImageFetchLimits(): {
     remoteImageFetchTimeoutMs: number;
     maxRemoteImageBytes: number;
@@ -174,10 +197,22 @@ function getImageFetchLimits(): {
     return { remoteImageFetchTimeoutMs, maxRemoteImageBytes };
 }
 
+/**
+ * Converts a value to a non-negative integer, or returns fallback if invalid.
+ * @param value Value to check
+ * @param fallback Fallback value if not a non-negative integer
+ * @returns Non-negative integer
+ */
 function toNonNegativeInteger(value: unknown, fallback: number): number {
     return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
+/**
+ * Asserts that a remote image URL is safe (not localhost/private IP, only http/https).
+ * Resolves DNS and checks for private/loopback/link-local addresses.
+ * @param rawUrl The URL to check
+ * @throws Error if the URL is unsafe
+ */
 async function assertSafeRemoteImageUrl(rawUrl: string) {
     let parsed: URL;
     try {
@@ -214,6 +249,11 @@ async function assertSafeRemoteImageUrl(rawUrl: string) {
     }
 }
 
+/**
+ * Checks if an IPv4 address is private, loopback, or link-local.
+ * @param ip IPv4 address string
+ * @returns True if private/loopback/link-local
+ */
 function isPrivateIPv4(ip: string): boolean {
     const parts = ip.split(".").map((p) => Number(p));
     if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) {
@@ -239,6 +279,11 @@ function isPrivateIPv4(ip: string): boolean {
     return false;
 }
 
+/**
+ * Checks if an IPv6 address is private, loopback, or link-local.
+ * @param ip IPv6 address string
+ * @returns True if private/loopback/link-local
+ */
 function isPrivateIPv6(ip: string): boolean {
     const normalized = ip.toLowerCase();
     if (normalized === "::1") {
@@ -257,6 +302,11 @@ function isPrivateIPv6(ip: string): boolean {
     return false;
 }
 
+/**
+ * Extracts an IPv4 address from an IPv4-mapped IPv6 address, if present.
+ * @param ip IPv6 address string
+ * @returns IPv4 address string or undefined
+ */
 function extractMappedIPv4FromIPv6(ip: string): string | undefined {
     // Handle IPv4-mapped IPv6 addresses such as:
     // - ::ffff:127.0.0.1
@@ -289,19 +339,20 @@ function extractMappedIPv4FromIPv6(ip: string): string | undefined {
 
 /**
  * Robust best-effort JSON parser for LLM-generated text (Gemini/other LLMs).
- *
- * - Handles:
+ * Handles:
  *   1. Full JSON (object or array)
  *   2. Newline-delimited JSON
  *   3. Adjacent JSON objects without newlines: {}{}
- * - Fallback: returns a normalized object with `description` and `safety`.
- * - Silently ignores unparseable fragments, but logs a warning once per parse.
+ * Fallback: returns a normalized object with `description` and `safety`.
+ * Silently ignores unparseable fragments, but logs a warning once per parse.
  *
  * DO NOT use for:
  * - config parsing
  * - API responses
  * - persistence
  * - security-sensitive data
+ * @param text LLM-generated text to parse
+ * @returns Array of parsed objects or fallback
  */
 export function parseBestEffortJson<T = any>(text: string): T[] {
     const trimmed = text.trim();
@@ -349,6 +400,11 @@ export function parseBestEffortJson<T = any>(text: string): T[] {
     return results;
 }
 
+/**
+ * Validates that a value is a non-negative integer, or undefined. Throws if not.
+ * @param value Value to validate
+ * @param fieldName Name of the field for error messages
+ */
 export function validateNonNegativeInteger(value: unknown, fieldName: string) {
     if (value === undefined) {
         return;

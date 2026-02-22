@@ -155,11 +155,9 @@ export class AnthropicChatCapabilityImpl
                 yield this.createChunk(buffer, accumulatedText, responseId, context, merged.model, "incomplete");
             }
 
-            let stopReason: Anthropic.Messages.StopReason | null = null;
             let finalUsage: Anthropic.Messages.Usage | undefined;
             try {
                 const final = await stream.finalMessage();
-                stopReason = final?.stop_reason ?? null;
                 finalUsage = final?.usage;
             } catch {
                 /* ignored */

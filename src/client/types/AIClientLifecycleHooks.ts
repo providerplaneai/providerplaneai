@@ -24,7 +24,7 @@ export interface ProviderAttemptResult extends ProviderAttemptContext {
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
-    estimatedCostUsd?: number;
+    estimatedCost?: number;
 }
 
 /**
@@ -39,7 +39,7 @@ export interface AIClientLifecycleHooks {
     onExecutionStart?: (capability: CapabilityKeyType, providerChain: ProviderRef[]) => void;
 
     /**
-     * Called once at the end of an execution (successful)
+     * Called once at the end of execution (success or failure).
      */
     onExecutionEnd?: (capability: CapabilityKeyType, providerChain: ProviderRef[]) => void;
 
@@ -64,7 +64,7 @@ export interface AIClientLifecycleHooks {
     onAttemptFailure?: (result: ProviderAttemptResult) => void;
 
     /**
-     * Called each time a streaming provider emits a chunk
+     * Called each time a chunk is emitted to the consumer (may be buffered by orchestration).
      */
     onChunkEmitted?: (chunkMetrics: {
         capability: CapabilityKeyType;

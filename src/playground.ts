@@ -37,12 +37,12 @@ import fs from "fs";
 import path from "path";
 import { CapabilityKeyType, ClientChatRequest, JobChunk, JobManager, JobSnapshot, MultiModalExecutionContext, NormalizedChatMessage } from "#root/index.js";
 import { AIClient } from "#root/index.js";
-import { runCustomRagCapability_example, runRawPayloadBudget_example } from "./job2.js";
+import { runCustomCapabilityJob_example, runCustomRagCapability_example, runRawPayloadBudget_example } from "./job2.js";
 //import { crashRecovery_example, jobRecovery_example, runCustomCapabilityJob_example, runCustomRagCapability_example } from "./job2.js";
 
-runRawPayloadBudget_example()
+//runRawPayloadBudget_example()
 
-//const result = await runCustomCapabilityJob_example();
+const result = await runCustomCapabilityJob_example();
 
 //crashRecovery_example();
 //jobRecovery_example()
@@ -112,7 +112,7 @@ export const job1_streaming_example = async () => {
 
     const client = new AIClient(jobManager);
 
-    client.setLifeCycleHooks({
+    client.setLifecycleHooks({
         onChunkEmitted: (ctx) => console.log(`[AI] Emitted ${ctx.chunkIndex} → ${ctx.providerType}`),
         onExecutionStart: (ctx) => console.log(`[AI] Execution Start ${ctx}`),
         onExecutionFailure: (ctx) => console.log(`[AI] Execution Failure ${ctx}`),

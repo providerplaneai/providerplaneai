@@ -67,9 +67,6 @@ export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
             throw new Error("Invalid embedding input");
         }
 
-        // Normalize input into array for batch processing
-        const inputs = Array.isArray(input.input) ? input.input : [input.input];
-
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.EmbedCapabilityKey, options);
 
@@ -89,7 +86,7 @@ export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
         }
 
         // Map each input to a NormalizedEmbedding artifact
-        const normalized: NormalizedEmbedding[] = response.data.map((d, idx) => ({
+        const normalized: NormalizedEmbedding[] = response.data.map((d, _idx) => ({
             id: crypto.randomUUID(),
             vector: d.embedding,
             dimensions: d.embedding.length,

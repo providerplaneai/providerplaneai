@@ -211,7 +211,7 @@ export const runCustomCapabilityJob_example = async () => {
 
     const client = new AIClient(jobManager);
 
-    client.setLifeCycleHooks({
+    client.setLifecycleHooks({
         onChunkEmitted: (ctx) => console.log(`[AI] Emitted ${ctx.chunkIndex} -> ${ctx.providerType}`),
         onExecutionStart: (ctx) => console.log(`[AI] Execution Start ${ctx}`),
         onExecutionFailure: (ctx) => console.log(`[AI] Execution Failure ${ctx}`),
@@ -220,7 +220,7 @@ export const runCustomCapabilityJob_example = async () => {
         onAttemptSuccess: (ctx) => console.log(
             `[AI] Success ${ctx.providerType} in ${ctx.durationMs}ms ` +
             `(inputTokens=${ctx.inputTokens ?? "n/a"}, outputTokens=${ctx.outputTokens ?? "n/a"}, ` +
-            `totalTokens=${ctx.totalTokens ?? "n/a"}, estimatedCostUsd=${ctx.estimatedCostUsd ?? "n/a"})`
+            `totalTokens=${ctx.totalTokens ?? "n/a"}, estimatedCost=${ctx.estimatedCost ?? "n/a"})`
         ),
         onAttemptFailure: (ctx) => console.warn(`[AI] Failure ${ctx.providerType}: ${ctx.error}`)
     });
@@ -242,7 +242,7 @@ export const runCustomCapabilityJob_example = async () => {
                     inputTokens: 12,
                     outputTokens: 4,
                     totalTokens: 16,
-                    estimatedCostUsd: 0.00011
+                    estimatedCost: 0.00011
                 }
             };
         }
@@ -320,12 +320,12 @@ export const runCustomRagCapability_example = async () => {
 
     const client = new AIClient(jobManager);
     const telemetry = new AIClientTelemetryAggregator();
-    client.setLifeCycleHooks(telemetry.createHooks());
+    client.setLifecycleHooks(telemetry.createHooks());
     const ctx = new MultiModalExecutionContext();
 
     // Test chat
 
-    const request: ClientChatRequest = {
+   /* const request: ClientChatRequest = {
         messages: [
             {
                 role: "user",
@@ -333,8 +333,8 @@ export const runCustomRagCapability_example = async () => {
             }
         ]
     };
-
-    const job1 = client.createCapabilityJob<CapabilityKeyType, ClientChatRequest, NormalizedChatMessage>(
+*/
+   /* const job1 = client.createCapabilityJob<CapabilityKeyType, ClientChatRequest, NormalizedChatMessage>(
         "chat",
         { input: request },
         {
@@ -345,9 +345,9 @@ export const runCustomRagCapability_example = async () => {
             ]
         }    
     );
+*/
 
-
-    const result1 = await job1.getCompletionPromise();
+    //const result1 = await job1.getCompletionPromise();
 
 
     type RagInput = { query: string; topK?: number };
@@ -392,7 +392,7 @@ export const runCustomRagCapability_example = async () => {
                 },
                 id: `customRagSearch-${Date.now()}`,
                 metadata: {
-                    estimatedCostUsd: 0.00042
+                    estimatedCost: 0.00042
                 }
             };
         }

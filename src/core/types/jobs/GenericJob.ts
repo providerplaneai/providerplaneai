@@ -12,6 +12,12 @@ import {
     TimelineArtifacts
 } from "#root/index.js";
 
+/**
+ * GenericJob manages the lifecycle, execution, and state of an AI job, supporting streaming and non-streaming modes.
+ * Handles input, output, error, status, artifacts, and raw response management, with hooks for orchestration.
+ * @template TInput The input type for the job.
+ * @template TOutput The output type for the job.
+ */
 export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     private readonly maxStoredResponseChunks: number;
     private readonly capability?: CapabilityKeyType;
@@ -58,6 +64,15 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     private rawPayloadsDropped = 0;
     private rawBytesDropped = 0;
 
+    /**
+     * Constructs a new GenericJob instance.
+     * @param input The job input.
+     * @param streamingEnabled Whether streaming is enabled for this job.
+     * @param executor The function to execute the job.
+     * @param hooks Optional lifecycle hooks.
+     * @param maxStoredResponseChunks Max number of response chunks to store.
+     * @param executionMetadata Optional metadata for execution (capability, provider chain, etc).
+     */
     constructor(
         public readonly input: TInput,
         private streamingEnabled: boolean = false,

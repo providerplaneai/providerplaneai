@@ -67,7 +67,7 @@ export const job1_streaming_example = async () => {
 
     const client = new AIClient(jobManager);
 
-    client.setLifeCycleHooks({
+    client.setLifecycleHooks({
         onChunkEmitted: (ctx) => console.log(`[AI] Emitted ${ctx.chunkIndex} → ${ctx.providerType}`),
         onExecutionStart: (ctx) => console.log(`[AI] Execution Start ${ctx}`),
         onExecutionFailure: (ctx) => console.log(`[AI] Execution Failure ${ctx}`),
@@ -177,19 +177,6 @@ export const job_background_example = async () => {
     );
 
     const ctx = new MultiModalExecutionContext();
-
-    // 🔔 Subscribe BEFORE starting the job
-    const unsubscribe = jobManager.subscribe(job.id, snapshot => {
-        console.log(
-            `[Subscriber] Job ${snapshot.id} → ${snapshot.status}`
-        );
-
-        if (snapshot.streaming?.chunksEmitted !== undefined) {
-            console.log(
-                `  chunks: ${snapshot.streaming.chunksEmitted}`
-            );
-        }
-    });
 
     // 🚀 Start job in the background (NON-BLOCKING)
     jobManager.runJob(job.id, ctx, (chunk: JobChunk<unknown>) => {
