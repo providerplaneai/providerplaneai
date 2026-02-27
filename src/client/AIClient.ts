@@ -1004,7 +1004,9 @@ export class AIClient {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey:
-                context.applyAssistantMessage(expectObjectForCapability<NormalizedChatMessage>(capability, output, "chat output"));
+                context.applyAssistantMessage(
+                    expectObjectForCapability<NormalizedChatMessage>(capability, output, "chat output")
+                );
                 break;
 
             case CapabilityKeys.EmbedCapabilityKey:

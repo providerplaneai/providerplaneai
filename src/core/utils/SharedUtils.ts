@@ -367,7 +367,7 @@ export function parseBestEffortJson<T = any>(text: string): T[] {
     try {
         const parsed = JSON.parse(trimmed);
         return Array.isArray(parsed) ? parsed : [parsed];
-    } catch { }
+    } catch {}
 
     // 2. Split by newline first
     const lines = trimmed
@@ -455,4 +455,4 @@ export function expectObjectForCapability<T extends object>(capability: Capabili
 export function readNumber(source: Record<string, unknown>, key: string): number | undefined {
     const value = source[key];
     return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}    
+}
