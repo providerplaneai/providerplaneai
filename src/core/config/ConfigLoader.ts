@@ -25,7 +25,7 @@ export function loadAppConfig(): AppConfig {
     // Load config from node-config (already merges default + NODE_ENV json)
     const rawConfig = config.util.toObject();
 
-    // Top-level laod as partial to allow for further processing
+    // Top-level load as partial to allow for further processing/validation.
     const parsed = rawConfig as AppConfig;
 
     // Minimal validations
@@ -53,13 +53,13 @@ export function loadAppConfig(): AppConfig {
         for (const connectionName of Object.keys(connections)) {
             const connectionConfig = connections[connectionName] as ProviderConnectionConfig;
 
-            // Resolve API key env variable
+            // Resolve API key env variable name from config first.
             const apiKeyEnvVar = connectionConfig.apiKeyEnvVar;
             if (!apiKeyEnvVar) {
                 throw new Error(`Provider '${providerType}' connection '${connectionName}' missing 'apiKeyEnvVar'`);
             }
 
-            // Resolve the api key from environment vars
+            // Then resolve the actual secret from process.env at runtime.
             const apiKey = process.env[apiKeyEnvVar];
             if (!apiKey) {
                 throw new Error(

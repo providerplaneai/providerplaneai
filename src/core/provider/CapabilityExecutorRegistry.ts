@@ -160,6 +160,8 @@ export class CapabilityExecutorRegistry {
  */
 export function createDefaultExecutors(): CapabilityExecutorRegistry {
     const registry = new CapabilityExecutorRegistry();
+    // Capability keys here must stay aligned with provider registrations so
+    // AIClient can dispatch by key without capability-specific branching.
 
     // Register default non-streaming chat executor
     registry.register(CapabilityKeys.ChatCapabilityKey, {

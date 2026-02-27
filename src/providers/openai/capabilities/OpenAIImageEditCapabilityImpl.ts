@@ -204,6 +204,7 @@ export class OpenAIImageEditCapabilityImpl
                 output: [],
                 done: true,
                 id: responseId,
+                // Explicit terminal chunk allows stream clients to finalize state.
                 metadata: {
                     ...(context?.metadata ?? {}),
                     provider: AIProvider.OpenAI,
@@ -255,6 +256,7 @@ export class OpenAIImageEditCapabilityImpl
         let baseImage: ClientReferenceImage | undefined = input.referenceImages?.find((i) => i.role === "subject");
         if (!baseImage && timelineImages.length) {
             const last = timelineImages[timelineImages.length - 1];
+            // Multi-turn fallback: reuse latest timeline image as subject when omitted.
             baseImage = {
                 id: last.id,
                 base64: last.base64,

@@ -228,6 +228,8 @@ export abstract class BaseProvider {
             runtimeGeneralParams
         );
 
+        // Return a normalized envelope so downstream capability code can rely on
+        // a stable options shape regardless of provider-specific config structure.
         return {
             model: resolvedModel,
             modelParams: mergedModelParams,

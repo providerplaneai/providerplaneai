@@ -292,7 +292,8 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
 
     /**
      * Hydrate this job from a persisted snapshot.
-     * Internal response envelopes/chunks are intentionally not restored.
+     * Internal response envelopes/chunks are intentionally not restored because
+     * rerun semantics are deterministic replay from input + executor, not raw resume.
      */
     restoreFromSnapshot(snapshot: JobSnapshot<TInput, TOutput>) {
         this._id = snapshot.id as any;
@@ -321,6 +322,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     }
 
     markAborted(reason?: Error) {
+        // Preserve the first meaningful abort reason when provided by caller/manager.
         if (reason) {
             this._error = reason;
         }
@@ -349,6 +351,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
             for (const item of incoming) {
                 const fingerprint = this.getArtifactFingerprint(item);
                 if (!fingerprint) {
+                    // Artifacts without stable IDs are appended as-is.
                     target.push(item);
                     continue;
                 }
@@ -417,6 +420,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
 
         const rawBytes = this.estimateRawBytes(raw);
         if (rawBytes === undefined) {
+            // Unmeasurable payloads are dropped to keep accounting deterministic.
             return undefined;
         }
 

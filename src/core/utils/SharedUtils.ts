@@ -173,6 +173,7 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
             total
         );
     } catch {
+        // Keep outward errors generic so URLs/tokens from provider-specific errors are not leaked.
         throw new Error("Could not resolve reference image");
     }
 }
@@ -239,6 +240,7 @@ async function assertSafeRemoteImageUrl(rawUrl: string) {
     }
 
     // Resolve DNS and ensure no target address is private/loopback/link-local.
+    // This blocks hostname-based SSRF where public-looking hosts resolve internally.
     if (ipVersion === 0) {
         const resolved = await lookup(hostname, { all: true, verbatim: true });
         for (const item of resolved) {

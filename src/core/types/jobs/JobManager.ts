@@ -404,6 +404,8 @@ export class JobManager {
                     return;
                 }
                 finalized = true;
+                // Cleanup must happen exactly once per dequeued job to keep queue/running
+                // counters and persistence snapshots consistent.
                 this.controllers.delete(job.id);
                 this.runningCount--;
                 this.persist();
@@ -428,7 +430,8 @@ export class JobManager {
             // Fire and forget - job will update its own status and notify subscribers/hooks on completion/error
             const runPromise = job.run(ctx, controller.signal, chunkCallback);
 
-            // Lifecycle via completion promise - ensures hooks are called even if job.run() throws or doesn't properly update status
+            // Lifecycle is driven from completionPromise because it is the canonical
+            // terminal signal for both streaming and non-streaming executions.
             job.getCompletionPromise()
                 .then(() => {
                     this.options?.hooks?.onComplete?.(job.toSnapshot());
@@ -438,7 +441,8 @@ export class JobManager {
                 })
                 .finally(finalize);
 
-            // Guard against unexpected run-time exceptions (e.g. hook throws before completionPromise is settled).
+            // Defensive guard: if run() rejects before completionPromise settles,
+            // avoid leaking a running slot.
             runPromise.catch((err) => {
                 const normalized = err instanceof Error ? err : new Error(String(err));
                 this.options?.hooks?.onError?.(normalized, job.toSnapshot());

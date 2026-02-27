@@ -166,6 +166,8 @@ export class MultiModalExecutionContext {
 
     /** Generic helper to find the latest artifact type in the timeline */
     private findLatest<T>(predicate: (e: TimelineEvent) => T | undefined): T | undefined {
+        // Reverse scan keeps reads O(n) without storing per-modality indexes and
+        // always returns the most recent event payload for that modality.
         for (let i = this.timeline.length - 1; i >= 0; i--) {
             const result = predicate(this.timeline[i]);
             if (result !== undefined) {
@@ -176,6 +178,7 @@ export class MultiModalExecutionContext {
     }
 
     getLatestChat(): NormalizedChatMessage[] {
+        // "Latest" is event-local, not cumulative over all prior turns.
         return this.findLatest((e) => e.artifacts.chat) ?? [];
     }
 

@@ -592,7 +592,8 @@ export class AIClient {
                 const provider = this.getProvider<BaseProvider>(providerType, connectionName);
                 // Resolve provider instance for this attempt
                 if (!provider.hasCapability(capability)) {
-                    // Skip provider if it does not implement the capability
+                    // Capability mismatch is a routing skip, not a provider failure.
+                    // We intentionally do not record it in attempts/errors.
                     continue;
                 }
 
@@ -745,7 +746,8 @@ export class AIClient {
                         latestChunkMetadata = chunk.metadata;
                     }
 
-                    // If a previous chunk is buffered, yield it now (buffering allows metadata augmentation)
+                    // Keep exactly one-chunk buffer so the final emitted chunk can carry
+                    // providerAttempts metadata without replaying earlier chunks.
                     if (pendingChunk) {
                         yield pendingChunk;
                         this.lifecycleHooks?.onChunkEmitted?.({
@@ -759,7 +761,8 @@ export class AIClient {
                         chunksEmitted++;
                     }
 
-                    // Buffer the current chunk for possible augmentation
+                    // Hold current chunk until next iteration/success path determines
+                    // whether we should augment metadata on it.
                     pendingChunk = chunk;
                 }
 

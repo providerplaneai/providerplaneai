@@ -49,6 +49,7 @@ export class AIClientTelemetryAggregator {
     private byProvider = new Map<string, TelemetryTotals>();
     private byCapability = new Map<string, TelemetryTotals>();
 
+    /** Lifecycle hooks that can be passed directly into AIClient config. */
     createHooks(): AIClientLifecycleHooks {
         return {
             onAttemptSuccess: (result) => this.recordAttempt(result),
@@ -71,6 +72,8 @@ export class AIClientTelemetryAggregator {
     }
 
     private recordAttempt(result: ProviderAttemptResult) {
+        // Connection name is part of the provider key so "openai:prod" and
+        // "openai:staging" are tracked independently.
         const providerKey = `${result.providerType}:${result.connectionName ?? "default"}`;
         const capabilityKey = result.capability as CapabilityKeyType;
 

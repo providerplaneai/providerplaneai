@@ -107,6 +107,8 @@ export class GeminiImageGenerationCapabilityImpl
         );
 
         // 2. Adjust the prompt to use the Reference IDs
+        // Imagen binds references by explicit [n] tags; inject missing tags to
+        // keep behavior deterministic even with plain-language prompts.
         const finalPrompt = this.injectReferenceTags(input.prompt, referenceImages.length);
 
         if (signal?.aborted) {
@@ -244,6 +246,8 @@ export class GeminiImageGenerationCapabilityImpl
             });
 
             // Yield a single chunk for all images
+            // Imagen currently returns the complete set at once, so stream mode
+            // is represented as one terminal chunk for API parity.
             yield {
                 output: images,
                 delta: images,
