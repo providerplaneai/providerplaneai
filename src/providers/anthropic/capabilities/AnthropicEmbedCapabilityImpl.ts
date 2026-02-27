@@ -6,7 +6,8 @@ import {
     CapabilityKeys,
     ClientEmbeddingRequest,
     EmbedCapability,
-    MultiModalExecutionContext
+    MultiModalExecutionContext,
+    NormalizedEmbedding
 } from "#root/index.js";
 
 /**
@@ -40,7 +41,7 @@ interface VoyageEmbeddingResponse {
  * @template TEmbedInput
  * @template TEmbedOutput
  */
-export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, number[] | number[][]> {
+export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
     /** Voyage AI API key (required) */
     private readonly voyageApiKey: string;
     /** Base URL for Voyage AI REST API */
@@ -58,8 +59,8 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
 
         if (!this.voyageApiKey) {
             throw new Error(
-                "Voyage AI API key is required for Anthropic embeddings. " +
-                    "Set VOYAGE_API_KEY environment variable or pass it to the constructor."
+                `Voyage AI API key is required for Anthropic embeddings. 
+                 Set VOYAGE_API_KEY environment variable or pass it to the constructor.`
             );
         }
     }
@@ -78,12 +79,14 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
      * @template TEmbedInput
      * @param request - Unified embedding request
      * @param _executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns AIResponse containing a single vector or array of vectors
      */
     async embed(
         request: AIRequest<ClientEmbeddingRequest>,
-        _executionContext?: MultiModalExecutionContext
-    ): Promise<AIResponse<number[] | number[][]>> {
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedEmbedding[]>> {
         // Ensure provider lifecycle has completed (init was called)
         this.provider.ensureInitialized();
 
@@ -91,6 +94,10 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
         // Defensive validation: Voyage requires at least one input string
         if (!input?.input) {
             throw new Error("Invalid embedding input");
+        }
+
+        if (signal?.aborted) {
+            throw new Error("Request aborted");
         }
 
         // Merge general, provider, model, and request-level options
@@ -117,7 +124,8 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
                 model: merged.model ?? "voyage-3",
                 ...(merged.modelParams ?? {}),
                 ...(merged.providerParams ?? {})
-            })
+            }),
+            signal
         });
 
         // Explicit error handling to surface provider errors
@@ -127,6 +135,9 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
         }
 
         const voyageResponse: VoyageEmbeddingResponse = await response.json();
+        if (!voyageResponse.data || voyageResponse.data.length === 0) {
+            throw new Error("Voyage AI returned no embeddings");
+        }
 
         /**
          * Ensure deterministic ordering.
@@ -134,18 +145,35 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
          */
         const vectors = voyageResponse.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
 
-        // Return a fully normalized response
-        return {
-            output: Array.isArray(input.input) ? vectors : vectors[0],
-            rawResponse: voyageResponse,
+        // Map to NormalizedEmbedding[]
+        const normalized: NormalizedEmbedding[] = vectors.map((vector, _idx) => ({
+            id: crypto.randomUUID(),
+            vector,
+            dimensions: vector.length,
+            inputId: Array.isArray(input.input) ? undefined : (input as any).inputId,
+            purpose: (request as any)?.purpose ?? "embedding",
             metadata: {
                 provider: AIProvider.Anthropic,
                 model: merged.model ?? voyageResponse.model,
                 status: "completed",
                 tokensUsed: voyageResponse.usage?.total_tokens,
                 requestId: context?.requestId,
-                embeddingProvider: "voyage-ai", // Track that we used Voyage AI
-                ...(context?.metadata ?? {})
+                embeddingProvider: "voyage-ai"
+            }
+        }));
+
+        // Return a fully normalized response
+        return {
+            output: Array.isArray(input.input) ? normalized : normalized[0] ? [normalized[0]] : [],
+            rawResponse: voyageResponse,
+            metadata: {
+                ...(context?.metadata ?? {}),
+                provider: AIProvider.Anthropic,
+                model: merged.model ?? voyageResponse.model,
+                status: "completed",
+                tokensUsed: voyageResponse.usage?.total_tokens,
+                requestId: context?.requestId,
+                embeddingProvider: "voyage-ai" // Track that we used Voyage AI
             }
         };
     }

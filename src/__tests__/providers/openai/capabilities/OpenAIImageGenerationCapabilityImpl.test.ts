@@ -1,212 +1,194 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIImageGenerationCapabilityImpl } from '#root/providers/openai/capabilities/OpenAIImageGenerationCapabilityImpl.js';
-import { AIProvider } from '#root/index.js';
+import { describe, expect, it, vi } from "vitest";
+import { OpenAIImageGenerationCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIImageGenerationCapabilityImpl.js";
 
-const mockProvider = {
-    ensureInitialized: vi.fn(),
-    getMergedOptions: vi.fn((cap, opts) => ({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: {} }))
-};
-const mockClient = {
-    responses: {
-        create: vi.fn(),
-        stream: vi.fn()
-    }
-};
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({ model: "gpt-4.1", modelParams: {}, providerParams: {} }))
+    } as any;
+}
 
-describe('OpenAIImageGenerationCapabilityImpl', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe("OpenAIImageGenerationCapabilityImpl", () => {
+    it("validates missing prompt and pre-aborted signal", async () => {
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), { responses: {} } as any);
+
+        await expect(cap.generateImage({ input: {} } as any)).rejects.toThrow("Prompt is required for image generation");
+        await expect(cap.generateImageStream({ input: {} } as any).next()).rejects.toThrow("Prompt is required for image generation");
+
+        const controller = new AbortController();
+        controller.abort();
+        await expect(cap.generateImage({ input: { prompt: "x" } } as any, undefined, controller.signal)).rejects.toThrow(
+            "Image generation aborted before request started"
+        );
     });
 
-    it('throws if prompt is missing (non-streaming)', async () => {
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(gen.generateImage({ input: {} } as any)).rejects.toThrow('Prompt is required for image generation');
-    });
-
-    it('returns normalized images for valid response (non-streaming)', async () => {
-        mockClient.responses.create.mockResolvedValue({
-            output: [
-                { type: 'image_generation_call', result: 'imgdata', id: 'id1' },
-                { type: 'image_generation_call', result: 'imgdata2', id: 'id2' }
-            ],
-            id: 'resp1',
-            status: 'completed'
-        });
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw a cat', params: { count: 1, size: '1024x1024' } } };
-        const res = await gen.generateImage(req as any);
-        expect(res.output.length).toBe(2);
-        expect(res.output[0].base64).toBe('imgdata');
-        expect(res.output[0].mimeType).toBe('image/png');
-        expect(res.output[0].url).toBe(undefined);
-        expect(res.metadata?.provider).toBe(AIProvider.OpenAI);
-    });
-
-    it('passes correct model, prompt, and config to responses.create', async () => {
-        mockClient.responses.create.mockResolvedValue({ output: [], id: 'idX', status: 'completed' });
-        mockProvider.getMergedOptions.mockReturnValueOnce({
-            model: 'custom-model',
-            modelParams: { temperature: 0.5 },
-            providerParams: { foo: 'bar' },
-            generalParams: {}
-        });
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw', params: { count: 1, size: '1024x1024', style: 'art', quality: 'hd', background: 'white' } } };
-        await gen.generateImage(req as any);
-        expect(mockClient.responses.create).toHaveBeenCalledWith(expect.objectContaining({
-            model: 'custom-model',
-            input: [expect.objectContaining({ role: 'user', content: expect.any(Array) })],
-            tools: [expect.objectContaining({ type: 'image_generation', size: '1024x1024', style: 'art', quality: 'hd', background: 'white' })],
-            temperature: 0.5,
-            foo: 'bar'
-        }));
-    });
-
-    it('handles reference images in non-streaming', async () => {
-        mockClient.responses.create.mockResolvedValue({ output: [], id: 'idX', status: 'completed' });
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw', referenceImages: [{ url: 'refurl' }], params: { count: 1 } } };
-        await gen.generateImage(req as any);
-        expect(mockClient.responses.create).toHaveBeenCalledWith(expect.objectContaining({
-            input: [expect.objectContaining({ role: 'user', content: expect.arrayContaining([
-                expect.objectContaining({ type: 'input_image', image_url: 'refurl' }),
-                expect.objectContaining({ type: 'input_text', text: expect.any(String) })
-            ]) })]
-        }));
-    });
-
-    it('returns empty output if no image_generation_call items', async () => {
-        mockClient.responses.create.mockResolvedValue({ output: [{ type: 'other_type', result: 'notimg', id: 'idOther' }], id: 'idOther', status: 'completed' });
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw', params: { count: 1 } } };
-        const res = await gen.generateImage(req as any);
-        expect(res.output).toEqual([]);
-    });
-
-    // Streaming tests
-    it('throws if prompt is missing (streaming)', async () => {
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const genStream = gen.generateImageStream({ input: {} } as any);
-        await expect(genStream.next()).rejects.toThrow('Prompt is required for image generation');
-    });
-
-    it('yields images for valid stream events', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'image_generation_call', result: 'imgS', id: 'idS' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw', params: { count: 1 } } };
-        const stream = gen.generateImageStream(req as any);
-        const chunk = await stream.next();
-        expect(chunk.value.output[0].base64).toBe('imgS');
-        expect(chunk.value.id).toBe('idS');
-        expect(chunk.value.done).toBe(true);
-        expect(chunk.value.metadata?.provider).toBe(AIProvider.OpenAI);
-    });
-
-    it('handles reference images in streaming', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'image_generation_call', result: 'imgS', id: 'idS' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw', referenceImages: [{ url: 'refurl' }], params: { count: 1 } } };
-        const stream = gen.generateImageStream(req as any);
-        const chunk = await stream.next();
-        expect(chunk.value.output[0].base64).toBe('imgS');
-        expect(chunk.value.id).toBe('idS');
-    });
-
-    it('yields error chunk if error thrown during stream iteration', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                throw new Error('iteration error');
+    it("generateImage parses image_generation_call output", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: "img-resp",
+                    status: "completed",
+                    output: [
+                        { type: "image_generation_call", id: "a", result: "QUJD" },
+                        { type: "image_generation_call", id: "b", image_base64: "REVG" },
+                        { type: "other" }
+                    ]
+                })
             }
         };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw', params: { count: 1 } } };
-        const stream = gen.generateImageStream(req as any);
-        const chunk = await stream.next();
-        expect(chunk.value.error).toBe('iteration error');
-        expect(chunk.value.done).toBe(true);
+
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.generateImage({ input: { prompt: "draw" }, context: { requestId: "rid" } } as any);
+
+        expect(res.output).toHaveLength(2);
+        expect(res.output[0].base64).toBe("QUJD");
+        expect(res.output[0].url).toContain("data:image/png;base64,QUJD");
+        expect(res.metadata?.provider).toBe("openai");
+        expect(res.metadata?.requestId).toBe("rid");
     });
 
-    it('yields error chunk if non-Error thrown during stream iteration (covers String(err) branch)', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                throw 'string error';
+    it("generateImage uses fallback id from request context when response id missing", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: undefined,
+                    status: undefined,
+                    output: []
+                })
             }
         };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw', params: { count: 1 } } };
-        const stream = gen.generateImageStream(req as any);
-        const chunk = await stream.next();
-        expect(chunk.value.error).toBe('string error');
-        expect(chunk.value.done).toBe(true);
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.generateImage({ input: { prompt: "draw" }, context: { requestId: "req-1" } } as any);
+
+        expect(res.id).toBe("req-1");
+        expect(res.metadata?.status).toBe("completed");
     });
 
-    it('returns empty output if no image_generation_call items in stream', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'other_type', result: 'notimg', id: 'idOther' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
+    it("generateImageStream returns silently when aborted after stream error", async () => {
+        const controller = new AbortController();
+        const client = {
+            responses: {
+                stream: vi.fn().mockImplementation(() => {
+                    controller.abort();
+                    throw new Error("broken");
+                })
+            }
         };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const gen = new OpenAIImageGenerationCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'draw', params: { count: 1 } } };
-        const stream = gen.generateImageStream(req as any);
-        const chunk = await stream.next();
-        expect(chunk.value).toBeUndefined();
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), client as any);
+        const out = await cap.generateImageStream({ input: { prompt: "draw" } } as any, undefined, controller.signal).next();
+
+        expect(out.done).toBe(true);
+        expect(out.value).toBeUndefined();
+    });
+
+    it("generateImageStream yields image chunks + completion and error chunk", async () => {
+        const okStream = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.created", response: { id: "sid" } };
+                yield {
+                    type: "response.completed",
+                    response: {
+                        id: "sid",
+                        output: [
+                            { type: "image_generation_call", id: "i1", result: "QUJD" },
+                            { type: "image_generation_call", id: "i2", b64_json: "REVG" }
+                        ]
+                    }
+                };
+            }
+        };
+
+        const client = {
+            responses: {
+                stream: vi.fn().mockReturnValueOnce(okStream).mockImplementationOnce(() => {
+                    throw new Error("stream fail");
+                })
+            }
+        };
+
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), client as any);
+        const out: any[] = [];
+        for await (const c of cap.generateImageStream({ input: { prompt: "draw" } } as any)) {
+            out.push(c);
+        }
+
+        expect(out).toHaveLength(3);
+        expect(out[0].metadata.status).toBe("incomplete");
+        expect(out[0].output[0].base64).toBe("QUJD");
+        expect(out[1].output[0].base64).toBe("REVG");
+        expect(out[2].done).toBe(true);
+
+        const errFirst = await cap.generateImageStream({ input: { prompt: "draw" } } as any).next();
+        expect(errFirst.value?.metadata?.status).toBe("error");
+    });
+
+    it("generateImageStream can end without response id and exits silently when aborted", async () => {
+        const noIdStream = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.completed", response: { output: [] } };
+            }
+        };
+        const client = {
+            responses: {
+                stream: vi.fn().mockReturnValue(noIdStream)
+            }
+        };
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), client as any);
+
+        const out: any[] = [];
+        for await (const c of cap.generateImageStream({ input: { prompt: "draw" } } as any)) {
+            out.push(c);
+        }
+        expect(out).toHaveLength(1);
+        expect(out[0].done).toBe(true);
+        expect(out[0].id).toBeDefined();
+
+        const controller = new AbortController();
+        controller.abort();
+        const abortedClient = {
+            responses: {
+                stream: vi.fn().mockReturnValue(noIdStream)
+            }
+        };
+        const abortedCap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), abortedClient as any);
+        const aborted = await abortedCap.generateImageStream({ input: { prompt: "draw" } } as any, undefined, controller.signal).next();
+        expect(aborted.done).toBe(true);
+        expect(aborted.value).toBeUndefined();
+    });
+
+    it("generateImageStream ignores non-completed events before final marker", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.created", response: { id: "sid" } };
+                yield { type: "response.in_progress" };
+            }
+        };
+        const client = { responses: { stream: vi.fn().mockReturnValue(streamObj) } };
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), client as any);
+
+        const out: any[] = [];
+        for await (const c of cap.generateImageStream({ input: { prompt: "draw" } } as any)) {
+            out.push(c);
+        }
+
+        expect(out).toHaveLength(1);
+        expect(out[0].done).toBe(true);
+    });
+
+    it("buildContent adds reference images and default description wrapper", () => {
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+        const content = cap.buildContent({
+            prompt: "draw sky",
+            referenceImages: [{ url: "https://example.com/a.png" }]
+        });
+
+        expect(content[0]).toMatchObject({ type: "input_image" });
+        expect(content[1].text).toContain("Description: draw sky");
+    });
+
+    it("parseImages drops image_generation_call items without usable base64", () => {
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+        const images = cap.parseImages([{ type: "image_generation_call", id: "x" }]);
+        expect(images).toEqual([]);
     });
 });

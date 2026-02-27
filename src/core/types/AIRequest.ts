@@ -11,6 +11,12 @@ export interface AIRequest<TInput = unknown> {
      */
     input: TInput;
 
+    /** Optional timeout in milliseconds */
+    timeoutMs?: number;
+
+    /** Optional cancellation signal */
+    signal?: AbortSignal;
+
     /**
      * Optional provider-specific configuration overrides.
      *

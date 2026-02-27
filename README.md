@@ -1,377 +1,300 @@
 # ProviderPlaneAI
 
-A **provider-agnostic orchestration layer for multi-provider, multi-modal AI**.
+[![npm version](https://img.shields.io/npm/v/providerplaneai)](https://www.npmjs.com/package/providerplaneai)
+[![npm downloads](https://img.shields.io/npm/dm/providerplaneai)](https://www.npmjs.com/package/providerplaneai)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/providerplaneai/providerplaneai/node.js.yml?branch=main)](https://github.com/providerplaneai/providerplaneai/actions)
 
-ProviderPlaneAI enables applications and agents to access modern AI capabilities through a single, unified execution plane — without coupling business logic to any specific vendor SDK.
+**ProviderPlaneAI** is a job-first, provider-agnostic AI orchestration framework designed for building scalable, resilient, and observable AI applications.
 
-You code against **capabilities** (chat, streaming, embeddings, image generation, audio processing, moderation, etc.), not vendors. Providers explicitly declare supported capabilities, and the client orchestrates execution across providers with deterministic, configurable fallback behavior.
+It focuses on modern AI system challenges such as streaming, multimodal pipelines, fallback strategies, execution tracing, and asynchronous workflows while remaining extensible and production-ready.
 
----
+## Table of Contents
 
-## Key Features
-
-✨ **Provider-Agnostic Orchestration**
-
-- Abstract away vendor-specific SDKs and APIs
-- Switch providers without rewriting business logic
-- Explicit, deterministic multi-provider fallback chains
-
-🎯 **Capability-First Design**
-
-- Capabilities are first-class concepts, not afterthoughts
-- Providers explicitly declare what they support
-- Fail fast and clearly when capabilities are unavailable
-
-🔄 **Unified Streaming Model**
-
-- Consistent `AsyncGenerator`-based streaming across all providers
-- Automatic fallback mid-stream if a provider fails
-- No vendor-specific streaming quirks
-
-📊 **Session & Event Tracking**
-
-- Built-in session management with full history
-- Event-driven architecture for request/response tracking
-- Session serialization for persistence and resumption
-
-🛡️ **Type-Safe Request/Response Handling**
-
-- Strongly-typed request and response objects
-- Multi-modal execution contexts for complex operations
-- Normalized response formats across providers
-
-🚀 **Production-Ready**
-
-- Configuration management (file-based + environment overrides)
-- Lifecycle hooks for initialization and cleanup
-- Comprehensive error handling and reporting
-- Full test coverage with Vitest
+- [Key Concepts](#key-concepts)
+- [Core Features](#core-features)
+- [Example Use Cases](#example-use-cases)
+- [Getting Started](#getting-started)
+- [Built-In Providers](#built-in-providers)
+- [Design Goals](#design-goals)
+- [Development](#development)
+- [Open Source and Contributions](#open-source-and-contributions)
+- [License](#license)
 
 ---
 
-## Supported Providers
+<a id="key-concepts"></a>
+## Key Concepts 🧠
 
-### Currently Implemented
+### Job-First Architecture 🧩
 
-- **OpenAI** — Chat, streaming, embeddings, image generation, audio, moderation
-- **Anthropic** — Chat, streaming, embeddings, image analysis
-- **Google Gemini** — Chat, streaming, embeddings, image analysis, video analysis
+ProviderPlaneAI treats every AI operation as a **job**. This enables:
+- Asynchronous and synchronous execution
+- Retry, rerun, and persistence support
+- Concurrency and queue control
+- Observability and lifecycle tracking
+- Streaming and non-streaming workflows under a unified model
 
-Each provider registers its capabilities explicitly at initialization time.
+### Capability-Based Design 🔌
 
----
+Instead of tying your system to specific vendors, ProviderPlaneAI routes requests through **capabilities**, allowing:
+- Provider-agnostic execution
+- Clean abstraction and extensibility
+- Custom capability integration
+- Easy fallback across providers
 
-## Core Concepts
+### Streaming and Multimodal Pipelines 🌊
 
-### Capabilities
+The framework natively supports:
+- Streaming responses
+- Incremental artifact generation
+- Multimodal workflows (text, images, embeddings, moderation, analysis)
+- Unified execution context and timeline tracking
 
-A capability represents a specific, orthogonal AI feature. Examples:
+### Resilience and Fallback 🛡️
 
-- `ChatCapability` — Single-turn chat completion
-- `ChatStreamCapability` — Streaming chat responses
-- `EmbedCapability` — Text embeddings
-- `ImageGenerationCapability` — Image generation
-- `ImageAnalysisCapability` — Image analysis and understanding
-- `ModerationCapability` — Content moderation
-- And more...
+Execution policies allow:
+- Automatic fallback across providers
+- Structured error handling
+- Robust distributed AI pipelines
 
----
+### Observability and Tracing 🔍
 
-### Sessions
-
-Sessions track conversation history and execution events for auditability, debugging, and stateful interactions:
-
-```typescript
-const session = client.createSession();
-const snapshot = client.serializeSession(session.id);
-// Later...
-const restored = client.resumeSession(snapshot);
-```
-
----
-
-### Provider Chains
-
-Routes requests through multiple providers with automatic fallback:
-
-```typescript
-// Use default chain from config
-await client.chat(request, session);
-
-// Or override with custom chain
-await client.chat(request, session, [
-  { providerType: "openai", connectionName: "default" },
-  { providerType: "anthropic", connectionName: "default" }
-]);
-```
+ProviderPlaneAI is designed with observability in mind:
+- Execution metadata
+- Structured job snapshots
+- Streaming diagnostics
+- Timeline-based artifact tracking
 
 ---
 
-### Multi-Modal Execution Context
+<a id="core-features"></a>
+## Core Features ✨
 
-Rich context passed to providers for complex operations:
-
-- Request metadata and configuration
-- Session tracking and event emission
-- Request/response logging
-- Provider-specific parameters
+- Provider-agnostic AI orchestration
+- Job-based execution model
+- Streaming and non-streaming support
+- Multimodal artifact pipelines
+- Execution policies and fallback
+- Observability and metadata tracking
+- Extensible capability system
+- Strong TypeScript typing
+- Cloud and platform-friendly architecture
+- OSS-friendly and framework-agnostic
 
 ---
 
-## Installation & Setup
+<a id="example-use-cases"></a>
+## Example Use Cases 🏗️
 
-### Prerequisites
+- AI platform and infrastructure teams
+- Agent orchestration systems
+- AI product backends
+- Multimodal pipelines
+- Distributed and resilient AI services
+- Internal AI developer platforms
 
-- Node.js 20+
-- TypeScript 5.3+
+---
 
-### Installation
+<a id="getting-started"></a>
+## Getting Started 🚀
 
-Install the latest version from npm:
+### Install 📦
 
 ```bash
 npm install providerplaneai
 ```
 
----
+### Runtime Requirements ✅
 
-## Configuration
+- Node.js 20+
+- TypeScript 5+
 
-Create a `config/default.json` file in your project root. Environment variables are automatically substituted from `process.env`.
+### Configure Providers ⚙️
+
+ProviderPlaneAI loads configuration via `node-config` + `dotenv`.
+
+Create `config/default.json` (or environment-specific config files) with `appConfig` and `providers`.
+
+Minimal example:
 
 ```json
 {
-  "executionPolicy": {
-    "providerChain": [
-      { "providerType": "openai", "connectionName": "default" },
-      { "providerType": "anthropic", "connectionName": "default" }
-    ]
+  "appConfig": {
+    "maxConcurrency": 128,
+    "maxQueueSize": 1024,
+    "maxStoredResponseChunks": 1024,
+    "storeRawResponses": true,
+    "maxRawBytesPerJob": 1048576,
+    "remoteImageFetchTimeoutMs": 16384,
+    "maxRemoteImageBytes": 10485760,
+    "executionPolicy": {
+      "providerChain": [
+        { "providerType": "openai", "connectionName": "default" },
+        { "providerType": "gemini", "connectionName": "default" },
+        { "providerType": "anthropic", "connectionName": "default" }
+      ]
+    }
   },
   "providers": {
     "openai": {
       "default": {
-        "apiKey": "${OPENAI_API_KEY}",
-        "model": "gpt-4"
-      }
-    },
-    "anthropic": {
-      "default": {
-        "apiKey": "${ANTHROPIC_API_KEY}",
-        "model": "claude-3-sonnet"
-      }
-    },
-    "gemini": {
-      "default": {
-        "apiKey": "${GEMINI_API_KEY}",
-        "model": "gemini-pro"
+        "type": "openai",
+        "apiKeyEnvVar": "OPENAI_API_KEY_1",
+        "defaultModel": "gpt-5",
+        "defaultModels": { "chat": "gpt-5" },
+        "providerDefaults": { "providerParams": {} },
+        "models": {
+          "gpt-5": {
+            "chat": {
+              "modelParams": {},
+              "providerParams": {},
+              "generalParams": {}
+            },
+            "chatStream": {
+              "modelParams": {},
+              "providerParams": {},
+              "generalParams": { "chatStreamBatchSize": 64 }
+            }
+          }
+        }
       }
     }
   }
 }
 ```
 
----
+Set environment variables referenced by `apiKeyEnvVar` (for example `OPENAI_API_KEY_1`, `GEMINI_API_KEY_1`, `ANTHROPIC_API_KEY_1`).
 
-## Quick Start
+### Basic Usage 💡
 
-```typescript
-import { AIClient } from "providerplaneai";
+```ts
+import {
+  AIClient,
+  CapabilityKeys,
+  MultiModalExecutionContext,
+  type ClientChatRequest,
+  type NormalizedChatMessage
+} from "providerplaneai";
 
 const client = new AIClient();
 
-// Create a session
-const session = client.createSession();
-
-// Make a request
-const response = await client.chat(
-  {
-    input: {
-      messages: [
-        { role: "user", content: "Hello, how are you?" }
-      ]
+const request: ClientChatRequest = {
+  messages: [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Hello" }]
     }
-  },
-  session
-);
+  ]
+};
 
-console.log(response.output);
+const job = client.createCapabilityJob<
+  typeof CapabilityKeys.ChatCapabilityKey,
+  ClientChatRequest,
+  NormalizedChatMessage
+>(CapabilityKeys.ChatCapabilityKey, { input: request });
+
+const ctx = new MultiModalExecutionContext();
+client.jobManager.runJob(job.id, ctx);
+
+const result = await job.getCompletionPromise();
+console.log(result);
 ```
 
----
+### Streaming Usage 📡
 
-## API Overview
-
-### AIClient Methods
-
-#### Session Management
-
-```typescript
-createSession(id?: string): AISession
-getSession(id: string): AISession | undefined
-getOrCreateSession(id?: string): AISession
-listSessions(): string[]
-serializeSession(id: string): SessionSnapshot
-resumeSession(snapshot: SessionSnapshot): AISession
-closeSession(id: string): void
-```
-
-#### Chat Capabilities
-
-```typescript
-// Non-streaming chat
-async chat(
-  request: AIRequest<ClientChatRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): Promise<AIResponse<string[]>>
-
-// Streaming chat
-async *chatStream(
-  request: AIRequest<ClientChatRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): AsyncGenerator<AIResponseChunk<string>>
-```
-
-#### Embeddings
-
-```typescript
-async embeddings(
-  request: AIRequest<ClientEmbeddingRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): Promise<AIResponse<number[] | number[][]>>
-```
-
-#### Image Operations
-
-```typescript
-// Image generation
-async generateImage(
-  request: AIRequest<ClientImageGenerationRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): Promise<AIResponse<NormalizedImage[]>>
-
-async *generateImageStream(
-  request: AIRequest<ClientImageGenerationRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): AsyncGenerator<AIResponseChunk<NormalizedImage[]>>
-
-// Image analysis
-async analyzeImage(
-  request: AIRequest<ClientImageAnalysisRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): Promise<AIResponse<NormalizedImageAnalysis[]>>
-
-async *analyzeImageStream(
-  request: AIRequest<ClientImageAnalysisRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>>
-
-// Image editing
-async editImage(
-  request: AIRequest<ClientImageEditRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): Promise<AIResponse<NormalizedImage[]>>
-
-async *editImageStream(
-  request: AIRequest<ClientImageEditRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): AsyncGenerator<AIResponseChunk<NormalizedImage[]>>
-```
-
-#### Moderation
-
-```typescript
-async moderation(
-  request: AIRequest<ClientModerationRequest>,
-  session: AISession,
-  providerChain?: ProviderRef[]
-): Promise<AIResponse<ModerationResult | ModerationResult[]>>
-```
-
-#### Provider Management
-
-```typescript
-registerProvider(
-  provider: BaseProvider,
-  providerType: AIProviderType,
-  connectionName?: string
-): void
-
-getProvider<T extends BaseProvider>(
-  type: AIProviderType,
-  connectionName?: string
-): T
-```
-
----
-
-## Request Structure
-
-All requests follow a consistent structure:
-
-```typescript
-interface AIRequest<T> {
-  input: T;
-  metadata?: {
-    requestId?: string;
-    userId?: string;
-    tags?: string[];
-    [key: string]: any;
-  };
-}
-```
-
----
-
-## Response Structure
-
-```typescript
-interface AIResponse<T> {
-  output: T;
-  metadata?: {
-    provider: AIProviderType;
-    model?: string;
-    tokensUsed?: number;
-    executionTime?: number;
-    [key: string]: any;
-  };
-}
-```
-
----
-
-## Error Handling
-
-```typescript
+```ts
 import {
-  AllProvidersFailedError,
-  DuplicateProviderRegistrationError,
-  ExecutionPolicyError
+  AIClient,
+  CapabilityKeys,
+  MultiModalExecutionContext,
+  type ClientChatRequest,
+  type JobChunk,
+  type NormalizedChatMessage
 } from "providerplaneai";
+
+const client = new AIClient();
+
+const request: ClientChatRequest = {
+  messages: [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Stream this response" }]
+    }
+  ]
+};
+
+const job = client.createCapabilityJob<
+  typeof CapabilityKeys.ChatStreamCapabilityKey,
+  ClientChatRequest,
+  NormalizedChatMessage
+>(CapabilityKeys.ChatStreamCapabilityKey, { input: request });
+
+const ctx = new MultiModalExecutionContext();
+client.jobManager.runJob(job.id, ctx, (chunk: JobChunk<NormalizedChatMessage>) => {
+  if (chunk.delta?.content?.[0]?.type === "text") {
+    process.stdout.write(chunk.delta.content[0].text);
+  }
+});
+
+await job.getCompletionPromise();
 ```
 
 ---
 
-## Architecture
+<a id="built-in-providers"></a>
+## Built-In Providers 🤝
 
-### Design Principles
+#### Current providers:
+- OpenAI
+- Anthropic
+- Gemini
 
-1. **Capability-Aware, Provider-Agnostic**
-2. **Fail Fast and Explicitly**
-3. **Thin Orchestration Layer, Thick Providers**
-4. **Orthogonal Capabilities**
-5. **Configuration-Driven Execution**
+Additional providers will be added in the future.
+
+Providers are auto-registered from `appConfig.executionPolicy.providerChain` during `AIClient` construction.
 
 ---
 
-## License
+<a id="design-goals"></a>
+## Design Goals 🎯
 
-MIT License
+ProviderPlaneAI is built around several guiding principles:
+
+- **Abstraction without loss of control**
+- **Streaming-first and multimodal-ready**
+- **Resilient distributed execution**
+- **Clear observability and traceability**
+- **Extensibility and long-term maintainability**
+- **Production-focused architecture**
+
+---
+
+<a id="development"></a>
+## Development 🛠️
+
+```bash
+npm run build
+npm run test
+npm run lint
+```
+
+### Git Hooks 🪝
+We use Husky to enforce linting and tests.
+Please do not bypass hooks unless absolutely necessary.
+
+---
+
+<a id="open-source-and-contributions"></a>
+## Open Source and Contributions 🌍
+
+ProviderPlaneAI is open source and designed to support real-world engineering teams. Contributions, feedback, and discussion are welcome.
+
+If you are interested in contributing or collaborating, feel free to open an issue or discussion.
+
+---
+
+<a id="license"></a>
+## License 📄
+
+MIT

@@ -1,129 +1,228 @@
-import { ClientChatMessage, NormalizedImage, SessionTurnHistoryEntry } from "#root/index.js";
+import {
+    TimelineEvent,
+    UserMessageEvent,
+    AssistantMessageEvent,
+    SystemEvent,
+    TimelineArtifacts,
+    NormalizedChatMessage,
+    NormalizedImage,
+    NormalizedImageAnalysis,
+    NormalizedModeration,
+    NormalizedEmbedding,
+    NormalizedAudio,
+    NormalizedVideo,
+    NormalizedFile,
+    NormalizedMask,
+    ImageGenerationEvent,
+    ImageEditEvent,
+    NormalizedUserInput,
+    AIResponse
+} from "#root/index.js";
 
 /**
  * Execution context for multi-turn, multimodal AI sessions.
+ * Maintains a unified timeline with all modalities.
  *
- * Responsibilities:
- * - Maintain global turn order across all modalities
- * - Track provider input, output, and multimodal artifacts
- * - Support chat, images, audio, or other structured outputs
+ * Design invariants:
+ * - Owns the canonical timeline
+ * - Stores ONLY final AIResponse-derived artifacts
+ * - Streaming chunks are ephemeral
+ * - No provider logic, no retries, no orchestration
  */
 export class MultiModalExecutionContext {
-    /** Internal turn history (mutable) */
-    protected history: SessionTurnHistoryEntry<any, any>[] = [];
-    protected turnIndex = 0;
+    /** Unified timeline for all events */
+    protected timeline: TimelineEvent[] = [];
 
-    /** Flattened global state for chat, images, masks */
-    public chatMessages: ClientChatMessage[] = [];
-    public images: NormalizedImage[] = [];
-    public masks: NormalizedImage[] = [];
-    public artifacts: Record<string, unknown> = {};
-
-    /** Begin a new logical turn */
-    beginTurn(input: unknown): void {
-        this.turnIndex += 1;
-        this.history.push({
-            turn: this.turnIndex,
-            providerOutput: undefined,
-            multimodalArtifacts: {},
-            input
-        });
-    }
-
-    /** Apply a completed provider output to the current turn */
-    applyOutput(output: unknown, multimodalArtifacts?: Record<string, unknown>): void {
-        const currentTurn = this.history[this.history.length - 1];
-        if (!currentTurn) {
-            throw new Error("No active turn. Call beginTurn first.");
-        }
-
-        currentTurn.providerOutput = output;
-
-        if (multimodalArtifacts) {
-            currentTurn.multimodalArtifacts = {
-                ...(currentTurn.multimodalArtifacts ?? {}),
-                ...multimodalArtifacts
-            };
-
-            // Update flattened global state
-            this.updateGlobalArtifacts(multimodalArtifacts);
-        }
-    }
-
-    /** Attach multimodal artifacts without marking provider output */
-    attachMultimodalArtifacts(artifacts: Record<string, unknown>): void {
-        const currentTurn = this.history[this.history.length - 1];
-        if (!currentTurn) {
-            throw new Error("attachMultimodalArtifacts called before beginTurn");
-        }
-
-        currentTurn.multimodalArtifacts = {
-            ...(currentTurn.multimodalArtifacts ?? {}),
-            ...artifacts
+    /**
+     * Begin a new logical turn with a canonical user input.
+     * Input can be a chat message, image request, or any other request type.
+     *
+     * @param input - The user input for this turn
+     */
+    beginTurn(input: NormalizedUserInput): void {
+        const event: UserMessageEvent = {
+            id: crypto.randomUUID(),
+            type: "userMessage",
+            timestamp: Date.now(),
+            message: input,
+            artifacts: this.createEmptyArtifacts()
         };
 
-        this.updateGlobalArtifacts(artifacts);
+        this.timeline.push(event);
     }
 
-    /** Helper to update flattened state */
-    private updateGlobalArtifacts(artifacts: Record<string, unknown>) {
-        if (artifacts.chat) {
-            this.chatMessages.push(...(artifacts.chat as ClientChatMessage[]));
-        }
-        if (artifacts.images) {
-            this.images.push(...(artifacts.images as NormalizedImage[]));
-        }
-        if (artifacts.masks) {
-            this.masks.push(...(artifacts.masks as NormalizedImage[]));
-        }
-        Object.assign(this.artifacts, artifacts);
+    /**
+     * Apply final assistant output
+     * Chat is the only modality that produces a canonical "assistantMessage".
+     */
+    applyAssistantMessage(message: NormalizedChatMessage): void {
+        const event: AssistantMessageEvent = {
+            id: crypto.randomUUID(),
+            type: "assistantMessage",
+            timestamp: Date.now(),
+            message,
+            artifacts: { ...this.createEmptyArtifacts(), chat: [message] }
+        };
+        this.timeline.push(event);
     }
 
-    /** Streaming helper: attach artifacts and optionally a partial/final output */
-    yieldArtifacts(output?: unknown, artifacts?: Record<string, unknown>): void {
-        if (output !== undefined) {
-            this.applyOutput(output, artifacts);
-        } else if (artifacts) {
-            this.attachMultimodalArtifacts(artifacts);
+    /** Attach multimodal artifacts without producing a chat message */
+    attachArtifacts(artifacts?: Partial<TimelineArtifacts>): void {
+        const event: SystemEvent = {
+            id: crypto.randomUUID(),
+            type: "systemEvent",
+            timestamp: Date.now(),
+            action: "attachArtifacts",
+            artifacts: this.mergeArtifacts(this.createEmptyArtifacts(), artifacts)
+        };
+
+        this.timeline.push(event);
+    }
+
+    /**
+     * Attach multimodal artifacts with metadata sourced from an internal AIResponse.
+     * Intended for internal orchestration use only.
+     */
+    attachArtifactsFromResponse<T>(response: AIResponse<T>, artifacts?: Partial<TimelineArtifacts>): void {
+        const baseWithResponseArtifacts = this.mergeArtifacts(this.createEmptyArtifacts(), response.multimodalArtifacts);
+
+        const event: SystemEvent = {
+            id: crypto.randomUUID(),
+            type: "systemEvent",
+            timestamp: Date.now(),
+            action: "attachArtifacts",
+            artifacts: this.mergeArtifacts(baseWithResponseArtifacts, artifacts),
+            metadata: response.metadata
+        };
+
+        this.timeline.push(event);
+    }
+
+    /**
+     * Streaming helper.
+     * Chunks are forwarded but NOT persisted as AIResponses.
+     */
+    yieldArtifacts(artifacts?: Partial<TimelineArtifacts>): void {
+        if (!artifacts) {
+            return;
         }
+
+        const event: SystemEvent = {
+            id: crypto.randomUUID(),
+            type: "systemEvent",
+            timestamp: Date.now(),
+            action: "streamChunk",
+            artifacts: this.mergeArtifacts(this.createEmptyArtifacts(), artifacts)
+        };
+
+        this.timeline.push(event);
     }
 
-    /** Build provider-facing input for the current turn */
-    buildProviderInput(): any {
-        const currentTurn = this.history[this.history.length - 1];
-        if (!currentTurn) {
-            throw new Error("No turn started");
-        }
-        return currentTurn.input;
-    }
-
-    /** Read-only view of the turn history */
-    getHistory(): readonly SessionTurnHistoryEntry<any, any>[] {
-        return this.history;
-    }
-
-    /** Reset all session state */
+    /** Reset the entire session */
     reset(): void {
-        this.history = [];
-        this.turnIndex = 0;
-        this.chatMessages = [];
-        this.images = [];
-        this.masks = [];
-        this.artifacts = {};
+        this.timeline = [];
     }
 
-    /** Convenience: get the last chat message */
-    getLastChatMessage(): ClientChatMessage | undefined {
-        return this.chatMessages[this.chatMessages.length - 1];
+    /** Read-only view of timeline */
+    getTimeline(): readonly TimelineEvent[] {
+        return this.timeline;
     }
 
-    /** Convenience: get the last generated image */
-    getLastImage(): NormalizedImage | undefined {
-        return this.images[this.images.length - 1];
+    /** Merge two TimelineArtifacts objects safely */
+    private mergeArtifacts(base: TimelineArtifacts, addition?: Partial<TimelineArtifacts>): TimelineArtifacts {
+        addition = addition ?? {};
+
+        const safeArray = <T>(v?: T[]): T[] => (Array.isArray(v) ? v : []);
+
+        return {
+            chat: [...safeArray(base.chat), ...safeArray(addition.chat)],
+            images: [...safeArray(base.images), ...safeArray(addition.images)],
+            masks: [...safeArray(base.masks), ...safeArray(addition.masks)],
+            analysis: [...safeArray(base.analysis), ...safeArray(addition.analysis)],
+            embeddings: [...safeArray(base.embeddings), ...safeArray(addition.embeddings)],
+            moderation: [...safeArray(base.moderation), ...safeArray(addition.moderation)],
+            audio: [...safeArray(base.audio), ...safeArray(addition.audio)],
+            video: [...safeArray(base.video), ...safeArray(addition.video)],
+            files: [...safeArray(base.files), ...safeArray(addition.files)],
+            custom: [...safeArray(base.custom), ...safeArray(addition.custom)]
+        };
     }
 
-    /** Convenience: get the last mask */
-    getLastMask(): NormalizedImage | undefined {
-        return this.masks[this.masks.length - 1];
+    /** Create an empty TimelineArtifacts object */
+    private createEmptyArtifacts(): TimelineArtifacts {
+        return {
+            chat: [],
+            images: [],
+            masks: [],
+            analysis: [],
+            embeddings: [],
+            moderation: [],
+            audio: [],
+            video: [],
+            files: [],
+            custom: []
+        };
+    }
+
+    /** Generic helper to find the latest artifact type in the timeline */
+    private findLatest<T>(predicate: (e: TimelineEvent) => T | undefined): T | undefined {
+        // Reverse scan keeps reads O(n) without storing per-modality indexes and
+        // always returns the most recent event payload for that modality.
+        for (let i = this.timeline.length - 1; i >= 0; i--) {
+            const result = predicate(this.timeline[i]);
+            if (result !== undefined) {
+                return result;
+            }
+        }
+        return undefined;
+    }
+
+    getLatestChat(): NormalizedChatMessage[] {
+        // "Latest" is event-local, not cumulative over all prior turns.
+        return this.findLatest((e) => e.artifacts.chat) ?? [];
+    }
+
+    getLatestImages(): NormalizedImage[] {
+        return this.findLatest((e) => e.artifacts.images) ?? [];
+    }
+
+    getLatestMasks(): NormalizedMask[] {
+        return this.findLatest((e) => e.artifacts.masks) ?? [];
+    }
+
+    getLatestAnalysis(): NormalizedImageAnalysis[] {
+        return this.findLatest((e) => e.artifacts.analysis) ?? [];
+    }
+
+    getLatestEmbeddings(): NormalizedEmbedding[] {
+        return this.findLatest((e) => e.artifacts.embeddings) ?? [];
+    }
+
+    getLatestModeration(): NormalizedModeration[] {
+        return this.findLatest((e) => e.artifacts.moderation) ?? [];
+    }
+
+    getLatestAudio(): NormalizedAudio[] {
+        return this.findLatest((e) => e.artifacts.audio) ?? [];
+    }
+
+    getLatestVideo(): NormalizedVideo[] {
+        return this.findLatest((e) => e.artifacts.video) ?? [];
+    }
+
+    getLatestFile(): NormalizedFile[] {
+        return this.findLatest((e) => e.artifacts.files) ?? [];
+    }
+
+    /** Helper to get latest ImageGenerationEvent specifically */
+    getLatestImageGeneration(): ImageGenerationEvent | undefined {
+        return this.findLatest((e): ImageGenerationEvent | undefined =>
+            e.type === "imageGeneration" ? (e as ImageGenerationEvent) : undefined
+        );
+    }
+
+    /** Helper to get latest ImageEditEvent specifically */
+    getLatestImageEdit(): ImageEditEvent | undefined {
+        return this.findLatest((e): ImageEditEvent | undefined => (e.type === "imageEdit" ? (e as ImageEditEvent) : undefined));
     }
 }

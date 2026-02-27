@@ -7,8 +7,8 @@ import {
     CapabilityKeys,
     ClientModerationRequest,
     ModerationCapability,
-    ModerationResult,
-    MultiModalExecutionContext
+    MultiModalExecutionContext,
+    NormalizedModeration
 } from "#root/index.js";
 
 /**
@@ -47,10 +47,7 @@ const MODERATION_SCHEMA = {
  * - Normalizes Gemini-specific responses into provider-agnostic ModerationResult
  * - Tracks metadata and request context for observability
  */
-export class GeminiModerationCapabilityImpl implements ModerationCapability<
-    ClientModerationRequest,
-    ModerationResult | ModerationResult[]
-> {
+export class GeminiModerationCapabilityImpl implements ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
     /**
      * Constructs a new Gemini moderation capability.
      *
@@ -74,13 +71,15 @@ export class GeminiModerationCapabilityImpl implements ModerationCapability<
      *
      * @param request - Unified moderation request
      * @param _executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns AIResponse containing ModerationResult(s)
      * @throws Error if input is invalid or API fails
      */
     async moderation(
         request: AIRequest<ClientModerationRequest>,
-        _executionContext?: MultiModalExecutionContext
-    ): Promise<AIResponse<ModerationResult | ModerationResult[]>> {
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedModeration[]>> {
         // Ensure provider has been initialized
         this.provider.ensureInitialized();
 
@@ -90,57 +89,68 @@ export class GeminiModerationCapabilityImpl implements ModerationCapability<
             throw new Error("Invalid moderation input");
         }
 
+        if (signal?.aborted) {
+            throw new Error("Request aborted");
+        }
+
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.ModerationCapabilityKey, options);
 
         // Normalize input to array for consistent processing
-        const texts = Array.isArray(input.input) ? input.input : [input.input];
+        const inputs = Array.isArray(input.input) ? input.input : [input.input];
 
-        const results: ModerationResult[] = [];
+        // Execute one Gemini call per input (no hybrid abort logic)
+        const responses = await Promise.all(
+            inputs.map((text) => {
+                const prompt =
+                    `Analyze the following content for safety violations. ` +
+                    `Respond strictly according to policy.\n\nContent:\n"${text}"`;
 
-        for (const text of texts) {
-            // Construct moderation prompt for Gemini
-            const prompt = `Analyze the following content for safety violations according to standard policy. Be objective and strict. Content: "${text}"`;
+                return this.client.models.generateContent({
+                    model: merged.model ?? "gemini-2.5-flash-lite",
+                    contents: [{ role: "user", parts: [{ text: prompt }] }],
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: MODERATION_SCHEMA,
+                        temperature: 0
+                    },
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
+                });
+            })
+        );
 
-            // Execute moderation request
-            const response = await this.client.models.generateContent({
-                model: merged.model ?? "gemini-2.5-flash-lite",
-                contents: [{ role: "user", parts: [{ text: prompt }] }],
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: MODERATION_SCHEMA,
-                    temperature: 0
-                },
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            });
-
-            // Parse Gemini JSON output
+        const normalized: NormalizedModeration[] = responses.map((response, index) => {
             const parsed = JSON.parse(response.text ?? "{}");
 
-            // Convert to provider-agnostic ModerationResult
-            results.push({
-                flagged: Boolean(parsed.flagged),
-                categories: parsed.categories ?? {},
-                categoryScores: undefined, // Gemini does not provide scores here
-                raw: parsed,
-                reason: parsed.reasoning ?? ""
-            });
-        }
+            const categories = Object.fromEntries(Object.entries(parsed.categories ?? {}).map(([k, v]) => [k, Boolean(v)]));
 
-        // Normalize output: single input -> single result
-        const normalizedOutput = Array.isArray(input.input) ? results : results[0];
+            return {
+                id: crypto.randomUUID(),
+                flagged: Boolean(parsed.flagged),
+                categories,
+                categoryScores: undefined, // Gemini provides no confidence scores
+                reason: parsed.reasoning || undefined,
+                metadata: {
+                    provider: AIProvider.Gemini,
+                    model: merged.model,
+                    inputIndex: index,
+                    requestId: context?.requestId
+                }
+            };
+        });
 
         // Return fully normalized AIResponse
         return {
-            output: normalizedOutput,
-            rawResponse: results.map((r) => r.raw),
+            output: normalized,
+            rawResponse: responses,
+            id: crypto.randomUUID(),
             metadata: {
+                ...(context?.metadata ?? {}),
                 provider: AIProvider.Gemini,
                 model: merged.model,
                 status: "completed",
-                requestId: context?.requestId,
-                ...(context?.metadata ?? {})
+                requestId: context?.requestId
             }
         };
     }

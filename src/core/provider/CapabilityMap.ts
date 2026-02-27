@@ -15,9 +15,11 @@ import {
     ImageGenerationCapability,
     ImageGenerationStreamCapability,
     ModerationCapability,
-    ModerationResult,
+    NormalizedChatMessage,
+    NormalizedEmbedding,
     NormalizedImage,
-    NormalizedImageAnalysis
+    NormalizedImageAnalysis,
+    NormalizedModeration
 } from "#root/index.js";
 
 /**
@@ -29,16 +31,18 @@ export const CapabilityKeys = {
     ChatCapabilityKey: "chat",
     ChatStreamCapabilityKey: "chatStream",
     ImageGenerationCapabilityKey: "imageGeneration",
-    ImageGenerationStreamCapabilityKey: "imageGenerateStream",
+    ImageGenerationStreamCapabilityKey: "imageGenerationStream",
     ImageEditCapabilityKey: "imageEdit",
     ImageEditStreamCapabilityKey: "imageEditStream",
-    ImageAnalysisCapabilityKey: "imageAnalyze",
+    ImageAnalysisCapabilityKey: "imageAnalysis",
     ImageAnalysisStreamCapabilityKey: "imageAnalyzeStream",
     EmbedCapabilityKey: "embed",
     ModerationCapabilityKey: "moderation"
 } as const;
 
-export type CapabilityKeyType = (typeof CapabilityKeys)[keyof typeof CapabilityKeys];
+export type BuiltInCapabilityKey = (typeof CapabilityKeys)[keyof typeof CapabilityKeys];
+export type CustomCapabilityKey = string & {};
+export type CapabilityKeyType = BuiltInCapabilityKey | CustomCapabilityKey;
 
 /**
  * Mapping from capability keys to their interface implementations.
@@ -48,18 +52,15 @@ export type CapabilityKeyType = (typeof CapabilityKeys)[keyof typeof CapabilityK
  * - Consumers can safely cast to the capability interface after checking with hasCapability()
  */
 export interface CapabilityMap {
-    [CapabilityKeys.ChatCapabilityKey]: ChatCapability<ClientChatRequest, string>;
-    [CapabilityKeys.ChatStreamCapabilityKey]: ChatStreamCapability<ClientChatRequest, string>;
+    [CapabilityKeys.ChatCapabilityKey]: ChatCapability<ClientChatRequest, NormalizedChatMessage>;
+    [CapabilityKeys.ChatStreamCapabilityKey]: ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>;
     [CapabilityKeys.ImageGenerationCapabilityKey]: ImageGenerationCapability<ClientImageGenerationRequest, NormalizedImage[]>;
     [CapabilityKeys.ImageGenerationStreamCapabilityKey]: ImageGenerationStreamCapability<
         ClientImageGenerationRequest,
         NormalizedImage[]
     >;
-    [CapabilityKeys.EmbedCapabilityKey]: EmbedCapability<ClientEmbeddingRequest, number[] | number[][]>;
-    [CapabilityKeys.ModerationCapabilityKey]: ModerationCapability<
-        ClientModerationRequest,
-        ModerationResult | ModerationResult[]
-    >;
+    [CapabilityKeys.EmbedCapabilityKey]: EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]>;
+    [CapabilityKeys.ModerationCapabilityKey]: ModerationCapability<ClientModerationRequest, NormalizedModeration[]>;
     [CapabilityKeys.ImageAnalysisCapabilityKey]: ImageAnalysisCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>;
     [CapabilityKeys.ImageAnalysisStreamCapabilityKey]: ImageAnalysisStreamCapability<
         ClientImageAnalysisRequest,

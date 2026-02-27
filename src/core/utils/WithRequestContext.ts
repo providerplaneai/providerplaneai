@@ -23,7 +23,8 @@ export async function withRequestContext<TInput, TOutput>(
     const requestId = uuidv4();
     const startTime = Date.now();
 
-    // Inject requestId into request context
+    // Mutate request context in-place so downstream provider code sees a single
+    // consistent request envelope (same object reference across layers).
     req.context = {
         ...(req.context || {}),
         requestId,

@@ -6,6 +6,7 @@ import {
     AIResponseChunk,
     AnthropicChatCapabilityImpl,
     AnthropicEmbedCapabilityImpl,
+    AnthropicImageAnalysisCapabilityImpl,
     AnthropicModerationCapabilityImpl,
     BaseProvider,
     CapabilityKeys,
@@ -14,11 +15,17 @@ import {
     ChatStreamCapability,
     ClientChatRequest,
     ClientEmbeddingRequest,
+    ClientImageAnalysisRequest,
     ClientModerationRequest,
     EmbedCapability,
+    ImageAnalysisCapability,
+    ImageAnalysisStreamCapability,
     ModerationCapability,
-    ModerationResult,
     MultiModalExecutionContext,
+    NormalizedChatMessage,
+    NormalizedEmbedding,
+    NormalizedImageAnalysis,
+    NormalizedModeration,
     ProviderConnectionConfig
 } from "#root/index.js";
 
@@ -43,7 +50,9 @@ export class AnthropicProvider
         ChatCapability<ClientChatRequest>,
         ChatStreamCapability<ClientChatRequest>,
         EmbedCapability<ClientEmbeddingRequest>,
-        ModerationCapability<ClientModerationRequest>
+        ModerationCapability<ClientModerationRequest>,
+        ImageAnalysisCapability<ClientImageAnalysisRequest>,
+        ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
 {
     /** Underlying Anthropic SDK client instance */
     private client: Anthropic | null = null;
@@ -52,7 +61,7 @@ export class AnthropicProvider
     private chatDelegate: AnthropicChatCapabilityImpl | null = null;
     private moderateDelegate: AnthropicModerationCapabilityImpl | null = null;
     private embedDelegate: AnthropicEmbedCapabilityImpl | null = null;
-
+    private imageAnalysisDelegate: AnthropicImageAnalysisCapabilityImpl | null = null;
     public constructor() {
         super(AIProvider.Anthropic);
     }
@@ -80,20 +89,32 @@ export class AnthropicProvider
         this.chatDelegate = new AnthropicChatCapabilityImpl(this, this.client);
         this.moderateDelegate = new AnthropicModerationCapabilityImpl(this, this.client);
         this.embedDelegate = new AnthropicEmbedCapabilityImpl(this);
+        this.imageAnalysisDelegate = new AnthropicImageAnalysisCapabilityImpl(this, this.client);
 
         // Register supported capabilities
-        this.registerCapability(CapabilityKeys.ChatCapabilityKey, this as ChatCapability<ClientChatRequest, string>);
+        this.registerCapability(
+            CapabilityKeys.ChatCapabilityKey,
+            this as ChatCapability<ClientChatRequest, NormalizedChatMessage>
+        );
         this.registerCapability(
             CapabilityKeys.ChatStreamCapabilityKey,
-            this as ChatStreamCapability<ClientChatRequest, string>
+            this as ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
         );
         this.registerCapability(
             CapabilityKeys.EmbedCapabilityKey,
-            this as EmbedCapability<ClientEmbeddingRequest, number[] | number[][]>
+            this as EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]>
         );
         this.registerCapability(
             CapabilityKeys.ModerationCapabilityKey,
-            this as ModerationCapability<ClientModerationRequest, ModerationResult | ModerationResult[]>
+            this as ModerationCapability<ClientModerationRequest, NormalizedModeration[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.ImageAnalysisCapabilityKey,
+            this as ImageAnalysisCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.ImageAnalysisStreamCapabilityKey,
+            this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
         );
     }
 
@@ -102,14 +123,19 @@ export class AnthropicProvider
      *
      * @template TChatInput Chat request type
      * @param req - Unified AI request containing chat input and options
+     * @param signal AbortSignal for request cancellation
      * @param executionContext Execution context
      * @returns AIResponse containing generated text output
      */
-    async chat(req: AIRequest<ClientChatRequest>, executionContext: MultiModalExecutionContext): Promise<AIResponse<string>> {
+    async chat(
+        req: AIRequest<ClientChatRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedChatMessage>> {
         if (!this.chatDelegate || typeof this.chatDelegate.chat !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ChatCapabilityKey);
         }
-        return await this.chatDelegate.chat(req, executionContext);
+        return await this.chatDelegate.chat(req, executionContext, signal);
     }
 
     /**
@@ -118,16 +144,18 @@ export class AnthropicProvider
      * @template TChatInput Chat request type
      * @param req - Unified AI request containing chat input and options
      * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
      * @returns AsyncGenerator emitting streamed response chunks
      */
     chatStream(
         req: AIRequest<ClientChatRequest>,
-        executionContext: MultiModalExecutionContext
-    ): AsyncGenerator<AIResponseChunk<string>> {
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage>> {
         if (!this.chatDelegate || typeof this.chatDelegate.chatStream !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ChatStreamCapabilityKey);
         }
-        return this.chatDelegate.chatStream(req, executionContext);
+        return this.chatDelegate.chatStream(req, executionContext, signal);
     }
 
     /**
@@ -136,16 +164,18 @@ export class AnthropicProvider
      * @template TModerationInput Moderation request type
      * @param req - Unified AI request containing moderation input
      * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing moderation result(s)
      */
     async moderation(
         req: AIRequest<ClientModerationRequest>,
-        executionContext: MultiModalExecutionContext
-    ): Promise<AIResponse<ModerationResult | ModerationResult[]>> {
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedModeration[]>> {
         if (!this.moderateDelegate || typeof this.moderateDelegate.moderation !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ModerationCapabilityKey);
         }
-        return await this.moderateDelegate.moderation(req, executionContext);
+        return await this.moderateDelegate.moderation(req, executionContext, signal);
     }
 
     /**
@@ -154,15 +184,57 @@ export class AnthropicProvider
      * @template TEmbedInput Embedding request type
      * @param req - Unified AI request containing embedding input
      * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing embedding vector(s)
      */
     async embed(
         req: AIRequest<ClientEmbeddingRequest>,
-        executionContext: MultiModalExecutionContext
-    ): Promise<AIResponse<number[] | number[][]>> {
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedEmbedding[]>> {
         if (!this.embedDelegate || typeof this.embedDelegate.embed !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.EmbedCapabilityKey);
         }
-        return await this.embedDelegate.embed(req, executionContext);
+        return await this.embedDelegate.embed(req, executionContext, signal);
+    }
+
+    /**
+     * Execute an image analysis request
+     *
+     * @template TImageAnalysisInput Image analysis input type
+     * @param req - Unified AI request containing Image analysis input and options
+     * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
+     * @returns AIResponse containing normalized image analysis
+     */
+    async analyzeImage(
+        req: AIRequest<ClientImageAnalysisRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedImageAnalysis[]>> {
+        if (!this.imageAnalysisDelegate || typeof this.imageAnalysisDelegate.analyzeImage !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisCapabilityKey);
+        }
+        return await this.imageAnalysisDelegate.analyzeImage(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a streaming image analysis request
+     *
+     * @template TImageAnalysisInput Image analysis input type
+     * @param req - Unified AI request containing Image analysis input and options
+     * @param executionContext Execution context
+     * @param signal AbortSignal for request cancellation
+     * @returns AIResponseChunk containing normalized image analysis chunks
+     */
+    analyzeImageStream(
+        req: AIRequest<ClientImageAnalysisRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>> {
+        if (!this.imageAnalysisDelegate || typeof this.imageAnalysisDelegate.analyzeImageStream !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisStreamCapabilityKey);
+        }
+        return this.imageAnalysisDelegate.analyzeImageStream(req, executionContext, signal);
     }
 }

@@ -12,7 +12,8 @@ import {
     ClientChatRequest,
     ClientMessagePart,
     ensureDataUri,
-    MultiModalExecutionContext
+    MultiModalExecutionContext,
+    NormalizedChatMessage
 } from "#root/index.js";
 
 /**
@@ -30,7 +31,9 @@ import {
  * @template TChatOutput - Chat output type
  */
 export class OpenAIChatCapabilityImpl
-    implements ChatCapability<ClientChatRequest, string>, ChatStreamCapability<ClientChatRequest, string>
+    implements
+        ChatCapability<ClientChatRequest, NormalizedChatMessage>,
+        ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
 {
     /**
      * Creates a new OpenAI chat capability implementation.
@@ -49,15 +52,21 @@ export class OpenAIChatCapabilityImpl
      * @template TChatInput Chat input type
      * @param request Unified AI chat request
      * @param _executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns AIResponse containing the output
      * @throws Error if input messages are missing or provider is uninitialized
      */
     async chat(
         request: AIRequest<ClientChatRequest>,
-        _executionContext?: MultiModalExecutionContext
-    ): Promise<AIResponse<string>> {
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedChatMessage>> {
         // Ensure provider has been initialized with credentials + client
         this.provider.ensureInitialized();
+
+        if (signal?.aborted) {
+            throw new Error("Request aborted");
+        }
 
         const { input, options, context } = request;
         // Defensive validation: OpenAI requires at least one message
@@ -69,23 +78,38 @@ export class OpenAIChatCapabilityImpl
         const merged = this.provider.getMergedOptions(CapabilityKeys.ChatCapabilityKey, options);
 
         // Call OpenAI Responses API with chat messages
-        const response: OpenAI.Responses.Response = await this.client.responses.create({
-            model: merged.model,
-            input: this.buildMessages(input.messages),
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
-        });
+        const response: OpenAI.Responses.Response = await this.client.responses.create(
+            {
+                model: merged.model,
+                input: this.buildMessages(input.messages),
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            },
+            { signal }
+        );
+
+        const text = this.extractAssistantText(response);
+
+        // Convert raw OpenAI text output into a normalized chat message
+        const message = this.textToNormalizedChat(
+            text,
+            "assistant",
+            response.id,
+            merged.model,
+            response.status,
+            response.usage
+        );
 
         // Return normalized response shape expected by callers
         return {
-            output: response.output_text ?? "",
+            output: message,
             rawResponse: response,
             id: response.id,
             metadata: {
+                ...(context?.metadata ?? {}),
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: response?.status,
-                tokensUsed: response?.usage?.total_tokens,
                 requestId: context?.requestId
             }
         };
@@ -93,17 +117,22 @@ export class OpenAIChatCapabilityImpl
 
     /**
      * Executes a streaming chat request using OpenAI Responses API.
-     * Emits incremental response chunks as they are received.
+     * Streams incremental response chunks as they are received from OpenAI.
+     * Each chunk is wrapped as a `NormalizedChatMessage` for both `delta` (partial)
+     * and `output` (accumulated full text). Chunks are emitted in batches to
+     * smooth UI updates and reduce downstream backpressure.
      *
      * @param request Unified AI chat request
      * @param _executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns Async iterable emitting AIResponseChunk objects
      * @throws Error if input messages are missing or provider is uninitialized
      */
     async *chatStream(
         request: AIRequest<ClientChatRequest>,
-        _executionContext?: MultiModalExecutionContext
-    ): AsyncGenerator<AIResponseChunk<string>> {
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage>> {
         // Ensure provider has been initialized
         this.provider.ensureInitialized();
 
@@ -127,24 +156,26 @@ export class OpenAIChatCapabilityImpl
         let accumulatedText = "";
 
         try {
+            if (signal?.aborted) {
+                return;
+            }
+
             // Open a streaming connection for current messages
-            const stream = await this.client.responses.stream({
-                model: merged.model,
-                input: this.buildMessages(input.messages),
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            });
+            const stream = await this.client.responses.stream(
+                {
+                    model: merged.model,
+                    input: this.buildMessages(input.messages),
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
+                },
+                { signal }
+            );
 
             // Buffer partial deltas until we flush
             let buffer = "";
 
             // Iterate over events from the provider stream
             for await (const event of stream) {
-                // End-of-text for this stream
-                if (event.type === "response.output_text.done") {
-                    break;
-                }
-
                 // Some events carry response metadata (created/completed)
                 if (
                     !responseId &&
@@ -155,78 +186,166 @@ export class OpenAIChatCapabilityImpl
                     responseId = event.response.id;
                 }
 
-                // Text delta events: accumulate and flush once buffer reaches batchSize
-                if (event.type === "response.output_text.delta") {
-                    const text: string | undefined = event.delta;
-                    if (!text) {
-                        continue;
-                    }
+                // End-of-text for this stream
+                if (event.type === "response.output_text.done") {
+                    break;
+                }
 
-                    accumulatedText += text;
-                    buffer += text;
+                // Text delta events: accumulate and flush once buffer reaches batchSize
+                const deltaText = this.extractAssistantDelta(event);
+
+                if (deltaText) {
+                    buffer += deltaText;
+                    accumulatedText += deltaText;
 
                     if (buffer.length >= batchSize) {
-                        yield {
-                            delta: buffer,
-                            output: buffer,
-                            done: false,
-                            id: responseId,
-                            metadata: {
-                                provider: AIProvider.OpenAI,
-                                model: merged.model,
-                                status: "incomplete",
-                                requestId: context?.requestId
-                            }
-                        };
+                        yield this.createChunk(buffer, accumulatedText, responseId, context, merged.model, "incomplete");
                         buffer = "";
                     }
                 }
             }
 
-            // Flush any leftover buffer
-            if (buffer.length > 0) {
-                yield {
-                    delta: buffer,
-                    output: buffer,
-                    done: false,
-                    id: responseId,
-                    metadata: {
-                        provider: AIProvider.OpenAI,
-                        model: merged.model,
-                        status: "incomplete",
-                        requestId: context?.requestId
-                    }
-                };
+            // Flush any remaining buffer
+            if (buffer.length > 0 || accumulatedText.length > 0) {
+                yield this.createChunk(buffer, accumulatedText, responseId, context, merged.model, "incomplete");
             }
 
-            // Final chunk indicating completion
-            yield {
-                delta: "",
-                output: accumulatedText,
-                done: true,
-                id: responseId,
-                metadata: {
-                    provider: AIProvider.OpenAI,
-                    model: merged.model,
-                    status: "completed",
-                    requestId: context?.requestId
-                }
-            };
+            // Final completion chunk
+            yield this.createChunk(accumulatedText, accumulatedText, responseId, context, merged.model, "completed", true);
         } catch (err) {
-            yield {
-                delta: "",
-                output: "",
-                done: true,
-                id: responseId,
-                metadata: {
-                    provider: AIProvider.OpenAI,
-                    model: merged.model,
-                    status: "error",
-                    error: err instanceof Error ? err.message : String(err),
-                    requestId: context?.requestId
-                }
-            };
+            // Abort is NOT an error — do not emit a terminal chunk
+            if (signal?.aborted || (err instanceof Error && err.message === "Stream aborted")) {
+                yield this.createChunk("", "", responseId, context, merged.model, "error", true, err);
+            }
         }
+    }
+
+    /**
+     * Helper to build a streaming chunk with proper NormalizedChatMessage
+     *
+     * @param deltaText Newly received delta text
+     * @param accumulatedText Full text accumulated so far
+     * @param responseId Response ID
+     * @param context Optional request context
+     * @param model Model name
+     * @param status Chunk status: "incomplete", "completed", "error"
+     * @param done Whether this is the final chunk
+     * @param error Optional error object if status is "error"
+     */
+    private createChunk(
+        deltaText: string,
+        accumulatedText: string,
+        responseId: string | undefined,
+        context: AIRequest<ClientChatRequest>["context"],
+        model: string,
+        status: "incomplete" | "completed" | "error",
+        done: boolean = false,
+        error?: unknown
+    ): AIResponseChunk<NormalizedChatMessage> {
+        // Merge metadata from context + chunk info
+        const messageMetadata = {
+            ...(context?.metadata ?? {}),
+            provider: AIProvider.OpenAI, // or replace with your current provider dynamically
+            model,
+            status,
+            requestId: context?.requestId,
+            ...(error ? { error } : {})
+        };
+
+        const delta: NormalizedChatMessage = {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: deltaText ? [{ type: "text", text: deltaText }] : [],
+            metadata: messageMetadata
+        };
+
+        const output: NormalizedChatMessage = {
+            id: responseId ?? crypto.randomUUID(),
+            role: "assistant",
+            content: accumulatedText ? [{ type: "text", text: accumulatedText }] : [],
+            metadata: messageMetadata
+        };
+
+        return {
+            delta,
+            output,
+            done,
+            id: responseId,
+            metadata: messageMetadata // keep wrapper consistent too
+        };
+    }
+
+    /**
+     * Convert string text to a NormalizedChatMessage object
+     *
+     * @param text Message text content
+     * @param role Message role: "assistant" | "user"
+     * @param id Optional message ID
+     * @param model Optional model name
+     * @param status Optional finish status
+     * @param usage Optional usage metrics from OpenAI
+     */
+    private textToNormalizedChat(
+        text: string,
+        role: "assistant" | "user",
+        id?: string,
+        model?: string,
+        status?: string,
+        usage?: OpenAI.Responses.ResponseUsage
+    ): NormalizedChatMessage {
+        return {
+            id: id ?? crypto.randomUUID(),
+            role,
+            content: text ? [{ type: "text", text }] : [],
+            metadata: {
+                ...(model ? { model } : {}),
+                ...(status ? { status } : {}),
+                ...(usage
+                    ? {
+                          usage: {
+                              totalTokens: usage.total_tokens,
+                              outputTokens: usage.output_tokens,
+                              inputTokens: usage.input_tokens
+                          }
+                      }
+                    : {})
+            }
+        };
+    }
+
+    private extractAssistantText(response: OpenAI.Responses.Response): string {
+        if (!response.output) {
+            return "";
+        }
+
+        let text = "";
+
+        for (const item of response.output) {
+            if (item.type !== "message") {
+                continue;
+            }
+            if (item.role !== "assistant") {
+                continue;
+            }
+
+            for (const content of item.content ?? []) {
+                if (content.type === "output_text" && content.text) {
+                    text += content.text;
+                }
+            }
+        }
+
+        return text;
+    }
+
+    private extractAssistantDelta(event: any): string | null {
+        if (event.type !== "response.output_text.delta") {
+            return null;
+        }
+        if (!event.delta) {
+            return null;
+        }
+        return event.delta;
     }
 
     /**
@@ -255,46 +374,23 @@ export class OpenAIChatCapabilityImpl
             }
 
             switch (part.type) {
-                case "text": {
-                    return {
-                        type: "input_text",
-                        text: part.text
-                    };
-                }
-
-                case "image": {
-                    return {
-                        type: "input_image",
-                        image_url: part.url ?? ensureDataUri(part.base64!, part.mimeType)
-                    };
-                }
-
-                case "audio": {
-                    return {
-                        type: "input_audio",
-                        audio_url: part.url ?? ensureDataUri(part.base64!, part.mimeType)
-                    };
-                }
-
-                case "video": {
-                    return {
-                        type: "input_video",
-                        video_url: part.url ?? ensureDataUri(part.base64!, part.mimeType)
-                    };
-                }
-
-                case "file": {
+                case "text":
+                    return { type: "input_text", text: part.text };
+                case "image":
+                    return { type: "input_image", image_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                case "audio":
+                    return { type: "input_audio", audio_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                case "video":
+                    return { type: "input_video", video_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                case "file":
                     return {
                         type: "input_file",
                         file_url: part.url ?? ensureDataUri(part.base64!, part.mimeType),
                         filename: part.filename,
                         mime_type: part.mimeType
                     };
-                }
-
-                default: {
+                default:
                     throw new Error(`Unsupported message part: ${(part as any).type}`);
-                }
             }
         });
     }

@@ -7,8 +7,8 @@ import {
     CapabilityKeys,
     ClientModerationRequest,
     ModerationCapability,
-    ModerationResult,
-    MultiModalExecutionContext
+    MultiModalExecutionContext,
+    NormalizedModeration
 } from "#root/index.js";
 
 /**
@@ -77,7 +77,7 @@ User content to moderate: {{CONTENT}}`;
  */
 export class AnthropicModerationCapabilityImpl implements ModerationCapability<
     ClientModerationRequest,
-    ModerationResult | ModerationResult[]
+    NormalizedModeration[]
 > {
     /**
      * @param provider - Parent provider instance (for lifecycle + config access)
@@ -101,12 +101,14 @@ export class AnthropicModerationCapabilityImpl implements ModerationCapability<
      * @template TModerationInput
      * @param request - Unified moderation request
      * @param _executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns AIResponse containing moderation result(s)
      */
     async moderation(
         request: AIRequest<ClientModerationRequest>,
-        _executionContext?: MultiModalExecutionContext
-    ): Promise<AIResponse<ModerationResult | ModerationResult[]>> {
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedModeration[]>> {
         // Ensure provider has been initialized
         this.provider.ensureInitialized();
 
@@ -117,91 +119,86 @@ export class AnthropicModerationCapabilityImpl implements ModerationCapability<
             throw new Error("Invalid moderation input");
         }
 
+        if (signal?.aborted) {
+            throw new Error("Request aborted");
+        }
+
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.ModerationCapabilityKey, options);
 
         //Normalize input into array form. This simplifies parallel execution and consistent output normalization.
         const inputs = Array.isArray(input.input) ? input.input : [input.input];
 
-        // Execute moderation requests in parallel
-        const moderationPromises = inputs.map(async (content) => {
-            const message = await this.client.messages.create({
-                model: merged.model ?? "claude-sonnet-4-20250514",
-                max_tokens: merged.modelParams?.max_tokens ?? 1024,
-                messages: [
+        // Execute one Claude call per input (Anthropic limitation)
+        const responses = await Promise.all(
+            inputs.map((content) =>
+                this.client.messages.create(
                     {
-                        role: "user",
-                        content: MODERATION_PROMPT.replace("{{CONTENT}}", content)
-                    }
-                ],
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            });
+                        model: merged.model ?? "claude-sonnet-4-20250514",
+                        max_tokens: merged.modelParams?.max_tokens ?? 512,
+                        messages: [
+                            {
+                                role: "user",
+                                content: MODERATION_PROMPT.replace("{{CONTENT}}", content)
+                            }
+                        ],
+                        ...(merged.modelParams ?? {}),
+                        ...(merged.providerParams ?? {})
+                    },
+                    { signal }
+                )
+            )
+        );
 
-            // Extract text content from Claude's response
-            const textContent = message.content.find((block) => block.type === "text");
-            if (!textContent || textContent.type !== "text") {
-                throw new Error("No text response from Claude");
+        const normalized: NormalizedModeration[] = responses.map((response, index) => {
+            const textBlock = response.content.find((b) => b.type === "text");
+            if (!textBlock || textBlock.type !== "text") {
+                throw new Error("Anthropic moderation returned no text");
             }
 
-            // Parse the JSON response, stripping any markdown fences
-            const cleanedText = textContent.text
-                .replace(/```json\n?/g, "")
-                .replace(/```\n?/g, "")
-                .trim();
+            const parsed: AnthropicModerationResult = JSON.parse(
+                textBlock.text
+                    .replace(/```json\n?/g, "")
+                    .replace(/```\n?/g, "")
+                    .trim()
+            );
 
-            const anthropicResult: AnthropicModerationResult = JSON.parse(cleanedText);
+            const categoryScores = Object.fromEntries(Object.entries(parsed.categories).map(([k, v]) => [k, v ? 1.0 : 0.0]));
 
-            // Convert to provider-agnostic ModerationResult
-            const moderationResult: ModerationResult = {
-                flagged: anthropicResult.flagged,
-                categories: anthropicResult.categories,
-                // Claude does not provide confidence scores,
-                // so we use binary scores for compatibility.
-                categoryScores: Object.fromEntries(
-                    Object.entries(anthropicResult.categories).map(([key, flagged]) => [
-                        key,
-                        flagged ? 1.0 : 0.0 // Binary scores since Claude doesn't provide confidence scores
-                    ])
-                ),
-                reason: anthropicResult.explanation,
-                raw: {
-                    ...anthropicResult,
-                    messageId: message.id,
-                    usage: message.usage
+            return {
+                id: crypto.randomUUID(),
+                flagged: parsed.flagged,
+                categories: parsed.categories,
+                categoryScores,
+                reason: parsed.explanation || undefined,
+                metadata: {
+                    provider: AIProvider.Anthropic,
+                    model: merged.model,
+                    inputIndex: index,
+                    requestId: context?.requestId
                 }
             };
-
-            return moderationResult;
         });
 
-        // Wait for all moderation requests to complete
-        const results = await Promise.all(moderationPromises);
-
-        // Normalize output: single input -> single result, array input -> array results
-        const normalizedOutput = Array.isArray(input.input) ? results : results[0];
-
-        // Calculate total tokens used across all requests
-        const totalTokens = results.reduce((sum, r) => {
-            const usage = (r.raw as any)?.usage;
-            if (!usage) {
+        const totalTokens = responses.reduce((sum, r) => {
+            if (!r.usage) {
                 return sum;
             }
-            return sum + (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+            return sum + (r.usage.input_tokens ?? 0) + (r.usage.output_tokens ?? 0);
         }, 0);
 
         // Return a fully normalized response
         return {
-            output: normalizedOutput,
-            rawResponse: results.map((r) => r.raw),
-            id: results[0]?.raw?.messageId ?? "unknown",
+            output: normalized,
+            rawResponse: responses,
+            id: crypto.randomUUID(),
             metadata: {
+                ...(context?.metadata ?? {}),
                 provider: AIProvider.Anthropic,
                 model: merged.model,
                 status: "completed",
                 tokensUsed: totalTokens,
-                requestId: context?.requestId,
-                ...(context?.metadata ?? {})
+                requestId: context?.requestId
             }
         };
     }

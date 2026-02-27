@@ -1,152 +1,158 @@
-import { MultiModalExecutionContext } from '#root/core/types/MultiModalExecutionContext.js';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, expect, it } from "vitest";
+import { MultiModalExecutionContext } from "#root/core/types/MultiModalExecutionContext.js";
 
-import type { ClientChatMessage } from '#root/client/types/chat/ClientChatMessage.js';
-import type { ClientMessagePart } from '#root/client/types/chat/ClientMessageParts.js';
+class TestContext extends MultiModalExecutionContext {
+    pushEvent(event: any) {
+        (this as any).timeline.push(event);
+    }
+}
 
+describe("MultiModalExecutionContext", () => {
+    it("begins a turn and records userMessage event", () => {
+        const ctx = new MultiModalExecutionContext();
+        ctx.beginTurn({ id: "u1", modality: "chat", input: "hello" });
 
-// Mocks for types used in context
-const mockChatMsg: ClientChatMessage = { role: 'user', content: [{ type: 'text', text: 'hi' } as ClientMessagePart] };
-const mockImage = { url: 'img.png', mimeType: 'image/png', raw: {}, id: 'img1' };
-const mockMask = { url: 'mask.png', mimeType: 'image/png', raw: {}, id: 'mask1' };
-
-
-describe('MultiModalExecutionContext', () => {
-    let ctx: MultiModalExecutionContext;
-
-    beforeEach(() => {
-        ctx = new MultiModalExecutionContext();
+        const timeline = ctx.getTimeline();
+        expect(timeline).toHaveLength(1);
+        expect(timeline[0].type).toBe("userMessage");
+        expect((timeline[0] as any).message.input).toBe("hello");
     });
 
-    it('applyOutput sets providerOutput without multimodalArtifacts', () => {
-        ctx.beginTurn('input1');
-        ctx.applyOutput('output1');
-        const turn = ctx.getHistory()[0];
-        expect(turn.providerOutput).toBe('output1');
-        expect(turn.multimodalArtifacts).toEqual({});
+    it("applyAssistantMessage records assistant event and latest chat", () => {
+        const ctx = new MultiModalExecutionContext();
+        const msg = { id: "a1", role: "assistant", content: [{ type: "text", text: "hi" }] };
+        ctx.applyAssistantMessage(msg as any);
+
+        expect(ctx.getTimeline()).toHaveLength(1);
+        expect(ctx.getTimeline()[0].type).toBe("assistantMessage");
+        expect(ctx.getLatestChat()).toEqual([msg]);
     });
 
-    it('attachMultimodalArtifacts merges with existing artifacts', () => {
-        ctx.beginTurn('input1');
-        // Set initial artifacts
-        ctx.attachMultimodalArtifacts({ foo: 1 });
-        // Merge new artifacts
-        ctx.attachMultimodalArtifacts({ bar: 2 });
-        const turn = ctx.getHistory()[0];
-        expect(turn.multimodalArtifacts).toMatchObject({ foo: 1, bar: 2 });
+    it("attachArtifacts records systemEvent and updates latest artifact getters", () => {
+        const ctx = new MultiModalExecutionContext();
+        const image = { id: "img1", mimeType: "image/png", url: "x" };
+        const embedding = { id: "e1", vector: [1, 2], dimensions: 2 };
+
+        ctx.attachArtifacts({ images: [image] as any, embeddings: [embedding] as any });
+
+        expect(ctx.getTimeline()).toHaveLength(1);
+        expect(ctx.getTimeline()[0].type).toBe("systemEvent");
+        expect((ctx.getTimeline()[0] as any).action).toBe("attachArtifacts");
+        expect(ctx.getLatestImages()).toEqual([image]);
+        expect(ctx.getLatestEmbeddings()).toEqual([embedding]);
     });
 
-    it('yieldArtifacts with no arguments does nothing', () => {
-        ctx.beginTurn('input1');
-        // Should not throw or change state
-        ctx.yieldArtifacts();
-        const turn = ctx.getHistory()[0];
-        expect(turn.providerOutput).toBeUndefined();
-        expect(turn.multimodalArtifacts).toEqual({});
-    });    
+    it("returns latest masks and moderation from populated artifacts", () => {
+        const ctx = new MultiModalExecutionContext();
+        const mask = { id: "m1", mimeType: "image/png", url: "mask-url" };
+        const moderation = { id: "mod1", flagged: false };
 
-    it('initializes with empty state', () => {
-        expect(ctx.getHistory()).toEqual([]);
-        expect(ctx.chatMessages).toEqual([]);
-        expect(ctx.images).toEqual([]);
-        expect(ctx.masks).toEqual([]);
-        expect(ctx.artifacts).toEqual({});
+        ctx.attachArtifacts({ masks: [mask] as any, moderation: [moderation] as any });
+
+        expect(ctx.getLatestMasks()).toEqual([mask]);
+        expect(ctx.getLatestModeration()).toEqual([moderation]);
     });
 
-    it('beginTurn adds a turn to history', () => {
-        ctx.beginTurn('input1');
-        expect(ctx.getHistory().length).toBe(1);
-        expect(ctx.getHistory()[0].input).toBe('input1');
+    it("attachArtifacts handles undefined and normalizes non-array artifact fields", () => {
+        const ctx = new MultiModalExecutionContext();
+
+        ctx.attachArtifacts(undefined);
+        expect(ctx.getTimeline()).toHaveLength(1);
+        const emptyArtifacts = (ctx.getTimeline()[0] as any).artifacts;
+        expect(emptyArtifacts.chat).toEqual([]);
+        expect(emptyArtifacts.custom).toEqual([]);
+
+        ctx.attachArtifacts({ images: "invalid" as any, audio: [{ id: "aud1", url: "a" }] as any });
+        expect(ctx.getTimeline()).toHaveLength(2);
+        expect(ctx.getLatestImages()).toEqual([]);
+        expect(ctx.getLatestAudio()).toEqual([{ id: "aud1", url: "a" }]);
     });
 
-    it('applyOutput sets providerOutput and multimodalArtifacts', () => {
-        ctx.beginTurn('input1');
-        ctx.applyOutput('output1', { chat: [mockChatMsg], images: [mockImage], masks: [mockMask], foo: 42 });
-        const turn = ctx.getHistory()[0];
-        expect(turn.providerOutput).toBe('output1');
-        expect(turn.multimodalArtifacts).toMatchObject({ chat: [mockChatMsg], images: [mockImage], masks: [mockMask], foo: 42 });
-        expect(ctx.chatMessages).toContain(mockChatMsg);
-        expect(ctx.images).toContain(mockImage);
-        expect(ctx.masks).toContain(mockMask);
-        expect(ctx.artifacts.foo).toBe(42);
+    it("attachArtifactsFromResponse merges response artifacts and extra artifacts with metadata", () => {
+        const ctx = new MultiModalExecutionContext();
+        const fromResponse = { id: "img1", mimeType: "image/png", url: "a" };
+        const extra = { id: "img2", mimeType: "image/png", url: "b" };
+
+        ctx.attachArtifactsFromResponse(
+            {
+                output: "ok",
+                multimodalArtifacts: { images: [fromResponse] as any },
+                metadata: { provider: "openai", requestId: "r1" }
+            },
+            { images: [extra] as any }
+        );
+
+        const evt = ctx.getTimeline()[0] as any;
+        expect(evt.type).toBe("systemEvent");
+        expect(evt.metadata.provider).toBe("openai");
+        expect(ctx.getLatestImages()).toEqual([fromResponse, extra]);
     });
 
-    it('attachMultimodalArtifacts merges artifacts and updates global state', () => {
-        ctx.beginTurn('input1');
-        ctx.attachMultimodalArtifacts({ chat: [mockChatMsg], images: [mockImage], foo: 99 });
-        const turn = ctx.getHistory()[0];
-        expect(turn.multimodalArtifacts).toMatchObject({ chat: [mockChatMsg], images: [mockImage], foo: 99 });
-        expect(ctx.chatMessages).toContain(mockChatMsg);
-        expect(ctx.images).toContain(mockImage);
-        expect(ctx.artifacts.foo).toBe(99);
+    it("attachArtifactsFromResponse uses response artifacts when extras are omitted", () => {
+        const ctx = new MultiModalExecutionContext();
+        const file = { id: "f1", name: "doc.txt", mimeType: "text/plain" };
+        const video = { id: "v1", mimeType: "video/mp4", url: "v" };
+
+        ctx.attachArtifactsFromResponse({
+            output: "ok",
+            multimodalArtifacts: { files: [file] as any, video: [video] as any },
+            metadata: { requestId: "req-1" }
+        });
+
+        expect(ctx.getLatestFile()).toEqual([file]);
+        expect(ctx.getLatestVideo()).toEqual([video]);
+        expect((ctx.getTimeline()[0] as any).metadata.requestId).toBe("req-1");
     });
 
-    it('yieldArtifacts with output calls applyOutput', () => {
-        ctx.beginTurn('input1');
-        ctx.yieldArtifacts('out', { chat: [mockChatMsg] });
-        const turn = ctx.getHistory()[0];
-        expect(turn.providerOutput).toBe('out');
-        expect(ctx.chatMessages).toContain(mockChatMsg);
+    it("yieldArtifacts no-ops for undefined and records streamChunk event when provided", () => {
+        const ctx = new MultiModalExecutionContext();
+        ctx.yieldArtifacts(undefined);
+        expect(ctx.getTimeline()).toHaveLength(0);
+
+        const analysis = { id: "a1", description: "desc" };
+        ctx.yieldArtifacts({ analysis: [analysis] as any });
+
+        expect(ctx.getTimeline()).toHaveLength(1);
+        expect((ctx.getTimeline()[0] as any).action).toBe("streamChunk");
+        expect(ctx.getLatestAnalysis()).toEqual([analysis]);
     });
 
-    it('yieldArtifacts with only artifacts calls attachMultimodalArtifacts', () => {
-        ctx.beginTurn('input1');
-        ctx.yieldArtifacts(undefined, { images: [mockImage] });
-        expect(ctx.images).toContain(mockImage);
-    });
+    it("reset clears timeline and latest getters return empty arrays", () => {
+        const ctx = new MultiModalExecutionContext();
+        ctx.beginTurn({ id: "u1", modality: "chat", input: "x" });
+        ctx.attachArtifacts({ images: [{ id: "img", mimeType: "image/png", url: "x" }] as any });
+        expect(ctx.getTimeline().length).toBeGreaterThan(0);
 
-    it('buildProviderInput returns current turn input', () => {
-        ctx.beginTurn('foo');
-        expect(ctx.buildProviderInput()).toBe('foo');
-    });
-
-    it('getHistory returns readonly array', () => {
-        ctx.beginTurn('a');
-        expect(Array.isArray(ctx.getHistory())).toBe(true);
-        expect(() => { (ctx.getHistory() as any).push('bad'); }).not.toThrow(); // TS only
-    });
-
-    it('reset clears all state', () => {
-        ctx.beginTurn('a');
-        ctx.applyOutput('b', { chat: [mockChatMsg], images: [mockImage], masks: [mockMask], foo: 1 });
         ctx.reset();
-        expect(ctx.getHistory()).toEqual([]);
-        expect(ctx.chatMessages).toEqual([]);
-        expect(ctx.images).toEqual([]);
-        expect(ctx.masks).toEqual([]);
-        expect(ctx.artifacts).toEqual({});
+
+        expect(ctx.getTimeline()).toEqual([]);
+        expect(ctx.getLatestChat()).toEqual([]);
+        expect(ctx.getLatestImages()).toEqual([]);
+        expect(ctx.getLatestMasks()).toEqual([]);
+        expect(ctx.getLatestAnalysis()).toEqual([]);
+        expect(ctx.getLatestEmbeddings()).toEqual([]);
+        expect(ctx.getLatestModeration()).toEqual([]);
+        expect(ctx.getLatestAudio()).toEqual([]);
+        expect(ctx.getLatestVideo()).toEqual([]);
+        expect(ctx.getLatestFile()).toEqual([]);
     });
 
-    it('getLastChatMessage returns last chat message', () => {
-        ctx.chatMessages.push(mockChatMsg, { role: 'assistant', content: [{ type: 'text', text: 'yo' }] });
-        expect(ctx.getLastChatMessage()).toEqual({ role: 'assistant', content: [{ type: 'text', text: 'yo' }] });
+    it("getLatestImageGeneration and getLatestImageEdit return latest matching typed events", () => {
+        const ctx = new TestContext();
+        const gen = { id: "g1", type: "imageGeneration", timestamp: 1, artifacts: {} };
+        const edit = { id: "e1", type: "imageEdit", timestamp: 2, artifacts: {} };
+        ctx.pushEvent(gen);
+        ctx.pushEvent(edit);
+
+        expect(ctx.getLatestImageGeneration()).toEqual(gen);
+        expect(ctx.getLatestImageEdit()).toEqual(edit);
     });
 
-    it('getLastImage returns last image', () => {
-        ctx.images.push(
-            { url: 'a', mimeType: 'image/png', raw: {}, id: 'imgA' },
-            { url: 'b', mimeType: 'image/png', raw: {}, id: 'imgB' }
-        );
-        expect(ctx.getLastImage()).toEqual({ url: 'b', mimeType: 'image/png', raw: {}, id: 'imgB' });
-    });
+    it("returns undefined for image generation/edit when none exist", () => {
+        const ctx = new TestContext();
+        ctx.pushEvent({ id: "u1", type: "userMessage", timestamp: 1, artifacts: {} });
 
-    it('getLastMask returns last mask', () => {
-        ctx.masks.push(
-            { url: 'm1', mimeType: 'image/png', raw: {}, id: 'mask1' },
-            { url: 'm2', mimeType: 'image/png', raw: {}, id: 'mask2' }
-        );
-        expect(ctx.getLastMask()).toEqual({ url: 'm2', mimeType: 'image/png', raw: {}, id: 'mask2' });
-    });
-
-    it('throws if applyOutput called before beginTurn', () => {
-        expect(() => ctx.applyOutput('x')).toThrow('No active turn');
-    });
-
-    it('throws if attachMultimodalArtifacts called before beginTurn', () => {
-        expect(() => ctx.attachMultimodalArtifacts({ foo: 1 })).toThrow('attachMultimodalArtifacts called before beginTurn');
-    });
-
-    it('throws if buildProviderInput called before beginTurn', () => {
-        expect(() => ctx.buildProviderInput()).toThrow('No turn started');
+        expect(ctx.getLatestImageGeneration()).toBeUndefined();
+        expect(ctx.getLatestImageEdit()).toBeUndefined();
     });
 });

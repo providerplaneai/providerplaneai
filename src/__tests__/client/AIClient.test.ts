@@ -1,985 +1,728 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { disabled, loadDefaultConfig } from '../testUtils.js';
-import { AIProvider, AISession, CapabilityKeys } from '#root/index.js';
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AIProviderType, BaseProvider, ProviderRef, StreamingExecutor } from "#root/index.js";
 
-describe('AIClient', () => {
+async function loadClient() {
+    vi.doUnmock("#root/index.js");
+    vi.resetModules();
+    const root = await import("#root/index.js");
+    const { AIClient } = await import("#root/client/AIClient.js");
+    return { AIClient, root };
+}
+
+function makeProvider(
+    capabilitySupport: (capability: string) => boolean = () => false,
+    initialized = false
+): BaseProvider & {
+    init: ReturnType<typeof vi.fn>;
+    setClientExecutors: ReturnType<typeof vi.fn>;
+} {
+    return {
+        isInitialized: vi.fn(() => initialized),
+        init: vi.fn(),
+        hasCapability: vi.fn((capability: string) => capabilitySupport(capability)),
+        getCapability: vi.fn(() => ({})),
+        setClientExecutors: vi.fn()
+    } as unknown as BaseProvider & {
+        init: ReturnType<typeof vi.fn>;
+        setClientExecutors: ReturnType<typeof vi.fn>;
+    };
+}
+
+describe("AIClient", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.resetAllMocks();
-        vi.restoreAllMocks();
     });
 
-    it('registers and retrieves provider', async () => {
-        await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-            OpenAIProvider: vi.fn(function () {
-                return {
-                    isInitialized: () => true,
-                    init: vi.fn(),
-                    hasCapability: vi.fn(() => true)
-                };
-            })
+    it("wires app config limits into an injected JobManager when unset", async () => {
+        const { AIClient, root } = await loadClient();
+        const manager = new root.JobManager();
+        const client = new AIClient(manager, new root.CapabilityExecutorRegistry());
+
+        expect(client.jobManager).toBe(manager);
+        expect(manager.getMaxConcurrency()).toBe(128);
+        expect(manager.getMaxQueueSize()).toBe(1024);
+        expect(manager.getMaxStoredResponseChunks()).toBe(1024);
+        expect(manager.getStoreRawResponses()).toBe(true);
+        expect(manager.getMaxRawBytesPerJob()).toBe(1048576);
+    });
+
+    it("does not overwrite injected JobManager limits when already set", async () => {
+        const { AIClient, root } = await loadClient();
+        const manager = new root.JobManager({
+            maxConcurrency: 99,
+            maxQueueSize: 199,
+            maxStoredResponseChunks: 299,
+            storeRawResponses: true,
+            maxRawBytesPerJob: 8192
+        });
+
+        new AIClient(manager, new root.CapabilityExecutorRegistry());
+
+        expect(manager.getMaxConcurrency()).toBe(99);
+        expect(manager.getMaxQueueSize()).toBe(199);
+        expect(manager.getMaxStoredResponseChunks()).toBe(299);
+        expect(manager.getStoreRawResponses()).toBe(true);
+        expect(manager.getMaxRawBytesPerJob()).toBe(8192);
+    });
+
+    it("setLifecycleHooks can only be called once", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        client.setLifecycleHooks({});
+
+        expect(() => client.setLifecycleHooks({})).toThrow("Lifecycle hooks already set");
+    });
+
+    it("registerProvider initializes uninitialized provider and sets client executors", async () => {
+        const { AIClient, root } = await loadClient();
+        const executors = new root.CapabilityExecutorRegistry();
+        const client = new AIClient(new root.JobManager(), executors);
+        const provider = makeProvider();
+
+        client.registerProvider(provider, root.AIProvider.OpenAI, "fallback");
+
+        expect(provider.init).toHaveBeenCalledTimes(1);
+        expect(provider.setClientExecutors).toHaveBeenCalledWith(executors.getExecutors());
+        expect(client.getProvider(root.AIProvider.OpenAI, "fallback")).toBe(provider);
+    });
+
+    it("registerProvider does not call init if provider is already initialized", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const provider = makeProvider(() => false, true);
+
+        client.registerProvider(provider, root.AIProvider.OpenAI, "fallback");
+
+        expect(provider.init).not.toHaveBeenCalled();
+    });
+
+    it("registerProvider throws DuplicateProviderRegistrationError for duplicate registration", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const providerA = makeProvider();
+        const providerB = makeProvider();
+
+        client.registerProvider(providerA, root.AIProvider.OpenAI, "fallback");
+
+        expect(() => client.registerProvider(providerB, root.AIProvider.OpenAI, "fallback")).toThrow(
+            root.DuplicateProviderRegistrationError
+        );
+    });
+
+    it("registerProvider throws ExecutionPolicyError when provider connection config is missing", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const provider = makeProvider();
+
+        expect(() => client.registerProvider(provider, root.AIProvider.OpenAI, "missing")).toThrow(root.ExecutionPolicyError);
+    });
+
+    it("getProvider throws for unknown provider type", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+
+        expect(() => client.getProvider("unknown-provider" as AIProviderType)).toThrow("No providers registered for unknown-provider");
+    });
+
+    it("findProvidersByCapability returns only providers that support the capability", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const cap = "custom:search";
+
+        const supporting = makeProvider((c) => c === cap);
+        client.registerProvider(supporting, root.AIProvider.OpenAI, "fallback");
+
+        const found = client.findProvidersByCapability(cap as any);
+        expect(found).toContain(supporting);
+        expect(found.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("registerCapabilityExecutor propagates executor map to registered providers and blocks duplicates", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const provider = makeProvider();
+        const capability = "custom:ingest";
+
+        client.registerProvider(provider, root.AIProvider.OpenAI, "fallback");
+
+        const executor = {
+            streaming: false as const,
+            invoke: vi.fn(async () => ({ output: { ok: true } }))
+        };
+
+        client.registerCapabilityExecutor(capability as any, executor);
+        expect(provider.setClientExecutors).toHaveBeenCalledTimes(2); // once on provider registration, once on executor registration
+
+        expect(() => client.registerCapabilityExecutor(capability as any, executor)).toThrow(
+            `Executor for capability ${capability} is already registered`
+        );
+    });
+
+    it("createCapabilityJob respects addToManager and stores capability/providerChain metadata in snapshot", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:workflow";
+        const providerChain: ProviderRef[] = [{ providerType: root.AIProvider.OpenAI, connectionName: "default" }];
+
+        client.registerCapabilityExecutor(capability as any, {
+            streaming: false as const,
+            invoke: vi.fn(async () => ({ output: { ok: true } }))
+        });
+
+        const detachedJob = client.createCapabilityJob(capability as any, { input: { step: 1 } } as any, {
+            addToManager: false,
+            providerChain
+        });
+
+        const baseJobCount = client.jobManager.listJobs().length;
+        expect(client.jobManager.listJobs().length).toBe(baseJobCount);
+        expect(detachedJob.toSnapshot().capability).toBe(capability);
+        expect(detachedJob.toSnapshot().providerChain).toEqual(providerChain);
+
+        client.createCapabilityJob(capability as any, { input: { step: 2 } } as any);
+        expect(client.jobManager.listJobs().length).toBe(baseJobCount + 1);
+    });
+
+    it("createCapabilityJob non-streaming builds fallback multimodal artifacts when result has output only", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager());
+        const executeWithPolicySpy = vi.spyOn(client as any, "executeWithPolicy").mockResolvedValue({
+            output: [{ vector: [1, 2, 3] }],
+            metadata: { source: "test" }
+        });
+
+        const job = client.createCapabilityJob(root.CapabilityKeys.EmbedCapabilityKey, { input: { text: "hello" } } as any, {
+            addToManager: false
+        });
+
+        await job.run(new root.MultiModalExecutionContext());
+
+        expect(executeWithPolicySpy).toHaveBeenCalledTimes(1);
+        expect(job.status).toBe("completed");
+        expect(job.response?.multimodalArtifacts?.embeddings).toEqual([{ vector: [1, 2, 3] }]);
+    });
+
+    it("createCapabilityJob non-streaming preserves multimodalArtifacts returned from policy result", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        vi.spyOn(client as any, "executeWithPolicy").mockResolvedValue({
+            output: "ignored-for-custom",
+            multimodalArtifacts: { custom: [{ id: "artifact-1" }] }
+        });
+
+        const customCap = "custom:artifact-pass-through";
+        client.registerCapabilityExecutor(customCap as any, {
+            streaming: false as const,
+            invoke: vi.fn(async () => ({ output: "x" }))
+        });
+
+        const job = client.createCapabilityJob(customCap as any, { input: { x: 1 } } as any, { addToManager: false });
+        await job.run(new root.MultiModalExecutionContext());
+
+        expect(job.status).toBe("completed");
+        expect(job.response?.multimodalArtifacts).toEqual({ custom: [{ id: "artifact-1" }] });
+    });
+
+    it("createCapabilityJob streaming emits delta/final chunks and uses final chunk id/raw/metadata", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const customCap = "custom:stream-job";
+        const streamExec: StreamingExecutor<any, unknown, string> = {
+            streaming: true as const,
+            invoke: (async function* (_capability, _input, _ctx, _signal) {
+                yield { output: "unused" } as any;
+            }) as StreamingExecutor<any, unknown, string>["invoke"]
+        };
+        client.registerCapabilityExecutor(customCap as any, streamExec);
+
+        vi.spyOn(client as any, "executeWithPolicyStream").mockImplementation(async function* () {
+            yield { delta: "hel", metadata: { stage: 1 } };
+            yield { delta: "lo", metadata: { stage: 2 } };
+            yield { output: "hello", id: "final-id", raw: { body: "raw-final" }, metadata: { stage: 3 } };
+        });
+
+        const emitted: any[] = [];
+        const job = client.createCapabilityJob(customCap as any, { input: { p: 1 } } as any, { addToManager: false });
+        await job.run(new root.MultiModalExecutionContext(), undefined, (chunk) => emitted.push(chunk));
+
+        expect(job.status).toBe("completed");
+        expect(emitted).toEqual([{ delta: "hel" }, { delta: "lo" }, { final: "hello" }]);
+        expect(job.response?.id).toBe("final-id");
+        expect(job.response?.rawResponse).toEqual({ body: "raw-final" });
+        expect(job.response?.metadata).toMatchObject({ stage: 3 });
+    });
+
+    it("createCapabilityJob streaming errors when stream completes without final output", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const customCap = "custom:stream-no-final";
+        const streamExec: StreamingExecutor<any, unknown, string> = {
+            streaming: true as const,
+            invoke: (async function* (_capability, _input, _ctx, _signal) {
+                yield { output: "unused" } as any;
+            }) as StreamingExecutor<any, unknown, string>["invoke"]
+        };
+        client.registerCapabilityExecutor(customCap as any, streamExec);
+
+        vi.spyOn(client as any, "executeWithPolicyStream").mockImplementation(async function* () {
+            yield { delta: "partial" };
+        });
+
+        const job = client.createCapabilityJob(customCap as any, { input: { p: 1 } } as any, { addToManager: false });
+        await job.run(new root.MultiModalExecutionContext());
+        await job.getCompletionPromise().catch(() => undefined);
+
+        expect(job.status).toBe("error");
+        expect(job.error?.message).toContain("stream completed without final output");
+    });
+
+    it("createCapabilityJob applies job-level retention options over manager defaults", async () => {
+        const { AIClient, root } = await loadClient();
+        const manager = new root.JobManager({
+            maxStoredResponseChunks: 1,
+            storeRawResponses: false,
+            maxRawBytesPerJob: 1_000_000
+        });
+        const client = new AIClient(manager, new root.CapabilityExecutorRegistry());
+        const customCap = "custom:stream-retention";
+        const streamExec: StreamingExecutor<any, unknown, string> = {
+            streaming: true as const,
+            invoke: (async function* (_capability, _input, _ctx, _signal) {
+                yield { output: "unused" } as any;
+            }) as StreamingExecutor<any, unknown, string>["invoke"]
+        };
+        client.registerCapabilityExecutor(customCap as any, streamExec);
+
+        vi.spyOn(client as any, "executeWithPolicyStream").mockImplementation(async function* () {
+            yield { delta: "a", raw: { c: 1 } };
+            yield { delta: "b", raw: { c: 2 } };
+            yield { output: "done", raw: { c: 3 } };
+        });
+
+        const job = client.createCapabilityJob(
+            customCap as any,
+            { input: { x: 1 } } as any,
+            {
+                addToManager: false,
+                maxStoredResponseChunks: 2,
+                storeRawResponses: true
+            }
+        );
+        await job.run(new root.MultiModalExecutionContext());
+
+        expect(job.status).toBe("completed");
+        expect(job.responseChunks).toHaveLength(2);
+        expect(job.response?.rawResponse).toEqual({ c: 3 });
+    });
+
+    it("createCapabilityJob streaming builds fallback artifacts when stream returns final output without artifacts", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager());
+
+        vi.spyOn(client as any, "executeWithPolicyStream").mockImplementation(async function* () {
+            yield { output: { role: "assistant", content: [] }, id: "chat-final" };
+        });
+
+        const job = client.createCapabilityJob(
+            root.CapabilityKeys.ChatStreamCapabilityKey,
+            { input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] } } as any,
+            { addToManager: false }
+        );
+
+        await job.run(new root.MultiModalExecutionContext());
+
+        expect(job.status).toBe("completed");
+        expect(job.response?.id).toBe("chat-final");
+        expect(job.response?.multimodalArtifacts?.chat).toEqual([{ role: "assistant", content: [] }]);
+    });
+});
+
+describe("AIClient private policy execution", () => {
+    it("executeWithPolicy returns first successful result and appends providerAttempts metadata", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:policy";
+        const ctx = new root.MultiModalExecutionContext();
+
+        vi.spyOn(root, "withRequestContext").mockImplementation(async (_req, fn) => fn(_req));
+        client.registerProvider(makeProvider((c) => c === capability), root.AIProvider.OpenAI, "fallback");
+        const chain: ProviderRef[] = [{ providerType: root.AIProvider.OpenAI, connectionName: "fallback" }];
+
+        const executeFn = vi.fn(async () => ({
+            output: { ok: true },
+            metadata: { requestTag: "x" }
         }));
-        vi.resetModules();
-        const { AIClient } = await import('#root/client/AIClient.js');
-        const client = new AIClient();
-        const resolved = client.getProvider(AIProvider.OpenAI, 'default');
-        expect(resolved.isInitialized()).toBe(true);
+
+        const hooks = {
+            onExecutionStart: vi.fn(),
+            onAttemptStart: vi.fn(),
+            onAttemptSuccess: vi.fn(),
+            onExecutionFailure: vi.fn(),
+            onExecutionEnd: vi.fn()
+        };
+        client.setLifecycleHooks(hooks);
+
+        const result = await (client as any).executeWithPolicy(capability, { input: { a: 1 } }, ctx, executeFn, chain);
+
+        expect(executeFn).toHaveBeenCalledTimes(1);
+        expect(result.output).toEqual({ ok: true });
+        expect(result.metadata?.providerAttempts).toHaveLength(1);
+        expect(hooks.onExecutionStart).toHaveBeenCalledTimes(1);
+        expect(hooks.onAttemptStart).toHaveBeenCalledTimes(1);
+        expect(hooks.onAttemptSuccess).toHaveBeenCalledTimes(1);
+        expect(hooks.onExecutionFailure).not.toHaveBeenCalled();
+        expect(hooks.onExecutionEnd).toHaveBeenCalledTimes(1);
     });
 
-    it('registerProvider does not call init when provider already initialized', async () => {
-        await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-            OpenAIProvider: vi.fn(function () {
-                return {
-                    isInitialized: () => true,
-                    init: vi.fn(),
-                    hasCapability: vi.fn(() => true)
-                };
+    it("executeWithPolicy throws ExecutionPolicyError when provider chain is empty", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const ctx = new root.MultiModalExecutionContext();
+
+        await expect(
+            (client as any).executeWithPolicy("custom:no-chain", { input: {} }, ctx, vi.fn(async () => ({ output: "x" })), [])
+        ).rejects.toThrow(root.ExecutionPolicyError);
+    });
+
+    it("executeWithPolicy falls back to later provider when earlier attempt fails", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:policy-fallback";
+        const ctx = new root.MultiModalExecutionContext();
+
+        vi.spyOn(root, "withRequestContext").mockImplementation(async (_req, fn) => fn(_req));
+        client.registerProvider(makeProvider((c) => c === capability), root.AIProvider.OpenAI, "fallback");
+
+        const chain: ProviderRef[] = [
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" },
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" }
+        ];
+
+        const executeFn = vi
+            .fn()
+            .mockRejectedValueOnce(new Error("p1 failed"))
+            .mockResolvedValueOnce({ output: "ok-from-p2", metadata: {} });
+
+        const result = await (client as any).executeWithPolicy(capability, { input: { a: 1 } }, ctx, executeFn, chain);
+
+        expect(executeFn).toHaveBeenCalledTimes(2);
+        expect(result.output).toBe("ok-from-p2");
+        expect(result.metadata?.providerAttempts).toHaveLength(2);
+    });
+
+    it("executeWithPolicy records missing-provider failures then succeeds on later provider with sanitized error metadata", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const ctx = new root.MultiModalExecutionContext();
+        const capability = root.CapabilityKeys.ChatCapabilityKey;
+
+        vi.spyOn(root, "withRequestContext").mockImplementation(async (_req, fn) => fn(_req));
+        const chain: ProviderRef[] = [
+            { providerType: root.AIProvider.OpenAI, connectionName: "missing" },
+            { providerType: root.AIProvider.OpenAI, connectionName: "default" }
+        ];
+
+        const executeFn = vi.fn(async () => ({ output: { role: "assistant", content: [] }, metadata: {} }));
+        const result = await (client as any).executeWithPolicy(capability, { input: {} }, ctx, executeFn, chain);
+        const attempts = result.metadata?.providerAttempts as Array<Record<string, unknown>>;
+
+        expect(executeFn).toHaveBeenCalledTimes(1);
+        expect(attempts).toHaveLength(2);
+        expect(attempts[0].error).toBe("Provider attempt failed");
+        expect(attempts[1].error).toBeUndefined();
+    });
+
+    it("executeWithPolicy throws AllProvidersFailedError when all attempts fail", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:policy-all-fail";
+        const ctx = new root.MultiModalExecutionContext();
+
+        vi.spyOn(root, "withRequestContext").mockImplementation(async (_req, fn) => fn(_req));
+        client.registerProvider(makeProvider((c) => c === capability), root.AIProvider.OpenAI, "fallback");
+
+        const chain: ProviderRef[] = [
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" },
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" }
+        ];
+
+        const executeFn = vi.fn(async () => {
+            throw new Error("all failed");
+        });
+
+        await expect((client as any).executeWithPolicy(capability, { input: {} }, ctx, executeFn, chain)).rejects.toThrow(
+            root.AllProvidersFailedError
+        );
+    });
+
+    it("executeWithPolicyStream yields chunks and annotates final chunk with providerAttempts metadata", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:stream";
+        const ctx = new root.MultiModalExecutionContext();
+
+        vi.spyOn(root, "withRequestContextStream").mockImplementation(async function* (_req, fn) {
+            yield* fn(_req);
+        });
+        client.registerProvider(makeProvider((c) => c === capability), root.AIProvider.OpenAI, "fallback");
+        const chain: ProviderRef[] = [{ providerType: root.AIProvider.OpenAI, connectionName: "fallback" }];
+
+        const executeFn = vi.fn(async function* () {
+            yield { delta: "hello " };
+            yield { output: { done: true }, done: true, metadata: { source: "p1" } };
+        });
+
+        const chunks: any[] = [];
+        for await (const chunk of (client as any).executeWithPolicyStream(capability, { input: {} }, ctx, executeFn, chain)) {
+            chunks.push(chunk);
+        }
+
+        expect(chunks).toHaveLength(2);
+        expect(chunks[0].delta).toBe("hello ");
+        expect(chunks[1].output).toEqual({ done: true });
+        expect(chunks[1].metadata?.providerAttempts).toHaveLength(1);
+    });
+
+    it("executeWithPolicyStream throws ExecutionPolicyError when provider chain is empty", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const ctx = new root.MultiModalExecutionContext();
+
+        const collect = async () => {
+            for await (const _chunk of (client as any).executeWithPolicyStream(
+                "custom:no-chain-stream",
+                { input: {} },
+                ctx,
+                vi.fn(async function* () {}),
+                []
+            )) {
+                void _chunk;
+            }
+        };
+
+        await expect(collect()).rejects.toThrow(root.ExecutionPolicyError);
+    });
+
+    it("executeWithPolicyStream falls back mid-stream and preserves emitted chunks", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:stream-fallback";
+        const ctx = new root.MultiModalExecutionContext();
+
+        vi.spyOn(root, "withRequestContextStream").mockImplementation(async function* (_req, fn) {
+            yield* fn(_req);
+        });
+        client.registerProvider(makeProvider((c) => c === capability), root.AIProvider.OpenAI, "fallback");
+
+        const chain: ProviderRef[] = [
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" },
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" }
+        ];
+
+        const executeFn = vi
+            .fn()
+            .mockImplementationOnce(async function* () {
+                yield { delta: "a" };
+                throw new Error("stream broke");
             })
-        }));
-        vi.resetModules();
-        const { AIClient } = await import('#root/client/AIClient.js');
-        const { OpenAIProvider } = await import('#root/providers/openai/OpenAIProvider.js');
-        const client = new AIClient();
-        const p = new OpenAIProvider();
-        expect(() => client.registerProvider(p, AIProvider.OpenAI, 'default'))
-            .toThrow(`Provider already registered for ${AIProvider.OpenAI} with name 'default'`)
-    });
-
-    it('throws when getting unknown provider', async () => {
-        const { AIClient } = await import('#root/client/AIClient.js');
-        const client = new AIClient();
-
-        expect(() => client.getProvider("unknown" as any)).toThrow();
-    });
-
-    describe('Session Management', () => {
-        it('createSession creates a new session with generated ID', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const session = client.createSession();
-            expect(session).toBeDefined();
-            expect(session.id).toBeDefined();
-            expect(typeof session.id).toBe('string');
-        });
-
-        it('createSession with custom ID creates session with specified ID', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const customId = 'my-custom-session-id';
-            const session = client.createSession(customId);
-            expect(session.id).toBe(customId);
-        });
-
-        it('getSession returns existing session', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const created = client.createSession('test-id');
-            const retrieved = client.getSession('test-id');
-            expect(retrieved).toBe(created);
-            expect(retrieved?.id).toBe('test-id');
-        });
-
-        it('getSession returns undefined for non-existent session', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const retrieved = client.getSession('non-existent-id');
-            expect(retrieved).toBeUndefined();
-        });
-
-        it('getOrCreateSession returns existing session if it exists', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const created = client.createSession('existing-id');
-            const retrieved = client.getOrCreateSession('existing-id');
-            expect(retrieved).toBe(created);
-        });
-
-        it('getOrCreateSession creates new session if not exists', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const session = client.getOrCreateSession('new-id');
-            expect(session).toBeDefined();
-            expect(session.id).toBe('new-id');
-        });
-
-        it('getOrCreateSession creates session with auto-generated ID if no ID provided', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const session = client.getOrCreateSession();
-            expect(session).toBeDefined();
-            expect(session.id).toBeDefined();
-        });
-
-        it('closeSession removes session from registry', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const session = client.createSession('to-close');
-            expect(client.getSession('to-close')).toBeDefined();
-
-            client.closeSession('to-close');
-            expect(client.getSession('to-close')).toBeUndefined();
-        });
-
-        it('listSessions returns all active session IDs', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const session1 = client.createSession('session-1');
-            const session2 = client.createSession('session-2');
-            const session3 = client.createSession('session-3');
-
-            const list = client.listSessions();
-            expect(list).toContain('session-1');
-            expect(list).toContain('session-2');
-            expect(list).toContain('session-3');
-            expect(list.length).toBeGreaterThanOrEqual(3);
-        });
-
-        it('serializeSession serializes active session', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const session = client.createSession('serialize-test');
-            const snapshot = client.serializeSession('serialize-test');
-
-            expect(snapshot).toBeDefined();
-            expect(snapshot.id).toBe('serialize-test');
-        });
-
-        it('serializeSession throws for non-existent session', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            expect(() => client.serializeSession('non-existent')).toThrow('Session not found');
-        });
-
-        it('resumeSession deserializes and registers session', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const original = client.createSession('original-id');
-            const snapshot = client.serializeSession('original-id');
-
-            client.closeSession('original-id');
-            expect(client.getSession('original-id')).toBeUndefined();
-
-            const restored = client.resumeSession(snapshot);
-            expect(restored).toBeDefined();
-            expect(client.getSession('original-id')).toBeDefined();
-        });
-    });
-
-    describe('Lifecycle Hooks', () => {
-        it('setLifeCycleHooks stores lifecycle hooks', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const mockHooks = {
-                onExecutionStart: vi.fn(),
-                onAttemptStart: vi.fn(),
-                onAttemptSuccess: vi.fn(),
-                onAttemptFailure: vi.fn(),
-                onExecutionFailure: vi.fn(),
-                onExecutionEnd: vi.fn(),
-                onChunkEmitted: vi.fn()
-            };
-
-            expect(() => client.setLifeCycleHooks(mockHooks)).not.toThrow();
-        });
-        it('calls lifecycle hooks for non-streaming (withRequestContext) methods', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        chat: vi.fn(async (req) => ({ result: 'ok', metadata: {} }))
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const { AIProvider } = await import('#root/index.js');
-            const client = new AIClient();
-            const { OpenAIProvider } = await import('#root/providers/openai/OpenAIProvider.js');
-            const provider = new OpenAIProvider();
-
-            const hooks = {
-                onExecutionStart: vi.fn(),
-                onExecutionEnd: vi.fn(),
-                onAttemptStart: vi.fn(),
-                onAttemptSuccess: vi.fn(),
-                onAttemptFailure: vi.fn(),
-            };
-            client.setLifeCycleHooks(hooks);
-            const session = client.createSession();
-
-            await client.chat({ input: { messages: [{ role: 'user', content: [{ type: "text", text: 'Hello' }] }] } }, session);
-
-            expect(hooks.onExecutionStart).toHaveBeenCalled();
-            expect(hooks.onExecutionEnd).toHaveBeenCalled();
-            expect(hooks.onAttemptStart).toHaveBeenCalled();
-            expect(hooks.onAttemptSuccess).toHaveBeenCalled();
-            expect(hooks.onAttemptFailure).not.toHaveBeenCalled();
-        });
-
-        it('calls lifecycle hooks for streaming (withRequestContextStream) methods', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        chatStream: vi.fn(async function* () {
-                            yield { result: 'chunk1', metadata: {} };
-                            yield { result: 'chunk2', metadata: {} };
-                        })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const { AIProvider } = await import('#root/index.js');
-            const client = new AIClient();
-            const { OpenAIProvider } = await import('#root/providers/openai/OpenAIProvider.js');
-            const provider = new OpenAIProvider();
-
-            const hooks = {
-                onExecutionStart: vi.fn(),
-                onExecutionEnd: vi.fn(),
-                onAttemptStart: vi.fn(),
-                onAttemptSuccess: vi.fn(),
-                onAttemptFailure: vi.fn(),
-                onChunkEmitted: vi.fn(),
-            };
-            client.setLifeCycleHooks(hooks);
-
-            const session = client.createSession();
-            const stream = client.chatStream({ input: { messages: [{ role: 'user', content: [{ type: "text", text: 'Hello' }] }] } }, session);
-            // Consume the stream
-            for await (const _ of stream) { }
-
-            expect(hooks.onExecutionStart).toHaveBeenCalled();
-            expect(hooks.onExecutionEnd).toHaveBeenCalled();
-            expect(hooks.onAttemptStart).toHaveBeenCalled();
-            expect(hooks.onAttemptSuccess).toHaveBeenCalled();
-            expect(hooks.onAttemptFailure).not.toHaveBeenCalled();
-            expect(hooks.onChunkEmitted).toHaveBeenCalledTimes(1);
-        });
-    });
-
-    describe('Real AIClient Integration (executeWithPolicy coverage)', () => {
-        it('executeWithPolicy executes and applies output to session context', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            expect(client.getSession(session.id)).toBe(session);
-        });
-
-        it('findProvidersByCapability returns providers with requested capability', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient, CapabilityKeys } = await import('#root/index.js');
-            const client = new AIClient();
-            const providers = client.findProvidersByCapability(CapabilityKeys.ChatCapabilityKey as unknown as any);
-            expect(Array.isArray(providers)).toBe(true);
-            expect(providers.length).toBeGreaterThan(0);
-        });
-
-        it('getOrCreateSession returns new session when none exists', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.getOrCreateSession('unique-test-id');
-            expect(session).toBeDefined();
-            expect(session.id).toBe('unique-test-id');
-            expect(client.getSession('unique-test-id')).toBe(session);
-        });
-
-        it('resumeSession deserializes and restores session', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session1 = client.createSession('resumable-session');
-            const snapshot = client.serializeSession('resumable-session');
-            client.closeSession('resumable-session');
-            expect(client.getSession('resumable-session')).toBeUndefined();
-            const session2 = client.resumeSession(snapshot);
-            expect(session2.id).toBe('resumable-session');
-            expect(client.getSession('resumable-session')).toBe(session2);
-        });
-
-        it('listSessions returns all active session IDs', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const s1 = client.createSession('session-a');
-            const s2 = client.createSession('session-b');
-            const s3 = client.createSession('session-c');
-            const sessions = client.listSessions();
-            expect(sessions.length).toBeGreaterThanOrEqual(3);
-            expect(sessions).toContain('session-a');
-            expect(sessions).toContain('session-b');
-            expect(sessions).toContain('session-c');
-        });
-
-        it('closeSession removes session from registry', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession('to-delete');
-            expect(client.getSession('to-delete')).toBeDefined();
-            client.closeSession('to-delete');
-            expect(client.getSession('to-delete')).toBeUndefined();
-        });
-
-        it('setLifeCycleHooks stores and does not throw', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const mockHooks = {
-                onExecutionStart: vi.fn(),
-                onAttemptStart: vi.fn(),
-                onAttemptSuccess: vi.fn(),
-                onAttemptFailure: vi.fn(),
-                onExecutionFailure: vi.fn(),
-                onExecutionEnd: vi.fn(),
-                onChunkEmitted: vi.fn()
-            };
-            expect(() => client.setLifeCycleHooks(mockHooks)).not.toThrow();
-        });
-    });
-
-    describe('Capability Routing and executeWithPolicy', () => {
-
-        it('chat method calls executeWithPolicy with correct capability', async () => {
-            // Reset module cache BEFORE mocking
-            vi.resetModules();
-
-            // Apply all mocks BEFORE importing AIClient
-            await vi.doMock('#root/core/utils/WithRequestContext', () => ({
-                withRequestContext: vi.fn(async (req, fn) => ({ output: 'mocked', metadata: { status: 'completed' } })),
-                withRequestContextStream: vi.fn(async function* (req, fn) { yield { output: 'mocked', metadata: { status: 'completed' } }; })
-            }));
-            await vi.doMock('#root/core/config/ConfigLoader.js', () => ({
-                loadAppConfig: vi.fn(() => ({
-                    appConfig: { executionPolicy: { providerChain: [{ providerType: 'openai', connectionName: 'default' }] } },
-                    providers: { openai: { default: { apiKey: 'mock-key' } } }
-                }))
-            }));
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        chat: vi.fn().mockResolvedValue({
-                            output: 'mocked response',
-                            metadata: { status: 'completed' }
-                        }),
-                        chatStream: vi.fn().mockImplementation(async function* () {
-                            yield { delta: 'chunk1', metadata: { status: 'incomplete' } };
-                            yield { output: 'final', metadata: { status: 'completed' } };
-                        })
-                    };
-                })
-            }));
-            await vi.doMock('#root/providers/anthropic/AnthropicProvider.js', () => ({
-                AnthropicProvider: vi.fn(function () {
-                    return { isInitialized: () => true, init: vi.fn(), hasCapability: vi.fn(() => false) };
-                })
-            }));
-            await vi.doMock('#root/providers/gemini/GeminiProvider.js', () => ({
-                GeminiProvider: vi.fn(function () {
-                    return { isInitialized: () => true, init: vi.fn(), hasCapability: vi.fn(() => false) };
-                })
-            }));
-
-            // Now import AIClient (after all mocks)
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-
-            const result = await client.chat(
-                { input: { messages: [{ role: 'user', content: [{ type: 'text', text: 'test' }] }] } },
-                session
-            );
-
-            expect(result).toBeDefined();
-            expect(session.getEvents().length).toBeGreaterThanOrEqual(1);
-        });
-
-        it('chatStream method calls executeWithPolicyStream', async () => {
-            await vi.doMock('#root/core/utils/WithRequestContext', () => ({
-                withRequestContext: vi.fn(async (req, fn) => ({ output: 'mocked', metadata: { status: 'completed' } })),
-                withRequestContextStream: vi.fn(async function* (req, fn) { yield { output: 'mocked', metadata: { status: 'completed' } }; })
-            }));
-            await vi.doMock('#root/core/config/ConfigLoader.js', () => ({
-                loadAppConfig: vi.fn(() => ({
-                    appConfig: { executionPolicy: { providerChain: [{ providerType: 'openai', connectionName: 'default' }] } },
-                    providers: { openai: { default: { apiKey: 'mock-key' } } }
-                }))
-            }));
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        chatStream: vi.fn().mockImplementation(async function* () {
-                            yield { delta: 'chunk1', metadata: { status: 'incomplete' } };
-                            yield { output: 'final', metadata: { status: 'completed' } };
-                        })
-                    };
-                })
-            }));
-            await vi.doMock('#root/providers/anthropic/AnthropicProvider.js', () => ({
-                AnthropicProvider: vi.fn(function () {
-                    return { isInitialized: () => true, init: vi.fn(), hasCapability: vi.fn(() => false) };
-                })
-            }));
-            await vi.doMock('#root/providers/gemini/GeminiProvider.js', () => ({
-                GeminiProvider: vi.fn(function () {
-                    return { isInitialized: () => true, init: vi.fn(), hasCapability: vi.fn(() => false) };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const chunks: any[] = [];
-            for await (const chunk of client.chatStream(
-                { input: { messages: [{ role: 'user', content: [{ type: 'text', text: 'test' }] }] } },
-                session
-            )) {
-                chunks.push(chunk);
-            }
-            expect(chunks.length).toBeGreaterThanOrEqual(1);
-            expect(session.getEvents().length).toBeGreaterThanOrEqual(1);
-        });
-
-        it('chatStream method calls executeWithPolicyStream', async () => {
-            await vi.doMock('#root/core/utils/WithRequestContext', () => ({
-                withRequestContext: vi.fn(async (req, fn) => ({ output: 'mocked', metadata: { status: 'completed' } })),
-                withRequestContextStream: vi.fn(async function* (req, fn) { yield { output: 'mocked', metadata: { status: 'completed' } }; })
-            }));
-            await vi.doMock('#root/core/config/ConfigLoader.js', () => ({
-                loadAppConfig: vi.fn(() => ({
-                    appConfig: { executionPolicy: { providerChain: [{ providerType: 'openai', connectionName: 'default' }] } },
-                    providers: { openai: { default: { apiKey: 'mock-key' } } }
-                }))
-            }));
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        chatStream: vi.fn().mockImplementation(async function* () {
-                            yield { delta: 'chunk1', metadata: { status: 'incomplete' } };
-                            yield { output: 'final', metadata: { status: 'completed' } };
-                        })
-                    };
-                })
-            }));
-            await vi.doMock('#root/providers/anthropic/AnthropicProvider.js', () => ({
-                AnthropicProvider: vi.fn(function () {
-                    return { isInitialized: () => true, init: vi.fn(), hasCapability: vi.fn(() => false) };
-                })
-            }));
-            await vi.doMock('#root/providers/gemini/GeminiProvider.js', () => ({
-                GeminiProvider: vi.fn(function () {
-                    return { isInitialized: () => true, init: vi.fn(), hasCapability: vi.fn(() => false) };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const chunks: any[] = [];
-            for await (const chunk of client.chatStream(
-                { input: { messages: [{ role: 'user', content: [{ type: 'text', text: 'test' }] }] } },
-                session
-            )) {
-                chunks.push(chunk);
-            }
-            expect(chunks.length).toBeGreaterThanOrEqual(1);
-            expect(session.getEvents().length).toBeGreaterThanOrEqual(1);
-        });
-
-        it('embeddings method calls executeWithPolicy', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        embed: vi.fn().mockResolvedValue({ output: [0.1, 0.2, 0.3], metadata: { status: 'completed' } })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const result = await client.embeddings({ input: { input: 'test' } }, session);
-            expect(result).toBeDefined();
-        });
-
-        it('moderation method calls executeWithPolicy', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        moderation: vi.fn().mockResolvedValue({ output: { flagged: false }, metadata: { status: 'completed' } })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const result = await client.moderation({ input: { input: 'test moderation' } }, session);
-            expect(result).toBeDefined();
-        });
-
-        it('generateImage method calls executeWithPolicy', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        generateImage: vi.fn().mockResolvedValue({ output: [{ url: 'http://example.com/img.png', data: 'base64data' }], metadata: { status: 'completed' } })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const result = await client.generateImage({ input: { prompt: 'test image' } }, session);
-            expect(result).toBeDefined();
-        });
-
-        it('generateImageStream method calls executeWithPolicyStream', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        generateImageStream: vi.fn().mockImplementation(async function* () {
-                            yield { output: [{ url: 'http://example.com/img.png' }], metadata: { status: 'completed' } };
-                        })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const chunks = [];
-            for await (const chunk of client.generateImageStream({ input: { prompt: 'test image' } }, session)) {
-                chunks.push(chunk);
-            }
-            expect(chunks.length).toBeGreaterThan(0);
-        });
-
-        it('analyzeImage method calls executeWithPolicy', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        analyzeImage: vi.fn().mockResolvedValue({ output: [{ text: 'desc', objects: [] }], metadata: { status: 'completed' } })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const result = await client.analyzeImage({ input: { images: [{ id: 'img1', sourceType: 'url', url: 'https://example.com/img.png' }] } }, session);
-            expect(result).toBeDefined();
-        });
-
-        it('analyzeImageStream method calls executeWithPolicyStream', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        analyzeImageStream: vi.fn().mockImplementation(async function* () {
-                            yield { output: [{ label: 'cat', confidence: 0.99 }], metadata: { status: 'completed' } };
-                        })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const chunks = [];
-            for await (const chunk of client.analyzeImageStream({ input: { images: [{ id: 'img1', sourceType: 'url', url: 'https://example.com/img.png' }] } }, session)) {
-                chunks.push(chunk);
-            }
-            expect(chunks.length).toBeGreaterThan(0);
-        });
-
-        it('editImage method calls executeWithPolicy', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        editImage: vi.fn().mockResolvedValue({ output: [{ url: 'http://example.com/edited.png' }], metadata: { status: 'completed' } })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const result = await client.editImage({ input: { prompt: 'edit this', referenceImages: [{ id: 'test', sourceType: 'url', url: 'https://example.com/img.png' }] } }, session);
-            expect(result).toBeDefined();
-        });
-
-        it('editImageStream method calls executeWithPolicyStream', async () => {
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        editImageStream: vi.fn().mockImplementation(async function* () {
-                            yield { output: [{ url: 'http://example.com/edited.png' }], metadata: { status: 'completed' } };
-                        })
-                    };
-                })
-            }));
-            vi.resetModules();
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const chunks = [];
-            for await (const chunk of client.editImageStream({ input: { prompt: 'edit this', referenceImages: [{ id: 'test', sourceType: 'url', url: 'https://example.com/img.png' }] } }, session)) {
-                chunks.push(chunk);
-            }
-            expect(chunks.length).toBeGreaterThan(0);
-        });
-
-        it('executeWithPolicy with lifecycle hooks calls all hooks', async () => {
-            await vi.doMock('#root/core/utils/WithRequestContext', () => ({
-                withRequestContext: vi.fn(async (req, fn) => {
-                    return { output: 'mocked', metadata: { status: 'completed' } };
-                }),
-                withRequestContextStream: vi.fn(async function* (req, fn) {
-                    yield { output: 'mocked', metadata: { status: 'completed' } };
-                })
-            }));
-            vi.resetModules();
-            await vi.doMock('#root/core/config/ConfigLoader.js', () => ({
-                loadAppConfig: vi.fn(() => ({
-                    appConfig: { executionPolicy: { providerChain: [{ providerType: 'openai', connectionName: 'default' }] } },
-                    providers: {
-                        openai: { default: { apiKey: 'mock-key' } }
-                    }
-                }))
-            }));
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true),
-                        chat: vi.fn().mockResolvedValue({
-                            output: 'mocked response',
-                            metadata: { status: 'completed' }
-                        })
-                    };
-                })
-            }));
-
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-
-            const onExecutionStart = vi.fn();
-            const onAttemptStart = vi.fn();
-            const onAttemptSuccess = vi.fn();
-            const onExecutionEnd = vi.fn();
-
-            client.setLifeCycleHooks({
-                onExecutionStart,
-                onAttemptStart,
-                onAttemptSuccess,
-                onExecutionEnd
+            .mockImplementationOnce(async function* () {
+                yield { delta: "b" };
+                yield { output: "final", done: true };
             });
 
-            const result = await client.chat(
-                { input: { messages: [{ role: 'user', content: [{ type: 'text', text: 'test' }] }] } },
-                session
-            );
+        const chunks: any[] = [];
+        for await (const chunk of (client as any).executeWithPolicyStream(capability, { input: {} }, ctx, executeFn, chain)) {
+            chunks.push(chunk);
+        }
 
-            expect(result).toBeDefined();
-            expect(onExecutionStart).toHaveBeenCalled();
-            expect(onAttemptStart).toHaveBeenCalled();
-            expect(onAttemptSuccess).toHaveBeenCalled();
-            expect(onExecutionEnd).toHaveBeenCalled();
-        });
-
-        it('findProvidersByCapability returns providers with requested capability', async () => {
-            vi.resetModules();
-
-            await vi.doMock('#root/core/config/ConfigLoader.js', () => ({
-                loadAppConfig: vi.fn(() => ({
-                    appConfig: { executionPolicy: { providerChain: [{ providerType: 'openai', connectionName: 'default' }] } },
-                    providers: {
-                        openai: { default: { apiKey: 'mock-key' } }
-                    }
-                }))
-            }));
-
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const providers = client.findProvidersByCapability(CapabilityKeys.ChatCapabilityKey as unknown as any);
-            expect(Array.isArray(providers)).toBe(true);
-            expect(providers.length).toBeGreaterThan(0);
-        });
-
-        it('getProvider returns correct provider instance', async () => {
-            vi.resetModules();
-
-            await vi.doMock('#root/core/config/ConfigLoader.js', () => ({
-                loadAppConfig: vi.fn(() => ({
-                    appConfig: { executionPolicy: { providerChain: [{ providerType: 'openai', connectionName: 'default' }] } },
-                    providers: {
-                        openai: { default: { apiKey: 'mock-key' } }
-                    }
-                }))
-            }));
-
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-
-            const provider = client.getProvider(AIProvider.OpenAI, 'default');
-            expect(provider).toBeDefined();
-            expect(provider.isInitialized()).toBe(true);
-        });
-
-        it('executeWithPolicy throws AllProvidersFailedError when no providers support capability', async () => {
-            vi.resetModules();
-
-            await vi.doMock('#root/core/config/ConfigLoader.js', () => ({
-                loadAppConfig: vi.fn(() => ({
-                    appConfig: { executionPolicy: { providerChain: [{ providerType: 'openai', connectionName: 'default' }] } },
-                    providers: {
-                        openai: { default: { apiKey: 'mock-key' } }
-                    }
-                }))
-            }));
-
-            await vi.doMock('#root/providers/openai/OpenAIProvider.js', () => ({
-                OpenAIProvider: vi.fn(function () {
-                    return {
-                        isInitialized: () => true,
-                        init: vi.fn(),
-                        hasCapability: vi.fn(() => true)
-                    };
-                })
-            }));
-
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-
-            try {
-                await client.chat(
-                    { input: { messages: [{ role: 'user', content: [{ type: 'text', text: 'test' }] }] } },
-                    session,
-                    [] // Empty chain - will fail
-                );
-            } catch (e) {
-                expect(e).toBeDefined();
-            }
-        });
-
-        it('generateImageStream yields expected chunks', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const chunks = [];
-            for await (const chunk of client.generateImageStream(
-                { input: { prompt: 'test' } },
-                session
-            )) {
-                chunks.push(chunk);
-            }
-            expect(chunks.length).toBeGreaterThan(0);
-        });
-
-        it('analyzeImageStream yields expected chunks', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const chunks = [];
-            for await (const chunk of client.analyzeImageStream(
-                { input: { images: [{ id: 'img1', sourceType: 'url', url: 'https://example.com/fake.png' }] } },
-                session
-            )) {
-                chunks.push(chunk);
-            }
-            expect(chunks.length).toBeGreaterThan(0);
-        });
-
-        it('editImage returns expected result', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const result = await client.editImage(
-                { input: { prompt: 'edit this', referenceImages: [{ id: 'test', sourceType: 'url', url: 'https://example.com/img.png' }] } },
-                session
-            );
-            expect(result).toBeDefined();
-        });
-
-        it('editImageStream yields expected chunks', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            const chunks = [];
-            for await (const chunk of client.editImageStream(
-                { input: { prompt: 'edit this', referenceImages: [{ id: 'test', sourceType: 'url', url: 'https://example.com/img.png' }] } },
-                session
-            )) {
-                chunks.push(chunk);
-            }
-            expect(chunks.length).toBeGreaterThan(0);
-        });
-
-        it('generateImageStream throws if providerChain is empty', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession();
-            let error;
-            try {
-                for await (const _ of client.generateImageStream(
-                    { input: { prompt: 'test' } },
-                    session,
-                    []
-                )) { }
-            } catch (e) {
-                error = e;
-            }
-            expect(error).toBeDefined();
-        });
-
-        it('emitSessionData adds event to session', async () => {
-            const { AIClient } = await import('#root/client/AIClient.js');
-            const client = new AIClient();
-            const session = client.createSession('emit-test');
-            const event = { eventType: 'test', capability: 'test', payload: 'payload' };
-            // @ts-ignore (private method)
-            client.emitSessionData(session, event);
-            expect(session.getEvents().length).toBeGreaterThan(0);
-        });
+        expect(chunks.map((c) => c.delta ?? c.output)).toEqual(["a", "b", "final"]);
+        expect(chunks[2].metadata?.providerAttempts).toHaveLength(2);
     });
-})
+
+    it("executeWithPolicyStream throws AllProvidersFailedError when all stream attempts fail", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:stream-all-fail";
+        const ctx = new root.MultiModalExecutionContext();
+
+        vi.spyOn(root, "withRequestContextStream").mockImplementation(async function* (_req, fn) {
+            yield* fn(_req);
+        });
+        client.registerProvider(makeProvider((c) => c === capability), root.AIProvider.OpenAI, "fallback");
+
+        const chain: ProviderRef[] = [
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" },
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" }
+        ];
+
+        const executeFn = vi.fn(async function* () {
+            throw new Error("stream failed");
+        });
+
+        const collect = async () => {
+            for await (const _chunk of (client as any).executeWithPolicyStream(capability, { input: {} }, ctx, executeFn, chain)) {
+                void _chunk;
+            }
+        };
+
+        await expect(collect()).rejects.toThrow(root.AllProvidersFailedError);
+        expect(executeFn).toHaveBeenCalledTimes(2);
+    });
+
+    it("executeWithPolicy skips providers without capability and succeeds on next provider", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:skip-no-cap";
+        const ctx = new root.MultiModalExecutionContext();
+
+        vi.spyOn(root, "withRequestContext").mockImplementation(async (_req, fn) => fn(_req));
+        vi.spyOn(client.getProvider<any>(root.AIProvider.Gemini, "default"), "hasCapability").mockReturnValue(false);
+        vi.spyOn(client.getProvider<any>(root.AIProvider.OpenAI, "default"), "hasCapability").mockImplementation((c) => c === capability);
+
+        const executeFn = vi.fn(async () => ({ output: "ok", metadata: {} }));
+        const result = await (client as any).executeWithPolicy(
+            capability,
+            { input: {} },
+            ctx,
+            executeFn,
+            [
+                { providerType: root.AIProvider.Gemini, connectionName: "default" },
+                { providerType: root.AIProvider.OpenAI, connectionName: "default" }
+            ]
+        );
+
+        expect(executeFn).toHaveBeenCalledTimes(1);
+        expect(result.output).toBe("ok");
+    });
+
+    it("executeWithPolicyStream skips providers without capability and handles chunk-level errors with fallback", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const capability = "custom:stream-skip-and-error";
+        const ctx = new root.MultiModalExecutionContext();
+
+        vi.spyOn(root, "withRequestContextStream").mockImplementation(async function* (_req, fn) {
+            yield* fn(_req);
+        });
+        vi.spyOn(client.getProvider<any>(root.AIProvider.Gemini, "default"), "hasCapability").mockReturnValue(false);
+        vi.spyOn(client.getProvider<any>(root.AIProvider.OpenAI, "default"), "hasCapability").mockImplementation((c) => c === capability);
+        vi.spyOn(client.getProvider<any>(root.AIProvider.Anthropic, "default"), "hasCapability").mockImplementation((c) => c === capability);
+
+        const executeFn = vi
+            .fn()
+            .mockImplementationOnce(async function* () {
+                yield { error: new Error("chunk error") };
+            })
+            .mockImplementationOnce(async function* () {
+                yield { output: "final", done: true };
+            });
+
+        const chunks: any[] = [];
+        for await (const chunk of (client as any).executeWithPolicyStream(
+            capability,
+            { input: {} },
+            ctx,
+            executeFn,
+            [
+                { providerType: root.AIProvider.Gemini, connectionName: "default" },
+                { providerType: root.AIProvider.OpenAI, connectionName: "default" },
+                { providerType: root.AIProvider.Anthropic, connectionName: "default" }
+            ]
+        )) {
+            chunks.push(chunk);
+        }
+
+        expect(executeFn).toHaveBeenCalledTimes(2);
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].output).toBe("final");
+        expect(chunks[0].metadata?.providerAttempts).toHaveLength(2);
+    });
+});
+
+describe("AIClient private helpers", () => {
+    it("constructor without injected JobManager initializes internal manager", async () => {
+        const { AIClient } = await loadClient();
+        const client = new AIClient();
+        expect(client.jobManager).toBeDefined();
+    });
+
+    it("createExecutionSignal reuses caller signal when no timeout and forwards abort", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
+
+        const directController = new AbortController();
+        const same = client.createExecutionSignal({ input: {}, signal: directController.signal });
+        expect(same).toBe(directController.signal);
+
+        const upstream = new AbortController();
+        const forwarded = client.createExecutionSignal({ input: {}, signal: upstream.signal, timeoutMs: 1000 });
+        expect(forwarded.aborted).toBe(false);
+        upstream.abort("boom");
+        expect(forwarded.aborted).toBe(true);
+    });
+
+    it("createExecutionSignal enforces timeout abort", async () => {
+        vi.useFakeTimers();
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
+        const signal: AbortSignal = client.createExecutionSignal({ input: {}, timeoutMs: 5 });
+
+        expect(signal.aborted).toBe(false);
+        vi.advanceTimersByTime(10);
+        expect(signal.aborted).toBe(true);
+        vi.useRealTimers();
+    });
+
+    it("helper methods cover modality, usage extraction, context application, artifact building, and artifact merge", async () => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
+
+        expect(client.modalityForCapability(root.CapabilityKeys.EmbedCapabilityKey)).toBe("embedding");
+        expect(client.modalityForCapability(root.CapabilityKeys.ModerationCapabilityKey)).toBe("moderation");
+        expect(client.modalityForCapability(root.CapabilityKeys.ImageGenerationCapabilityKey)).toBe("imageGeneration");
+        expect(client.modalityForCapability(root.CapabilityKeys.ImageEditCapabilityKey)).toBe("imageEdit");
+        expect(client.modalityForCapability(root.CapabilityKeys.ImageAnalysisCapabilityKey)).toBe("imageAnalysis");
+        expect(client.modalityForCapability("custom:abc")).toBe("custom");
+
+        expect(client.extractRawUsage(null)).toEqual({});
+        expect(client.extractRawUsage({ usage: { total_tokens: 3 } })).toEqual({ total_tokens: 3 });
+        expect(client.extractRawUsage({ usageMetadata: { totalTokenCount: 4 } })).toEqual({ totalTokenCount: 4 });
+
+        const extracted = client.extractAttemptUsage(
+            { inputTokens: 1, outputTokens: 2, totalTokens: 3, estimatedCost: 0.1 },
+            { usage: { input_tokens: 11, output_tokens: 22, total_tokens: 33 } }
+        );
+        expect(extracted).toMatchObject({ inputTokens: 1, outputTokens: 2, totalTokens: 3, estimatedCost: 0.1 });
+
+        const ctx = {
+            applyAssistantMessage: vi.fn(),
+            attachArtifacts: vi.fn()
+        };
+        client.applyOutputToContext(root.CapabilityKeys.ChatCapabilityKey, { role: "assistant", content: [] }, ctx);
+        client.applyOutputToContext(root.CapabilityKeys.EmbedCapabilityKey, [{ vector: [1] }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.ModerationCapabilityKey, [{ flagged: false }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.ImageGenerationCapabilityKey, [{ id: "i" }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.ImageAnalysisCapabilityKey, [{ id: "a" }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.ImageEditStreamCapabilityKey, [{ id: "m" }], ctx);
+        client.applyOutputToContext("custom:unknown", { any: true }, ctx);
+        expect(ctx.applyAssistantMessage).toHaveBeenCalledTimes(1);
+        expect(ctx.attachArtifacts).toHaveBeenCalledTimes(4);
+
+        expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ChatCapabilityKey, { role: "assistant", content: [] })).toHaveProperty("chat");
+        expect(client.buildArtifactsFromOutput(root.CapabilityKeys.EmbedCapabilityKey, [{ vector: [1] }])).toHaveProperty("embeddings");
+        expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ModerationCapabilityKey, [{ flagged: false }])).toHaveProperty("moderation");
+        expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageGenerationCapabilityKey, [{ id: "i" }])).toHaveProperty("images");
+        expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageAnalysisCapabilityKey, [{ id: "a" }])).toHaveProperty("analysis");
+        expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageEditStreamCapabilityKey, [{ id: "i" }])).toBeUndefined();
+        expect(client.buildArtifactsFromOutput("custom:unknown", { a: 1 })).toBeUndefined();
+
+        const target = { images: [{ id: "x" }] } as any;
+        client.mergeTimelineArtifacts(target, {
+            images: [{ id: "y" }],
+            embeddings: [{ vector: [1] }],
+            moderation: []
+        });
+        expect(target.images).toHaveLength(2);
+        expect(target.embeddings).toHaveLength(1);
+    });
+});

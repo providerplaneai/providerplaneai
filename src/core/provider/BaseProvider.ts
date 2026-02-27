@@ -1,4 +1,15 @@
-import { AIProviderType, CapabilityConfig, CapabilityMap, ProviderConnectionConfig } from "#root/index.js";
+import {
+    AIProviderType,
+    BuiltInCapabilityKey,
+    CapabilityConfig,
+    CapabilityExecutor,
+    CapabilityKeyType,
+    CapabilityMap,
+    CapabilityUnsupportedError,
+    CustomCapabilityKey,
+    ProviderCapability,
+    ProviderConnectionConfig
+} from "#root/index.js";
 
 /**
  * Abstract base class for all AI providers.
@@ -22,6 +33,8 @@ export abstract class BaseProvider {
 
     /** Support provider capabilities */
     protected capabilities: Partial<CapabilityMap> = {};
+
+    protected executors?: Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>;
 
     /**
      * Base constructor.
@@ -55,6 +68,35 @@ export abstract class BaseProvider {
         return this.providerType;
     }
 
+    public getCapabilities(): Partial<CapabilityMap> {
+        return this.capabilities;
+    }
+
+    private resolveCapability<C extends CapabilityKeyType>(
+        capability: C
+    ): C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability {
+        const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
+        if (capabilities[capability]) {
+            return capabilities[capability] as C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability;
+        }
+
+        if (this.executors?.has(capability)) {
+            // Client-registered executors may be used for custom capabilities and are resolved
+            // through this fallback path by design.
+            return this.executors.get(capability) as unknown as C extends keyof CapabilityMap
+                ? CapabilityMap[C]
+                : ProviderCapability;
+        }
+
+        throw new CapabilityUnsupportedError(this.providerType, capability);
+    }
+
+    public getCapability<C extends CapabilityKeyType>(
+        capability: C
+    ): C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability {
+        return this.resolveCapability(capability);
+    }
+
     /**
      * Type-safe runtime check for a capability.
      * Allows safe casting after confirming the capability is registered.
@@ -63,8 +105,9 @@ export abstract class BaseProvider {
      * @param capability Capability symbol
      * @returns True if the capability is registered
      */
-    public hasCapability<C extends keyof CapabilityMap>(capability: C): this is CapabilityMap[C] & this {
-        return !!this.capabilities[capability];
+    public hasCapability<C extends CapabilityKeyType>(capability: C): boolean {
+        const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
+        return !!capabilities[capability] || !!this.executors?.has(capability);
     }
 
     /**
@@ -75,8 +118,15 @@ export abstract class BaseProvider {
      * @param capability Capability symbol
      * @param impl Implementation of the capability
      */
-    protected registerCapability<C extends keyof CapabilityMap>(capability: C, impl: CapabilityMap[C]) {
-        this.capabilities[capability] = impl;
+    protected registerCapability<C extends BuiltInCapabilityKey>(capability: C, impl: CapabilityMap[C]): void;
+    protected registerCapability(capability: CustomCapabilityKey, impl: ProviderCapability): void;
+    protected registerCapability(capability: CapabilityKeyType, impl: ProviderCapability) {
+        const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
+        capabilities[capability] = impl;
+    }
+
+    public setClientExecutors(executors: Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>) {
+        this.executors = executors;
     }
 
     /**
@@ -178,6 +228,8 @@ export abstract class BaseProvider {
             runtimeGeneralParams
         );
 
+        // Return a normalized envelope so downstream capability code can rely on
+        // a stable options shape regardless of provider-specific config structure.
         return {
             model: resolvedModel,
             modelParams: mergedModelParams,

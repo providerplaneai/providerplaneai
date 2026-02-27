@@ -1,90 +1,68 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GeminiEmbedCapabilityImpl } from '#root/providers/gemini/capabilities/GeminiEmbedCapabilityImpl.js';
-import { AIProvider, CapabilityKeys } from '#root/index.js';
+import { describe, expect, it, vi } from "vitest";
+import { GeminiEmbedCapabilityImpl } from "#root/providers/gemini/capabilities/GeminiEmbedCapabilityImpl.js";
 
-const mockProvider = {
-    ensureInitialized: vi.fn(),
-    getMergedOptions: vi.fn((cap, opts) => ({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: {} }))
-};
-const mockClient = {
-    models: {
-        embedContent: vi.fn()
-    }
-};
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({ model: "text-embedding-004", modelParams: {}, providerParams: {} }))
+    } as any;
+}
 
-describe('GeminiEmbedCapabilityImpl', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe("GeminiEmbedCapabilityImpl", () => {
+    it("validates missing input and aborted signal", async () => {
+        const cap = new GeminiEmbedCapabilityImpl(makeProvider(), { models: {} } as any);
+
+        await expect(cap.embed({ input: {} } as any)).rejects.toThrow("Invalid embedding input");
+
+        const controller = new AbortController();
+        controller.abort();
+        await expect(cap.embed({ input: { input: "x" } } as any, undefined, controller.signal)).rejects.toThrow("Request aborted");
     });
 
-    it('throws if input is missing', async () => {
-        const embed = new GeminiEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(embed.embed({ input: undefined } as any)).rejects.toThrow('Invalid embedding input');
+    it("throws when API returns no embeddings or mismatched count", async () => {
+        const client = {
+            models: {
+                embedContent: vi
+                    .fn()
+                    .mockResolvedValueOnce({ embeddings: [] })
+                    .mockResolvedValueOnce({ embeddings: [{ values: [1] }, { values: [2] }] })
+            }
+        };
+        const cap = new GeminiEmbedCapabilityImpl(makeProvider(), client as any);
+
+        await expect(cap.embed({ input: { input: "x" } } as any)).rejects.toThrow("API returned no embeddings");
+        await expect(cap.embed({ input: { input: "x" } } as any)).rejects.toThrow("returned 2 embeddings for 1 inputs");
     });
 
-    it('throws if API returns no embeddings', async () => {
-        mockClient.models.embedContent.mockResolvedValue({ embeddings: [] });
-        const embed = new GeminiEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(embed.embed({ input: { input: 'foo' } } as any)).rejects.toThrow('API returned no embeddings');
+    it("throws when embedding values are missing", async () => {
+        const client = {
+            models: {
+                embedContent: vi.fn().mockResolvedValue({ embeddings: [{ values: undefined }] })
+            }
+        };
+        const cap = new GeminiEmbedCapabilityImpl(makeProvider(), client as any);
+
+        await expect(cap.embed({ input: { input: "x" } } as any)).rejects.toThrow("missing values");
     });
 
-    it('throws if all embedding values are undefined', async () => {
-        mockClient.models.embedContent.mockResolvedValue({ embeddings: [{ values: undefined }] });
-        const embed = new GeminiEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(embed.embed({ input: { input: 'foo' } } as any)).rejects.toThrow('API returned embeddings but all values were undefined');
-    });
+    it("normalizes embeddings and metadata for single and multiple inputs", async () => {
+        const client = {
+            models: {
+                embedContent: vi.fn().mockResolvedValue({
+                    embeddings: [{ values: [0.1, 0.2] }, { values: [0.3] }],
+                    usageMetadata: { totalTokenCount: 9 }
+                })
+            }
+        };
+        const cap = new GeminiEmbedCapabilityImpl(makeProvider(), client as any);
 
-    it('returns normalized embedding response for single input', async () => {
-        mockClient.models.embedContent.mockResolvedValue({ embeddings: [{ values: [1, 2, 3] }] });
-        const embed = new GeminiEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        const res = await embed.embed({ input: { input: 'foo' } } as any);
-        expect(res.output).toEqual([1, 2, 3]);
-        expect(res.metadata?.provider).toBe(AIProvider.Gemini);
-    });
+        const res = await cap.embed({ input: { input: ["a", "b"] }, context: { requestId: "r1" } } as any);
 
-    it('returns normalized embedding response for multiple inputs', async () => {
-        mockClient.models.embedContent.mockResolvedValue({ embeddings: [{ values: [1, 2, 3] }, { values: [4, 5, 6] }] });
-        const embed = new GeminiEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        const res = await embed.embed({ input: { input: ['foo', 'bar'] } } as any);
-        expect(res.output).toEqual([[1, 2, 3], [4, 5, 6]]);
-        expect(res.metadata?.provider).toBe(AIProvider.Gemini);
-    });
-
-    it('passes correct model and config to embedContent (custom options)', async () => {
-        mockClient.models.embedContent.mockResolvedValue({ embeddings: [{ values: [1] }] });
-        // Patch mockProvider.getMergedOptions to return the custom options
-        mockProvider.getMergedOptions.mockReturnValueOnce({
-            model: 'custom',
-            modelParams: { taskType: 'CLASSIFICATION', dimensions: 128 },
-            providerParams: {},
-            generalParams: {}
-        });
-        const embed = new GeminiEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { input: 'foo' }, options: { model: 'custom', modelParams: { taskType: 'CLASSIFICATION', dimensions: 128 } } };
-        await embed.embed(req as any);
-        expect(mockClient.models.embedContent).toHaveBeenCalledWith(expect.objectContaining({
-            model: 'custom',
-            contents: [{ parts: [{ text: 'foo' }] }],
-            config: expect.objectContaining({ taskType: 'CLASSIFICATION', outputDimensionality: 128 })
-        }));
-    });
-
-    it('uses default model and config if not provided', async () => {
-        mockClient.models.embedContent.mockResolvedValue({ embeddings: [{ values: [1] }] });
-        // Patch mockProvider.getMergedOptions to return defaults
-        mockProvider.getMergedOptions.mockReturnValueOnce({
-            model: undefined as any,
-            modelParams: {},
-            providerParams: {},
-            generalParams: {}
-        });
-        const embed = new GeminiEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { input: 'foo' } };
-        await embed.embed(req as any);
-        expect(mockClient.models.embedContent).toHaveBeenCalledWith(expect.objectContaining({
-            model: 'text-embedding-004',
-            contents: [{ parts: [{ text: 'foo' }] }],
-            config: expect.objectContaining({ taskType: 'RETRIEVAL_QUERY', outputDimensionality: undefined })
-        }));
+        expect(res.output).toHaveLength(2);
+        expect(res.output[0].vector).toEqual([0.1, 0.2]);
+        expect(res.output[0].dimensions).toBe(2);
+        expect(res.metadata?.provider).toBe("gemini");
+        expect(res.metadata?.tokensUsed).toBe(9);
+        expect(res.output[1].metadata?.requestId).toBe("r1");
     });
 });

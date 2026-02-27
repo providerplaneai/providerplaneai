@@ -1,181 +1,228 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GeminiChatCapabilityImpl } from '#root/providers/gemini/capabilities/GeminiChatCapabilityImpl.js';
-import { CapabilityKeys, AIProvider } from '#root/index.js';
-import { BaseProvider } from '#root/core/provider/BaseProvider.js';
+import { describe, expect, it, vi } from "vitest";
+import { GeminiChatCapabilityImpl } from "#root/providers/gemini/capabilities/GeminiChatCapabilityImpl.js";
 
-const mockProvider = {
-    ensureInitialized: vi.fn(),
-    getMergedOptions: vi.fn((cap, opts) => ({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: {} }))
-};
-const mockClient = {
-    models: {
-        generateContent: vi.fn(),
-        generateContentStream: vi.fn()
-    }
-};
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({
+            model: "gemini-2.5-flash-latest",
+            modelParams: {},
+            providerParams: {},
+            generalParams: { chatStreamBatchSize: 3 }
+        }))
+    } as any;
+}
 
-describe('GeminiChatCapabilityImpl', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe("GeminiChatCapabilityImpl", () => {
+    it("throws for missing input messages in chat and stream", async () => {
+        const cap = new GeminiChatCapabilityImpl(makeProvider(), { models: {} } as any);
+        await expect(cap.chat({ input: {} } as any)).rejects.toThrow("Received empty input messages");
+        await expect(cap.chatStream({ input: {} } as any).next()).rejects.toThrow("Received empty input messages");
     });
 
-    it('throws if input messages are missing (chat)', async () => {
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(chat.chat({ input: { messages: [] } } as any)).rejects.toThrow('Received empty input messages');
+    it("chat normalizes response and usage metadata", async () => {
+        const client = {
+            models: {
+                generateContent: vi.fn().mockResolvedValue({
+                    text: "hello world",
+                    responseId: "r1",
+                    usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 4, totalTokenCount: 6 }
+                })
+            }
+        };
+
+        const cap = new GeminiChatCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] },
+            context: { requestId: "rq", metadata: { trace: "t" } }
+        } as any);
+
+        expect(res.id).toBe("r1");
+        expect(res.output.role).toBe("assistant");
+        expect(res.output.content[0]).toMatchObject({ type: "text", text: "hello world" });
+        expect(res.metadata?.provider).toBe("gemini");
+        expect(res.metadata?.inputTokens).toBe(2);
+        expect(res.metadata?.totalTokens).toBe(6);
     });
 
-    it('returns normalized response from chat', async () => {
-        mockClient.models.generateContent.mockResolvedValue({ text: 'hello', responseId: 'id123' });
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { messages: [{ content: [{ type: 'text', text: 'hi' }] }] } };
-        const res = await chat.chat(req as any);
-        expect(res.output).toBe('hello');
-        expect(res.id).toBe('id123');
-        expect(res.metadata?.provider).toBe(AIProvider.Gemini);
+    it("chat omits usage fields when provider usage metadata is absent", async () => {
+        const client = {
+            models: {
+                generateContent: vi.fn().mockResolvedValue({
+                    text: "hello world",
+                    responseId: "r2"
+                })
+            }
+        };
+
+        const cap = new GeminiChatCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] }
+        } as any);
+
+        expect(res.metadata?.inputTokens).toBeUndefined();
+        expect(res.metadata?.outputTokens).toBeUndefined();
+        expect(res.metadata?.totalTokens).toBeUndefined();
     });
 
-    it('throws if input messages are missing (chatStream)', async () => {
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(async () => {
-            for await (const _ of chat.chatStream({ input: { messages: [] } } as any)) { }
-        }).rejects.toThrow('Received empty input messages');
+    it("chat strips models/ prefix and allows empty assistant text", async () => {
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({
+                model: "models/gemini-2.5-flash-latest",
+                modelParams: undefined,
+                providerParams: undefined
+            }))
+        } as any;
+        const client = {
+            models: {
+                generateContent: vi.fn().mockResolvedValue({
+                    text: undefined,
+                    responseId: undefined
+                })
+            }
+        };
+
+        const cap = new GeminiChatCapabilityImpl(provider, client as any);
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }] }
+        } as any);
+
+        expect(client.models.generateContent.mock.calls[0][0].model).toBe("gemini-2.5-flash-latest");
+        expect(res.output.content).toEqual([]);
+        expect(res.id).toBeDefined();
     });
 
-    it('yields streaming chunks and final chunk (chatStream)', async () => {
-        // Simulate async generator for streaming
-        async function* fakeStream() {
-            yield { text: 'abc', responseId: 'r1' };
-            yield { text: 'def', responseId: 'r1' };
-        }
-        mockClient.models.generateContentStream.mockResolvedValue(fakeStream());
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { messages: [{ content: [{ type: 'text', text: 'hi' }] }] } };
-        const chunks = [];
-        for await (const chunk of chat.chatStream(req as any)) {
+    it("chatStream emits batched chunks and a final completion chunk", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { text: "ab", responseId: "s1", usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 } };
+                yield { text: "cd", responseId: "s1", usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 } };
+                yield { text: "", responseId: "s1", usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 } };
+            }
+        };
+
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(streamObj)
+            }
+        };
+
+        const cap = new GeminiChatCapabilityImpl(makeProvider(), client as any);
+        const chunks: any[] = [];
+        for await (const chunk of cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] },
+            context: { requestId: "r-stream" }
+        } as any)) {
             chunks.push(chunk);
         }
-        // Should yield two partials and one final chunk
-        expect(chunks.length).toBeGreaterThanOrEqual(2);
-        expect(chunks[chunks.length - 1].done).toBe(true);
-        expect(chunks[0].output).toContain('abc');
+
+        expect(chunks).toHaveLength(3);
+        expect(chunks[0].metadata.status).toBe("incomplete");
+        expect(chunks[0].delta.content[0]?.text).toBe("abcd");
+        expect(chunks[1].metadata.status).toBe("incomplete");
+        expect(chunks[1].output.content[0]?.text).toBe("abcd");
+        expect(chunks[2].done).toBe(true);
+        expect(chunks[2].metadata.status).toBe("completed");
     });
 
-    it('yields error chunk if streaming throws', async () => {
-        mockClient.models.generateContentStream.mockRejectedValue(new Error('fail'));
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { messages: [{ content: [{ type: 'text', text: 'hi' }] }] } };
-        const chunks = [];
-        for await (const chunk of chat.chatStream(req as any)) {
-            chunks.push(chunk);
-        }
-        expect(chunks[chunks.length - 1].metadata?.status).toBe('error');
-        expect(chunks[chunks.length - 1].done).toBe(true);
+    it("chatStream yields error chunk when stream throws", async () => {
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockRejectedValue(new Error("stream fail"))
+            }
+        };
+
+        const cap = new GeminiChatCapabilityImpl(makeProvider(), client as any);
+        const out = await cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+        } as any).next();
+
+        expect(out.value?.done).toBe(true);
+        expect(out.value?.metadata?.status).toBe("error");
     });
 
-    it('buildContents returns only text parts', () => {
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        const messages = [
+    it("chatStream exits silently when aborted", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { text: "ab", responseId: "s1" };
+            }
+        };
+
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(streamObj)
+            }
+        };
+
+        const cap = new GeminiChatCapabilityImpl(makeProvider(), client as any);
+        const controller = new AbortController();
+        controller.abort();
+
+        const out = await cap.chatStream(
             {
+                input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+            } as any,
+            undefined,
+            controller.signal
+        ).next();
+
+        expect(out.done).toBe(true);
+        expect(out.value).toBeUndefined();
+    });
+
+    it("chatStream creates completion chunk even when stream deltas are empty", async () => {
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({
+                model: undefined,
+                modelParams: undefined,
+                providerParams: undefined,
+                generalParams: {}
+            }))
+        } as any;
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { text: "", responseId: undefined };
+            }
+        };
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(streamObj)
+            }
+        };
+        const cap = new GeminiChatCapabilityImpl(provider, client as any);
+
+        const chunks: any[] = [];
+        for await (const c of cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+        } as any)) {
+            chunks.push(c);
+        }
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].done).toBe(true);
+        expect(chunks[0].metadata.status).toBe("completed");
+    });
+
+    it("buildContents maps supported parts and throws for unsupported type", () => {
+        const cap = new GeminiChatCapabilityImpl(makeProvider(), { models: {} } as any) as any;
+        const mapped = cap.buildContents([
+            {
+                role: "user",
                 content: [
-                    { type: 'text', text: 'foo' },
-                    { type: 'image', url: 'bar' },
-                    { type: 'text', text: 'baz' }
+                    { type: "text", text: "x" },
+                    { type: "image", url: "u", base64: "b", caption: "c" },
+                    { type: "audio", url: "a", base64: "ab", mimeType: "audio/wav" },
+                    { type: "video", url: "v", base64: "vb", mimeType: "video/mp4" },
+                    { type: "file", url: "f", base64: "fb", filename: "n", mimeType: "text/plain" }
                 ]
             }
-        ];
-        // @ts-expect-error: private method
-        const result = chat.buildContents(messages);
-        expect(result).toBe('foo baz');
-    });
+        ]);
 
-    it('normalizeGeminiStatus returns correct status', () => {
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        // @ts-expect-error: private method
-        expect(chat.normalizeGeminiStatus('MAX_TOKENS')).toBe('incomplete');
-        // @ts-expect-error: private method
-        expect(chat.normalizeGeminiStatus(undefined)).toBe('completed');
-        // @ts-expect-error: private method
-        expect(chat.normalizeGeminiStatus(null)).toBe('completed');
-        // @ts-expect-error: private method
-        expect(chat.normalizeGeminiStatus('other')).toBe('completed');
-    });
-
-    it('yields remaining buffer if not empty (chatStream)', async () => {
-        // Simulate a stream that yields a single chunk less than batchSize
-        async function* fakeStream() {
-            yield { text: 'short', responseId: 'r2' };
-        }
-        mockClient.models.generateContentStream.mockResolvedValue(fakeStream());
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { messages: [{ content: [{ type: 'text', text: 'hi' }] }] } };
-        // Set batchSize to a large value to force buffer < batchSize
-        mockProvider.getMergedOptions.mockReturnValueOnce({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: { chatStreamBatchSize: 100 } });
-        const chunks = [];
-        for await (const chunk of chat.chatStream(req as any)) {
-            chunks.push(chunk);
-        }
-        // Should yield the buffer as a chunk and a final chunk
-        expect(chunks.length).toBe(2);
-        expect(chunks[0].output).toBe('short');
-        expect(chunks[1].done).toBe(true);
-    });
-
-    it('yields multiple partials if buffer reaches batchSize (chatStream)', async () => {
-        // Simulate a stream that yields enough text to trigger multiple partials
-        async function* fakeStream() {
-            yield { text: 'a'.repeat(10), responseId: 'r3' };
-            yield { text: 'b'.repeat(10), responseId: 'r3' };
-        }
-        mockClient.models.generateContentStream.mockResolvedValue(fakeStream());
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { messages: [{ content: [{ type: 'text', text: 'hi' }] }] } };
-        // Set batchSize to 10
-        mockProvider.getMergedOptions.mockReturnValueOnce({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: { chatStreamBatchSize: 10 } });
-        const chunks = [];
-        for await (const chunk of chat.chatStream(req as any)) {
-            chunks.push(chunk);
-        }
-        // Should yield 2 partials and a final chunk
-        expect(chunks.length).toBe(3);
-        expect(chunks[0].output).toBe('a'.repeat(10));
-        expect(chunks[1].output).toBe('b'.repeat(10));
-        expect(chunks[2].done).toBe(true);
-    });
-
-    it('skips empty delta chunks in chatStream', async () => {
-        async function* fakeStream() {
-            yield { text: '', responseId: 'r4' };
-            yield { text: 'real', responseId: 'r4' };
-        }
-        mockClient.models.generateContentStream.mockResolvedValue(fakeStream());
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { messages: [{ content: [{ type: 'text', text: 'hi' }] }] } };
-        const chunks = [];
-        for await (const chunk of chat.chatStream(req as any)) {
-            chunks.push(chunk);
-        }
-        // Only the non-empty chunk and final chunk should be yielded
-        expect(chunks.length).toBe(2);
-        expect(chunks[0].output).toBe('real');
-        expect(chunks[1].done).toBe(true);
-    });
-
-    it('final chunk status uses finishReason (chatStream)', async () => {
-        // Simulate a stream with a finishReason
-        async function* fakeStream() {
-            yield { text: 'done', responseId: 'r5' };
-        }
-        const streamObj = fakeStream();
-        // Attach finishReason to the stream object
-        (streamObj as any).finishReason = 'MAX_TOKENS';
-        mockClient.models.generateContentStream.mockResolvedValue(streamObj);
-        const chat = new GeminiChatCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { messages: [{ content: [{ type: 'text', text: 'hi' }] }] } };
-        const chunks = [];
-        for await (const chunk of chat.chatStream(req as any)) {
-            chunks.push(chunk);
-        }
-        // The final chunk should have status 'incomplete'
-        expect(chunks[chunks.length - 1].metadata?.status).toBe('incomplete');
+        expect(mapped).toHaveLength(5);
+        expect(() =>
+            cap.buildContents([{ role: "user", content: [{ type: "unknown", value: 1 }] }])
+        ).toThrow("Unsupported Gemini chat part");
     });
 });

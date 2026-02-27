@@ -19,6 +19,11 @@ import {
  *
  * Uses OpenAI Vision via the Responses API to analyze images and emit structured JSON results using a tool schema.
  *
+ * IMPORTANT:
+ * - OpenAI provides *semantic* understanding only
+ * - No reliable bounding boxes, coordinates, or confidence scores
+ * - All outputs are normalized defensively before exposure
+ *
  * @template TRequest Image analysis request type
  * @returns AIResponse containing normalized images
  * @throws Error if prompt is missing or analysis fails
@@ -27,15 +32,11 @@ export class OpenAIImageAnalysisCapabilityImpl
     implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
 {
     /**
-     * JSON schema describing the structured output expected from the
-     * `image_analysis` tool call.
+     * OpenAI-compatible schema for semantic image analysis.
      *
-     * Used for:
-     * - Telling OpenAI to emit structured, validated output
-     * - Ensuring model output is reliably parseable as JSON
-     * - Avoiding brittle text parsing and hallucinated formats
-     *
-     * This schema should match the expected NormalizedImageAnalysis structure.
+     * NOTE:
+     * This schema intentionally avoids spatial guarantees
+     * (bounding boxes, confidence scores).
      */
     static OPENAI_IMAGE_ANALYSIS_SCHEMA = {
         type: "object",
@@ -54,21 +55,11 @@ export class OpenAIImageAnalysisCapabilityImpl
             },
             objects: {
                 type: "array",
+                description: "High-level object mentions without spatial guarantees",
                 items: {
                     type: "object",
                     properties: {
-                        label: { type: "string" },
-                        confidence: { type: "number" },
-                        boundingBox: {
-                            type: "object",
-                            properties: {
-                                x: { type: "number" },
-                                y: { type: "number" },
-                                width: { type: "number" },
-                                height: { type: "number" }
-                            },
-                            required: ["x", "y", "width", "height"]
-                        }
+                        label: { type: "string" }
                     },
                     required: ["label"]
                 }
@@ -78,8 +69,7 @@ export class OpenAIImageAnalysisCapabilityImpl
                 items: {
                     type: "object",
                     properties: {
-                        text: { type: "string" },
-                        confidence: { type: "number" }
+                        text: { type: "string" }
                     },
                     required: ["text"]
                 }
@@ -127,18 +117,27 @@ export class OpenAIImageAnalysisCapabilityImpl
      * Analyze one or more images using OpenAI vision models.
      *
      * @param request - Unified AI request containing reference images
-     * @param _executionContext Optional execution context
+     * @param executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns AIResponse containing normalized image analysis results
      */
     async analyzeImage(
         request: AIRequest<ClientImageAnalysisRequest>,
-        _executionContext?: MultiModalExecutionContext
+        executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
     ): Promise<AIResponse<NormalizedImageAnalysis[]>> {
         // Ensure provider has been initialized with credentials + client
         this.provider.ensureInitialized();
 
+        // Abort pre-check
+        if (signal?.aborted) {
+            throw new Error("Image analysis aborted before request started");
+        }
+
         const { input, options, context } = request;
-        const images = input.images ?? [];
+
+        const contextImages = executionContext?.getLatestImages() ?? [];
+        const images = input.images ?? contextImages ?? [];
 
         // Defensive guard: must have at least one image
         if (!images.length) {
@@ -166,45 +165,46 @@ export class OpenAIImageAnalysisCapabilityImpl
         }
 
         // Add instruction text to guide the model's output
-        content.push({ type: "input_text", text: "Analyze the provided image(s) and return structured results." });
-
-        const response = await this.client.responses.create({
-            model: merged.model ?? "gpt-4.1",
-            input: [{ role: "user", content }],
-            tools: [
-                {
-                    ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
-                    parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
-                }
-            ],
-            ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})
+        content.push({
+            type: "input_text",
+            text: input.prompt ?? "Analyze the provided image(s) and return structured results."
         });
+
+        const response = await this.client.responses.create(
+            {
+                model: merged.model ?? "gpt-4.1",
+                input: [{ role: "user", content }],
+                tools: [
+                    {
+                        ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
+                        parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
+                    }
+                ],
+                tool_choice: {
+                    type: "function",
+                    name: "image_analysis"
+                },
+                ...(merged.modelParams ?? {}),
+                ...(merged.providerParams ?? {})
+            },
+            { signal }
+        );
 
         // Parse the output from OpenAI
         // Only process items that are function calls for our tool
         const analyses: NormalizedImageAnalysis[] = [];
         for (const item of response.output ?? []) {
             // Only process function_call outputs for the image_analysis tool
-            if (item.type !== "function_call") {
-                continue;
-            }
-            if (item.name !== "image_analysis") {
+            if (item.type !== "function_call" || item.name !== "image_analysis") {
                 continue;
             }
 
             try {
-                // Arguments are guaranteed to be JSON strings when produced by a function call
-                const payload = JSON.parse(item.arguments) as NormalizedImageAnalysis | NormalizedImageAnalysis[];
-                // If the payload is an array, spread into analyses; otherwise, push single result
-                if (Array.isArray(payload)) {
-                    analyses.push(...payload);
-                } else if (payload) {
-                    analyses.push(payload);
-                }
+                const parsed = JSON.parse(item.arguments);
+                const normalized = this.normalizeAnalyses(parsed);
+                analyses.push(...normalized);
             } catch (err) {
-                // Log parse errors for debugging
-                console.warn("Failed to parse image analysis arguments:", item.arguments, err);
+                console.warn("Failed to parse image analysis output:", err);
             }
         }
 
@@ -212,13 +212,13 @@ export class OpenAIImageAnalysisCapabilityImpl
         return {
             output: analyses,
             rawResponse: response,
-            id: response?.id ?? "unknown",
+            id: response.id ?? context?.requestId ?? crypto.randomUUID(),
             metadata: {
+                ...(context?.metadata ?? {}),
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: response?.status ?? "completed",
-                requestId: context?.requestId,
-                ...(context?.metadata ?? {})
+                requestId: context?.requestId
             }
         };
     }
@@ -231,17 +231,21 @@ export class OpenAIImageAnalysisCapabilityImpl
      *
      * @param request - Unified AI request containing reference images
      * @param _executionContext Optional execution context
+     * @param signal Optional abort signal
      * @returns AIResponseChunk containing normalized image analysis results
      */
     async *analyzeImageStream(
         request: AIRequest<ClientImageAnalysisRequest>,
-        _executionContext?: MultiModalExecutionContext
+        executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>> {
         // Ensure provider has been initialized with credentials + client
         this.provider.ensureInitialized();
 
         const { input, options, context } = request;
-        const images = input.images ?? [];
+
+        const contextImages = executionContext?.getLatestImages() ?? [];
+        const images = input.images ?? contextImages ?? [];
 
         // Defensive guard: must have at least one image
         if (!images.length) {
@@ -272,81 +276,71 @@ export class OpenAIImageAnalysisCapabilityImpl
         // Add instruction text to guide the model's output
         content.push({
             type: "input_text",
-            text: "Analyze the provided image(s) and return structured results."
+            text: input.prompt ?? "Analyze the provided image(s) and return structured results."
         });
 
-        let stream;
-        let yielded = false;
+        let responseId: string | undefined;
         try {
-            stream = await this.client.responses.stream({
-                model: merged.model ?? "gpt-4.1",
-                input: [{ role: "user", content }],
-                tools: [
-                    {
-                        ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
-                        parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
-                    }
-                ],
-                ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {})
-            });
+            const stream = this.client.responses.stream(
+                {
+                    model: merged.model ?? "gpt-4.1",
+                    input: [{ role: "user", content }],
+                    tools: [
+                        {
+                            ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
+                            parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
+                        }
+                    ],
+                    tool_choice: {
+                        type: "function",
+                        name: "image_analysis"
+                    },
+                    ...(merged.modelParams ?? {}),
+                    ...(merged.providerParams ?? {})
+                },
+                { signal }
+            );
 
             // Iterate over streamed events from OpenAI
             for await (const event of stream) {
+                if (signal?.aborted) {
+                    return;
+                }
+
+                if (
+                    !responseId &&
+                    (event.type === "response.created" || event.type === "response.completed") &&
+                    "response" in event &&
+                    event.response?.id
+                ) {
+                    responseId = event.response.id;
+                }
+
                 // Only process completed output items
                 if (event.type !== "response.output_item.done") {
                     continue;
                 }
                 const item = event.item;
+
                 // Only process function_call outputs for the image_analysis tool
                 if (item.type !== "function_call" || item.name !== "image_analysis") {
                     continue;
                 }
-                let payload: NormalizedImageAnalysis | NormalizedImageAnalysis[] | null = null;
-                try {
-                    // Arguments are guaranteed to be JSON strings when produced by a function call
-                    payload = JSON.parse(item.arguments);
-                } catch (err) {
-                    // Yield error chunk if parsing fails
-                    yield {
-                        output: [],
-                        delta: [],
-                        done: true,
-                        error: `Failed to parse image analysis output: ${err instanceof Error ? err.message : String(err)}`,
-                        metadata: {
-                            provider: AIProvider.OpenAI,
-                            model: merged.model,
-                            status: "error",
-                            requestId: context?.requestId
-                        }
-                    };
-                    yielded = true;
-                    continue;
-                }
+
+                // Arguments are guaranteed to be JSON strings when produced by a function call
+                const parsed = JSON.parse(item.arguments);
+
                 // If the payload is an array, spread into analyses; otherwise, push single result
-                const analyses = Array.isArray(payload) ? payload : payload ? [payload] : [];
+                const analyses = this.normalizeAnalyses(parsed);
+
                 // Yield a completed chunk with the analyses
                 yield {
                     output: analyses,
                     delta: analyses,
                     done: true,
-                    id: item.call_id,
+                    id: responseId ?? context?.requestId ?? crypto.randomUUID(),
                     metadata: {
-                        provider: AIProvider.OpenAI,
-                        model: merged.model,
-                        status: "completed",
-                        requestId: context?.requestId
-                    }
-                };
-                yielded = true;
-            }
-            // If no valid output was yielded, yield a final empty chunk
-            if (!yielded) {
-                yield {
-                    output: [],
-                    delta: [],
-                    done: true,
-                    metadata: {
+                        ...(context?.metadata ?? {}),
                         provider: AIProvider.OpenAI,
                         model: merged.model,
                         status: "completed",
@@ -355,19 +349,39 @@ export class OpenAIImageAnalysisCapabilityImpl
                 };
             }
         } catch (err) {
+            // Abort is NOT an error — do not emit a terminal chunk
+            if (signal?.aborted) {
+                return;
+            }
+
             // Yield error chunk if the stream throws
             yield {
                 output: [],
                 delta: [],
                 done: true,
-                error: err instanceof Error ? err.message : String(err),
+                id: responseId,
                 metadata: {
+                    ...(context?.metadata ?? {}),
                     provider: AIProvider.OpenAI,
                     model: merged.model,
                     status: "error",
-                    requestId: context?.requestId
+                    requestId: context?.requestId,
+                    error: err instanceof Error ? err.message : String(err)
                 }
             };
         }
+    }
+
+    private normalizeAnalyses(payload: NormalizedImageAnalysis | NormalizedImageAnalysis[]): NormalizedImageAnalysis[] {
+        const items = Array.isArray(payload) ? payload : payload ? [payload] : [];
+
+        return items.map((item) => ({
+            id: item.id ?? crypto.randomUUID(),
+            description: item.description,
+            tags: item.tags?.filter(Boolean),
+            objects: item.objects?.map((o) => ({ label: o.label })),
+            text: item.text?.map((t) => ({ text: t.text })),
+            safety: item.safety ? { flagged: Boolean(item.safety.flagged) } : undefined
+        }));
     }
 }

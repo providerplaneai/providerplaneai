@@ -1,3 +1,5 @@
+import { TimelineArtifacts } from "#root/index.js";
+
 /**
  * Unified, provider-agnostic return type for any AI provider call.
  *
@@ -14,7 +16,7 @@ export interface AIResponse<TOutput = unknown> {
     id?: string;
 
     /** Multimodal artifacts generated from provider call that should be stored in session */
-    multimodalArtifacts?: Record<string, unknown>;
+    multimodalArtifacts?: TimelineArtifacts;
 
     /**
      * Metadata about the request/response.
@@ -60,7 +62,7 @@ export interface AIResponseChunk<TChunk = unknown> {
     id?: string;
 
     /** Multimodal artifacts generated from provider call that should be stored in session */
-    multimodalArtifacts?: Record<string, unknown>;
+    multimodalArtifacts?: TimelineArtifacts;
 
     /**
      * Metadata about the request/response for this chunk.

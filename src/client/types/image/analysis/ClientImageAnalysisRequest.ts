@@ -12,7 +12,7 @@ import { ClientReferenceImage, ImageAnalysisFeatures, ImageAnalysisHints } from 
  */
 export interface ClientImageAnalysisRequest {
     /** One or more images to analyze */
-    images: ClientReferenceImage[];
+    images?: ClientReferenceImage[];
 
     /**
      * Optional instruction to guide analysis.

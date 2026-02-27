@@ -1,492 +1,306 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIImageEditCapabilityImpl } from '#root/providers/openai/capabilities/OpenAIImageEditCapabilityImpl.js';
-import { AIProvider } from '#root/index.js';
+import { describe, expect, it, vi } from "vitest";
+import { OpenAIImageEditCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIImageEditCapabilityImpl.js";
+import { MultiModalExecutionContext } from "#root/index.js";
 
-const mockProvider = {
-    ensureInitialized: vi.fn(),
-    getMergedOptions: vi.fn((cap, opts) => ({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: {} }))
-};
-const mockClient = {
-    responses: {
-        create: vi.fn(),
-        stream: vi.fn()
-    }
-};
-const mockExecutionContext = {
-    getLastImage: vi.fn()
-};
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({ model: "gpt-4.1", modelParams: {}, providerParams: {} }))
+    } as any;
+}
 
-describe('OpenAIImageEditCapabilityImpl', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe("OpenAIImageEditCapabilityImpl", () => {
+    it("validates missing prompt and missing subject image", async () => {
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), { responses: {} } as any);
+        const ctx = new MultiModalExecutionContext();
+
+        await expect(cap.editImage({ input: {} } as any, ctx)).rejects.toThrow("Edit prompt is required");
+        await expect(cap.editImageStream({ input: {} } as any, ctx).next()).rejects.toThrow("Edit prompt is required");
+        await expect(cap.editImage({ input: { prompt: "edit" } } as any, ctx)).rejects.toThrow("subject image");
     });
 
-    // Streaming API tests
-    it('throws if no prompt is provided (editImageStream)', async () => {
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const gen = edit.editImageStream({ input: {} } as any, mockExecutionContext as any);
-        await expect(gen.next()).rejects.toThrow('Edit prompt is required for image editing');
+    it("throws when editImage starts with an aborted signal", async () => {
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), { responses: {} } as any);
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(
+            cap.editImage(
+                { input: { prompt: "edit", referenceImages: [{ role: "subject", base64: "SU1H", mimeType: "image/png" }] } } as any,
+                new MultiModalExecutionContext(),
+                controller.signal
+            )
+        ).rejects.toThrow("aborted before request started");
     });
 
-    it('yields images for valid stream events', async () => {
-        // Proper async iterable mock
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'image_generation_call', status: 'generating', result: 'imgS', id: 'idS' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
+    it("editImage normalizes output images and masks", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: "ed1",
+                    output: [
+                        { type: "image_generation_call", id: "x", result: "QUJD" },
+                        { type: "image_generation_call", id: "y", result: ["REVG", 1] }
+                    ]
+                })
             }
         };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunk = await gen.next();
-        expect(chunk.value.output[0].base64).toBe('imgS');
-        expect(chunk.value.id).toBe('idS');
-        expect(chunk.value.done).toBe(true);
-        expect(chunk.value.metadata?.provider).toBe(AIProvider.OpenAI);
+
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), client as any);
+        const ctx = new MultiModalExecutionContext();
+        const res = await cap.editImage(
+            {
+                input: {
+                    prompt: "edit",
+                    referenceImages: [
+                        { role: "subject", base64: "SU1H", mimeType: "image/png" },
+                        { role: "mask", id: "m1", base64: "TUFTSw==", mimeType: "image/png", extras: { targetImageId: "x" } }
+                    ]
+                },
+                context: { requestId: "rid" }
+            } as any,
+            ctx
+        );
+
+        expect(res.output).toHaveLength(2);
+        expect(res.output[0].base64).toBe("QUJD");
+        expect(res.multimodalArtifacts?.masks?.[0].id).toBe("m1");
+        expect(res.metadata?.requestId).toBe("rid");
     });
 
-    it('yields error chunk for thrown error in stream', async () => {
-        // Proper async iterable mock that throws
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                throw new Error('stream error');
+    it("editImage handles empty output and generates fallback id when response id is missing", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({ id: undefined, output: undefined })
             }
         };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunk = await gen.next();
-        expect(chunk.value.error).toBe('stream error');
-        expect(chunk.value.done).toBe(true);
-    });
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.editImage(
+            { input: { prompt: "edit", referenceImages: [{ role: "subject", base64: "SU1H", mimeType: "image/png" }] } } as any,
+            new MultiModalExecutionContext()
+        );
 
-    it('yields error chunk for non-Error thrown in stream', async () => {
-        // Async iterable mock that throws a string
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                throw 'string error';
-            }
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunk = await gen.next();
-        expect(chunk.value.error).toBe('string error');
-        expect(chunk.value.done).toBe(true);
-    });
-
-    it('yields no images if stream event has no image_generation_call', async () => {
-        // Proper async iterable mock with no image_generation_call
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'other_type', status: 'generating', result: 'notimg', id: 'idOther' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunk = await gen.next();
-        expect(chunk.value).toBeUndefined();
-    });
-
-    it('yields all images for multiple image_generation_call items in stream event', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'image_generation_call', status: 'generating', result: 'imgA', id: 'idA' },
-                                    { type: 'image_generation_call', status: 'generating', result: 'imgB', id: 'idB' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunkA = await gen.next();
-        expect(chunkA.value.output[0].base64).toBe('imgA');
-        expect(chunkA.value.id).toBe('idA');
-        const chunkB = await gen.next();
-        expect(chunkB.value.output[0].base64).toBe('imgB');
-        expect(chunkB.value.id).toBe('idB');
-        const done = await gen.next();
-        expect(done.done).toBe(true);
-    });
-
-    it('yields images from multiple streams if count > 1', async () => {
-        // Two streams, each yields one image
-        const fakeStreamA = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'image_generation_call', status: 'generating', result: 'imgA', id: 'idA' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        const fakeStreamB = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'image_generation_call', status: 'generating', result: 'imgB', id: 'idB' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockReturnValueOnce(fakeStreamA).mockReturnValueOnce(fakeStreamB);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 2 }
-            }
-        };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunkA = await gen.next();
-        expect(chunkA.value.output[0].base64).toBe('imgA');
-        expect(chunkA.value.id).toBe('idA');
-        const chunkB = await gen.next();
-        expect(chunkB.value.output[0].base64).toBe('imgB');
-        expect(chunkB.value.id).toBe('idB');
-        const done = await gen.next();
-        expect(done.done).toBe(true);
-    });
-
-    it('sets multimodalArtifacts and metadata in streaming response', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: [
-                                    { type: 'image_generation_call', status: 'generating', result: 'imgMeta', id: 'idMeta' }
-                                ]
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }, { role: 'mask', base64: 'maskdata', mimeType: 'image/png', id: 'mask1' }],
-                params: { count: 1 }
-            },
-            context: { requestId: 'reqMeta' }
-        };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunk = await gen.next();
-        expect(chunk.value.multimodalArtifacts.masks[0].base64).toBe('maskdata');
-        expect(chunk.value.metadata.requestId).toBe('reqMeta');
-    });
-
-    it('handles undefined outputItems in streaming', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return {
-                        value: {
-                            type: 'response.completed', response: {
-                                output: undefined
-                            }
-                        }, done: false
-                    };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunk = await gen.next();
-        expect(chunk.value).toBeUndefined();
-    });
-
-    it('handles undefined resp.output in non-streaming', async () => {
-        mockClient.responses.create.mockResolvedValue({ output: undefined, id: 'idU', status: 'completed' });
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const res = await edit.editImage(req as any, mockExecutionContext as any);
+        expect(res.id).toBeDefined();
         expect(res.output).toEqual([]);
     });
 
-    it('prepareEditContent handles multiple masks and references', async () => {
-        mockClient.responses.create.mockResolvedValue({ output: [{ type: 'image_generation_call', status: 'completed', result: 'imgMulti', id: 'idMulti' }], id: 'idMulti', status: 'completed' });
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
+    it("editImage uses default model/options metadata path", async () => {
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({ model: undefined, modelParams: undefined, providerParams: undefined }))
+        } as any;
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({ id: "r1", output: [] })
+            }
+        };
+        const cap = new OpenAIImageEditCapabilityImpl(provider, client as any);
+        const res = await cap.editImage(
+            { input: { prompt: "edit", referenceImages: [{ role: "subject", base64: "SU1H", mimeType: "image/png" }] } } as any,
+            new MultiModalExecutionContext()
+        );
+
+        const call = client.responses.create.mock.calls[0][0];
+        expect(call.model).toBe("gpt-4.1");
+        expect(res.metadata?.model).toBe("gpt-4.1");
+    });
+
+    it("editImageStream returns error chunk with stringified non-Error values", async () => {
+        const client = {
+            responses: {
+                stream: vi.fn().mockImplementation(() => {
+                    throw "boom";
+                })
+            }
+        };
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), client as any);
+        const out = await cap.editImageStream(
+            { input: { prompt: "edit", referenceImages: [{ role: "subject", base64: "SU1H", mimeType: "image/png" }] } } as any,
+            new MultiModalExecutionContext()
+        ).next();
+
+        expect(out.value?.metadata?.status).toBe("error");
+        expect(out.value?.error).toBe("boom");
+    });
+
+    it("editImageStream emits two image chunks and then completion when two completed events arrive", async () => {
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.created", response: { id: "sid" } };
+                yield { type: "response.completed", response: { output: [{ type: "image_generation_call", id: "a", result: "QQ==" }] } };
+                yield { type: "response.completed", response: { output: [{ type: "image_generation_call", id: "b", result: "Qg==" }] } };
+            }
+        };
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({ model: undefined, modelParams: undefined, providerParams: undefined }))
+        } as any;
+        const client = { responses: { stream: vi.fn().mockReturnValue(stream) } };
+        const cap = new OpenAIImageEditCapabilityImpl(provider, client as any);
+        const chunks: any[] = [];
+
+        for await (const c of cap.editImageStream(
+            { input: { prompt: "edit", referenceImages: [{ role: "subject", base64: "SU1H", mimeType: "image/png" }] } } as any,
+            new MultiModalExecutionContext()
+        )) {
+            chunks.push(c);
+        }
+
+        expect(chunks).toHaveLength(3);
+        expect(chunks[0].multimodalArtifacts?.masks).toBeDefined();
+        expect(chunks[1].multimodalArtifacts?.masks).toBeUndefined();
+        expect(chunks[2].metadata.model).toBe("gpt-4.1");
+    });
+
+    it("editImageStream returns silently when aborted during stream iteration", async () => {
+        const controller = new AbortController();
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                controller.abort();
+                yield { type: "response.created", response: { id: "sid" } };
+            }
+        };
+        const client = { responses: { stream: vi.fn().mockReturnValue(stream) } };
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), client as any);
+        const out = await cap.editImageStream(
+            { input: { prompt: "edit", referenceImages: [{ role: "subject", base64: "SU1H", mimeType: "image/png" }] } } as any,
+            new MultiModalExecutionContext(),
+            controller.signal
+        ).next();
+        expect(out.done).toBe(true);
+        expect(out.value).toBeUndefined();
+    });
+
+    it("editImageStream yields image chunk(s), completion, and error chunk", async () => {
+        const okStream = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.created", response: { id: "sid" } };
+                yield {
+                    type: "response.completed",
+                    response: { output: [{ type: "image_generation_call", id: "x", result: "QUJD" }] }
+                };
+            }
+        };
+        const client = {
+            responses: {
+                stream: vi.fn().mockReturnValueOnce(okStream).mockImplementationOnce(() => {
+                    throw new Error("stream fail");
+                })
+            }
+        };
+
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), client as any);
+        const ctx = new MultiModalExecutionContext();
         const req = {
             input: {
-                prompt: 'edit',
+                prompt: "edit",
+                referenceImages: [{ role: "subject", base64: "SU1H", mimeType: "image/png" }]
+            }
+        } as any;
+
+        const out: any[] = [];
+        for await (const c of cap.editImageStream(req, ctx)) {
+            out.push(c);
+        }
+        expect(out).toHaveLength(2);
+        expect(out[0].metadata.status).toBe("incomplete");
+        expect(out[0].output[0].base64).toBe("QUJD");
+        expect(out[1].done).toBe(true);
+
+        const err = await cap.editImageStream(req, ctx).next();
+        expect(err.value?.metadata?.status).toBe("error");
+    });
+
+    it("editImageStream skips non-image output and can return silently when aborted", async () => {
+        const silentStream = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.completed", response: { output: [{ type: "other" }] } };
+            }
+        };
+        const client = {
+            responses: {
+                stream: vi.fn().mockReturnValue(silentStream)
+            }
+        };
+
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), client as any);
+        const req = {
+            input: { prompt: "edit", referenceImages: [{ role: "subject", base64: "SU1H", mimeType: "image/png" }] }
+        } as any;
+
+        const chunks: any[] = [];
+        for await (const c of cap.editImageStream(req, new MultiModalExecutionContext())) {
+            chunks.push(c);
+        }
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].done).toBe(true);
+
+        const abortingClient = {
+            responses: {
+                stream: vi.fn().mockImplementation(() => {
+                    throw new Error("stream fail");
+                })
+            }
+        };
+        const abortingCap = new OpenAIImageEditCapabilityImpl(makeProvider(), abortingClient as any);
+        const controller = new AbortController();
+        controller.abort();
+        const out = await abortingCap.editImageStream(req, new MultiModalExecutionContext(), controller.signal).next();
+        expect(out.done).toBe(true);
+        expect(out.value).toBeUndefined();
+    });
+
+    it("prepareEditContent falls back to timeline subject image", () => {
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+        const ctx = new MultiModalExecutionContext();
+        ctx.attachArtifacts({ images: [{ id: "t1", base64: "SU1H", mimeType: "image/png" }] as any });
+
+        const built = cap.prepareEditContent({ prompt: "edit", referenceImages: [] }, ctx);
+        expect(built.content[0].type).toBe("input_image");
+        expect(built.content[built.content.length - 1].text).toBe("edit");
+    });
+
+    it("prepareEditContent skips empty extra refs and helper ignores non-image outputs", () => {
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+        const ctx = new MultiModalExecutionContext();
+
+        const built = cap.prepareEditContent(
+            {
+                prompt: "edit",
                 referenceImages: [
-                    { role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' },
-                    { role: 'mask', base64: 'mask1', mimeType: 'image/png', id: 'mask1' },
-                    { role: 'mask', base64: 'mask2', mimeType: 'image/png', id: 'mask2' },
-                    { role: 'reference', base64: 'ref1', mimeType: 'image/png', id: 'ref1' },
-                    { role: 'reference', url: 'refurl', mimeType: 'image/png', id: 'ref2' }
-                ],
-                params: { count: 1 }
-            }
-        };
-        await edit.editImage(req as any, mockExecutionContext as any);
-        const call = mockClient.responses.create.mock.calls[0][0];
-        const content = call.input[0].content;
-        expect(content.filter((c: any) => c.type === 'input_image').length).toBeGreaterThan(1);
-    });
-
-    it('returns empty output if no image_generation_call items', async () => {
-        mockClient.responses.create.mockResolvedValue({ output: [{ type: 'other_type', status: 'completed', result: 'notimg', id: 'idOther' }], id: 'idOther', status: 'completed' });
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const res = await edit.editImage(req as any, mockExecutionContext as any);
-        expect(res.output).toEqual([]);
-    });
-
-    it('throws if no prompt is provided (editImage)', async () => {
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(edit.editImage({ input: {} } as any, mockExecutionContext as any)).rejects.toThrow('Edit prompt is required for image editing');
-    });
-
-    it('throws if no subject image is provided', async () => {
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { prompt: 'edit', referenceImages: [] } };
-        mockExecutionContext.getLastImage.mockReturnValue(undefined);
-        await expect(edit.editImage(req as any, mockExecutionContext as any)).rejects.toThrow('Image edit requires a subject image');
-    });
-
-    it('returns normalized image for valid edit', async () => {
-        const fakeResponse = {
-            output: [{ type: 'image_generation_call', status: 'completed', result: 'base64img', id: 'img1' }],
-            id: 'id1',
-            status: 'completed'
-        };
-        mockClient.responses.create.mockResolvedValue(fakeResponse);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const res = await edit.editImage(req as any, mockExecutionContext as any);
-        expect(res.output[0].base64).toBe('base64img');
-        expect(res.output[0].id).toBe('img1');
-        expect(res.id).toBe('id1');
-        expect(res.metadata?.provider).toBe(AIProvider.OpenAI);
-    });
-
-    it('returns multiple images if count > 1', async () => {
-        const fakeResponses = [
-            { output: [{ type: 'image_generation_call', status: 'completed', result: 'imgA', id: 'idA' }], id: 'idA', status: 'completed' },
-            { output: [{ type: 'image_generation_call', status: 'completed', result: 'imgB', id: 'idB' }], id: 'idB', status: 'completed' }
-        ];
-        mockClient.responses.create.mockResolvedValueOnce(fakeResponses[0]).mockResolvedValueOnce(fakeResponses[1]);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 2 }
-            }
-        };
-        const res = await edit.editImage(req as any, mockExecutionContext as any);
-        expect(res.output.length).toBe(2);
-        expect(res.output[0].base64).toBe('imgA');
-        expect(res.output[1].base64).toBe('imgB');
-    });
-
-    it('merges context metadata into response', async () => {
-        const fakeResponse = {
-            output: [{ type: 'image_generation_call', status: 'completed', result: 'imgC', id: 'idC' }],
-            id: 'idC',
-            status: 'completed'
-        };
-        mockClient.responses.create.mockResolvedValue(fakeResponse);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
+                    { role: "subject", base64: "SU1H", mimeType: "image/png" },
+                    { role: "reference" }
+                ]
             },
-            context: { requestId: 'reqC', metadata: { foo: 'bar' } }
-        };
-        const res = await edit.editImage(req as any, mockExecutionContext as any);
-        expect(res.metadata?.requestId).toBe('reqC');
-        expect(res.metadata?.foo).toBe('bar');
+            ctx
+        );
+        expect(built.content.some((c: any) => c.type === "input_image" && !c.image_url)).toBe(false);
+        expect(cap.normalizeEditedImages({ type: "other" }, 0)).toEqual([]);
     });
 
-    it('passes correct model, params, and options to responses.create', async () => {
-        mockClient.responses.create.mockResolvedValue({ output: [], id: 'idX', status: 'completed' });
-        mockProvider.getMergedOptions.mockReturnValueOnce({
-            model: 'custom-model',
-            modelParams: { temperature: 0.5 },
-            providerParams: { foo: 'bar' },
-            generalParams: {}
-        });
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { size: 'large', quality: 'hd', style: 'art', background: 'white', count: 1 }
-            }
-        };
-        await edit.editImage(req as any, mockExecutionContext as any);
-        expect(mockClient.responses.create).toHaveBeenCalledWith(expect.objectContaining({
-            model: 'custom-model',
-            input: [expect.objectContaining({ role: 'user', content: expect.any(Array) })],
-            tools: [expect.objectContaining({ type: 'image_generation', size: 'large', quality: 'hd', style: 'art', background: 'white' })],
-            temperature: 0.5,
-            foo: 'bar'
-        }));
+    it("normalizeEditedMasks only keeps string targetImageId and preserves mask kind", () => {
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+        const masks = cap.normalizeEditedMasks([
+            { id: "m1", base64: "QQ==", mimeType: "image/png", extras: { targetImageId: 123, kind: "binary" } },
+            { id: "m2", base64: "QQ==", mimeType: "image/png", extras: { targetImageId: "img-2", kind: "alpha" } }
+        ]);
+        expect(masks[0].targetImageId).toBeUndefined();
+        expect(masks[0].kind).toBe("binary");
+        expect(masks[1].targetImageId).toBe("img-2");
     });
 
-    it('yields error chunk if error thrown during stream iteration (covers catch branch)', async () => {
-        // Simulate error thrown during for-await-of
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                throw new Error('iteration error');
-            }
-        };
-        mockClient.responses.stream.mockReturnValue(fakeStream);
-        const edit = new OpenAIImageEditCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = {
-            input: {
-                prompt: 'edit',
-                referenceImages: [{ role: 'subject', base64: 'imgdata', mimeType: 'image/png', id: 'subj1' }],
-                params: { count: 1 }
-            }
-        };
-        const gen = edit.editImageStream(req as any, mockExecutionContext as any);
-        const chunk = await gen.next();
-        expect(chunk.value.error).toBe('iteration error');
-        expect(chunk.value.done).toBe(true);
+    it("prepareEditContent includes valid extra reference image URLs", () => {
+        const cap = new OpenAIImageEditCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+        const built = cap.prepareEditContent(
+            {
+                prompt: "edit",
+                referenceImages: [
+                    { role: "subject", base64: "SU1H", mimeType: "image/png" },
+                    { role: "reference", url: "https://example.com/ref.png", mimeType: "image/png" }
+                ]
+            },
+            new MultiModalExecutionContext()
+        );
+        expect(built.content.some((c: any) => c.type === "input_image" && String(c.image_url).includes("https://example.com/ref.png"))).toBe(true);
     });
 });

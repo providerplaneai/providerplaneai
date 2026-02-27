@@ -1,13 +1,16 @@
-import { GoogleGenAI } from "@google/genai";
+import { GenerateImagesResponse, GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
     AIRequest,
     AIResponse,
+    AIResponseChunk,
     BaseProvider,
     CapabilityKeys,
     ClientImageGenerationRequest,
     ClientReferenceImage,
+    ensureDataUri,
     ImageGenerationCapability,
+    ImageGenerationStreamCapability,
     MultiModalExecutionContext,
     NormalizedImage,
     resolveImageToBytes
@@ -35,10 +38,12 @@ type ImagenAspectRatioEntry = (typeof IMAGEN_ASPECT_RATIOS)[number];
  * - Converts prompts and optional reference images into Imagen 4 API calls
  * - Handles aspect ratio mapping, reference weight, and prompt tagging
  * - Returns normalized images with base64, mime type, and metadata
- *
- * @template TRequest - The client image generation request type
  */
-export class GeminiImageGenerationCapabilityImpl implements ImageGenerationCapability<ClientImageGenerationRequest> {
+export class GeminiImageGenerationCapabilityImpl
+    implements
+        ImageGenerationCapability<ClientImageGenerationRequest>,
+        ImageGenerationStreamCapability<ClientImageGenerationRequest>
+{
     /**
      * Creates a new Gemini image generation capability.
      *
@@ -61,12 +66,14 @@ export class GeminiImageGenerationCapabilityImpl implements ImageGenerationCapab
      *
      * @param request - Unified client image generation request
      * @param _executionContext Optional execution context
+     * @param signal AbortSignal for request cancellation
      * @returns `AIResponse<NormalizedImage[]>` with generated images
      * @throws Error if prompt is missing or generation fails
      */
     async generateImage(
         request: AIRequest<ClientImageGenerationRequest>,
-        _executionContext?: MultiModalExecutionContext
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
     ): Promise<AIResponse<NormalizedImage[]>> {
         // Ensure provider has been initialized with credentials + client
         this.provider.ensureInitialized();
@@ -100,15 +107,20 @@ export class GeminiImageGenerationCapabilityImpl implements ImageGenerationCapab
         );
 
         // 2. Adjust the prompt to use the Reference IDs
+        // Imagen binds references by explicit [n] tags; inject missing tags to
+        // keep behavior deterministic even with plain-language prompts.
         const finalPrompt = this.injectReferenceTags(input.prompt, referenceImages.length);
 
+        if (signal?.aborted) {
+            throw new Error("Image generation aborted before API call");
+        }
+
         // 3. Execute Imagen 4 Generation
-        const response = await (this.client.models as any).generateImages({
+        const response = (await (this.client.models as any).generateImages({
             model: merged.model ?? "imagen-4.0-generate-001",
             prompt: finalPrompt,
             referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
             config: {
-                numberOfImages: input.params?.count ?? 1,
                 aspectRatio: this.mapSizeToImagenAspectRatio(input.params?.size),
                 includeRaiReason: true,
                 // Apply weight from the primary reference if available
@@ -116,17 +128,22 @@ export class GeminiImageGenerationCapabilityImpl implements ImageGenerationCapab
                 // Safety setting for person generation
                 personGeneration: "allow_adult"
             }
-        });
+        })) as GenerateImagesResponse;
+
+        if (signal?.aborted) {
+            throw new Error("Image generation aborted after API call");
+        }
 
         const responseId = `gen-${crypto.randomUUID()}`;
 
         // 4. Map and validate images
         const images: NormalizedImage[] = (response.generatedImages ?? []).map((genImg: any, idx: number) => {
             const imgData = genImg.image?.imageBytes || genImg.image?.bytesBase64Encoded;
+            const base64 = typeof imgData === "string" ? imgData : Buffer.from(imgData).toString("base64");
 
             return {
-                base64: typeof imgData === "string" ? imgData : Buffer.from(imgData).toString("base64"),
-                url: undefined,
+                base64,
+                url: ensureDataUri(base64, genImg.image?.mimeType ?? "image/png"),
                 mimeType: genImg.image?.mimeType ?? "image/png",
                 raw: genImg,
                 index: idx,
@@ -140,13 +157,130 @@ export class GeminiImageGenerationCapabilityImpl implements ImageGenerationCapab
             rawResponse: response,
             id: responseId,
             metadata: {
+                ...(context?.metadata ?? {}),
                 provider: AIProvider.Gemini,
                 model: merged.model ?? "imagen-4.0-generate-001",
                 status: "completed",
-                requestId: context?.requestId,
-                ...(context?.metadata ?? {})
+                requestId: context?.requestId
             }
         };
+    }
+
+    /**
+     * Streaming image generation for Gemini / Imagen 4.
+     *
+     * Emits exactly one chunk when the images are ready, similar to OpenAI streaming.
+     */
+    async *generateImageStream(
+        request: AIRequest<ClientImageGenerationRequest>,
+        _executionContext?: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
+        this.provider.ensureInitialized();
+
+        const { input, options, context } = request;
+        if (!input?.prompt) {
+            throw new Error("Prompt is required for image generation");
+        }
+
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ImageGenerationStreamCapabilityKey, options);
+
+        let responseId: string | undefined;
+
+        try {
+            // Resolve reference images
+            const referenceImages = await Promise.all(
+                (input.referenceImages ?? []).map(async (ref: ClientReferenceImage, idx: number) => {
+                    const bytes = await resolveImageToBytes(ref.url || ref.base64!);
+                    const refId = idx + 1;
+
+                    return {
+                        referenceId: refId,
+                        referenceType: ref.role === "style" ? "REFERENCE_TYPE_STYLE" : "REFERENCE_TYPE_SUBJECT",
+                        referenceImage: {
+                            bytes: new Uint8Array(bytes),
+                            mimeType: ref.mimeType || "image/png"
+                        }
+                    };
+                })
+            );
+
+            const finalPrompt = this.injectReferenceTags(input.prompt, referenceImages.length);
+
+            if (signal?.aborted) {
+                throw new Error("Image generation aborted before API call");
+            }
+
+            // Execute generation
+            const response = (await (this.client.models as any).generateImages({
+                model: merged.model ?? "imagen-4.0-generate-001",
+                prompt: finalPrompt,
+                referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+                config: {
+                    aspectRatio: this.mapSizeToImagenAspectRatio(input.params?.size),
+                    includeRaiReason: true,
+                    referenceImageWeight: this.mapWeight(input.referenceImages?.[0]?.weight),
+                    personGeneration: "allow_adult"
+                }
+            })) as GenerateImagesResponse;
+
+            if (signal?.aborted) {
+                throw new Error("Image generation aborted after API call");
+            }
+
+            responseId = `gen-${crypto.randomUUID()}`;
+
+            // Normalize images
+            const images: NormalizedImage[] = (response.generatedImages ?? []).map((genImg: any, idx: number) => {
+                const imgData = genImg.image?.imageBytes || genImg.image?.bytesBase64Encoded;
+                const base64 = typeof imgData === "string" ? imgData : Buffer.from(imgData).toString("base64");
+
+                return {
+                    base64,
+                    url: ensureDataUri(base64, genImg.image?.mimeType ?? "image/png"),
+                    mimeType: genImg.image?.mimeType ?? "image/png",
+                    raw: genImg,
+                    index: idx,
+                    id: `${responseId}-${idx}`
+                };
+            });
+
+            // Yield a single chunk for all images
+            // Imagen currently returns the complete set at once, so stream mode
+            // is represented as one terminal chunk for API parity.
+            yield {
+                output: images,
+                delta: images,
+                done: true,
+                id: responseId,
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.Gemini,
+                    model: merged.model ?? "imagen-4.0-generate-001",
+                    status: "completed",
+                    requestId: context?.requestId
+                }
+            };
+        } catch (err) {
+            if (signal?.aborted) {
+                return;
+            }
+
+            yield {
+                output: [],
+                delta: [],
+                done: true,
+                id: responseId ?? crypto.randomUUID(),
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.Gemini,
+                    model: merged.model ?? "imagen-4.0-generate-001",
+                    status: "error",
+                    requestId: context?.requestId,
+                    error: err instanceof Error ? err.message : String(err)
+                }
+            };
+        }
     }
 
     /**

@@ -1,4 +1,4 @@
-import { AIProviderType, ProviderRef } from "#root/index.js";
+import { AIProviderType, CapabilityKeyType, ProviderRef } from "#root/index.js";
 
 /**
  * Context object describing a single provider attempt (non-streaming or streaming).
@@ -21,6 +21,10 @@ export interface ProviderAttemptResult extends ProviderAttemptContext {
     durationMs: number;
     error?: string;
     chunksEmitted?: number; // optional for streaming providers
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    estimatedCost?: number;
 }
 
 /**
@@ -32,17 +36,17 @@ export interface AIClientLifecycleHooks {
     /**
      * Called once at the start of an execution
      */
-    onExecutionStart?: (capability: string, providerChain: ProviderRef[]) => void;
+    onExecutionStart?: (capability: CapabilityKeyType, providerChain: ProviderRef[]) => void;
 
     /**
-     * Called once at the end of an execution (successful)
+     * Called once at the end of execution (success or failure).
      */
-    onExecutionEnd?: (capability: string, providerChain: ProviderRef[]) => void;
+    onExecutionEnd?: (capability: CapabilityKeyType, providerChain: ProviderRef[]) => void;
 
     /**
      * Called once if the entire execution fails (all providers fail)
      */
-    onExecutionFailure?: (capability: string, providerChain: ProviderRef[], errors: ProviderAttemptResult[]) => void;
+    onExecutionFailure?: (capability: CapabilityKeyType, providerChain: ProviderRef[], errors: ProviderAttemptResult[]) => void;
 
     /**
      * Called when a provider attempt starts
@@ -60,10 +64,10 @@ export interface AIClientLifecycleHooks {
     onAttemptFailure?: (result: ProviderAttemptResult) => void;
 
     /**
-     * Called each time a streaming provider emits a chunk
+     * Called each time a chunk is emitted to the consumer (may be buffered by orchestration).
      */
     onChunkEmitted?: (chunkMetrics: {
-        capability: string;
+        capability: CapabilityKeyType;
         providerType: AIProviderType;
         connectionName?: string;
         chunkIndex: number;

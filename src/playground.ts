@@ -5,130 +5,504 @@
  * Will be deleted before publishing for real.
  */
 
-import dotenv from "dotenv";
+//import dotenv from "dotenv";
+//import fs from "fs";
+//import path from "path";
+//import { AIClient } from "./client/AIClient.js";
+/*import { runMultiImageEdit, runMultiImageEdit2, runMultiImageEdit3, runMultiImageEdit4 } from "./examples/multi/multi.js";
+import { openai_image_edit, openai_image_edit_stream } from "./examples/images/edit/openai.imageedit.js";
+import { anthropic_chat, anthropic_chat_stream } from "./examples/chat/anthropic.chat.js";
+import { gemini_chat, gemini_chat_stream } from "./examples/chat/gemini.chat.js";
+import { openai_chat, openai_chat_stream } from "./examples/chat/openai.chat.js";
+import { anthropic_embedding } from "./examples/embeddings/anthropic.embed.js";
+import { gemini_embedding } from "./examples/embeddings/gemini.embed.js";
+import { openai_moderation } from "./examples/moderation/openai.moderation.js";
+import { anthropic_moderation } from "./examples/moderation/anthropic.moderation.js";
+import { gemini_moderation } from "./examples/moderation/gemini.moderation.js";
+import { gemini_image_analysis, gemini_image_analysis_stream } from "./examples/images/analysis/gemini.analysis.js";
+import { openai_image_analysis } from "./examples/images/analysis/openai.analysis.js";
+import { gemini_image_gen, gemini_image_gen_stream } from "./examples/images/generation/gemini.gen.js";
+import { anthropic_image_analysis, anthropic_image_analysis_stream } from "./examples/images/analysis/anthropic.analysis.js";
+import { background_job_cancellation_example, job1_example, job1_streaming_example, job_background_example, multiple_background_jobs_example  } from "./examples/jobs/job1.js";
+import { ClientChatRequest, GenericJob, JobChunk, JobLifecycleHooks, JobManager, JobSnapshot, MultiModalExecutionContext, NormalizedChatMessage } from "./index.js";
+import { crashRecovery_example, jobRecovery_example, runCustomCapabilityJob_example } from "./examples/jobs/job2.js";
+//import { openai_moderation } from "./examples/moderation/openai.moderation.js";
+//import { openai_embedding } from "./examples/embeddings/openai.embed.js";
+//import { openai_image_gen, openai_image_gen_stream } from "./examples/images/generation/openai.gen.js";
+//import { openai_image_analysis, openai_image_analysis_stream } from "./examples/images/analysis/openai.analysis.js";
+//import { openai_image_edit } from "./examples/images/edit/openai.imageedit.js";
+*/
+
 import fs from "fs";
 import path from "path";
-import { AIClient } from "./client/AIClient.js";
-import { loadAppConfig } from "./core/config/ConfigLoader.js";
-import { AppConfig } from "./core/types/Config.js";
-import { OpenAIProvider } from "./providers/openai/OpenAIProvider.js";
-import { AIProvider, AIProviderType } from "./core/provider/Provider.js";
-import { AnthropicProvider } from "./providers/anthropic/AnthropicProvider.js";
-import { GeminiProvider } from "./providers/gemini/GeminiProvider.js";
-import { GoogleGenAI, ThinkingLevel } from "@google/genai";
-import { AIRequest } from "./core/types/AIRequest.js";
-import { ensureDataUri } from "./core/utils/SharedUtils.js";
-import {
-    ClientChatRequest,
-    ClientEmbeddingRequest,
-    ClientImageAnalysisRequest,
-    ClientImageGenerationRequest,
-    ClientReferenceImage,
-    NormalizedImage,
-    NormalizedImageAnalysis
-} from "./client/types/index.js";
-import { AISession } from "./client/types/session/index.js";
+import { CapabilityKeyType, ClientChatRequest, JobChunk, JobManager, JobSnapshot, MultiModalExecutionContext, NormalizedChatMessage } from "#root/index.js";
+import { AIClient } from "#root/index.js";
+import { runCustomCapabilityJob_example, runCustomRagCapability_example, runRawPayloadBudget_example, runSubscribe_example } from "./job2.js";
+//import { crashRecovery_example, jobRecovery_example, runCustomCapabilityJob_example, runCustomRagCapability_example } from "./job2.js";
 
-function saveFile(result: any, i: number) {
-    const buffer = Buffer.from(result.output[i].base64!, "base64");
-    fs.writeFileSync(`test_data/output-${result.output[i].id}_${i}.${result.metadata?.format || "png"}`, buffer);
-    console.log(`Saved: test_data/output-${result.output[i].id}_${i}.${result.metadata?.format || "png"}`);
+//runRawPayloadBudget_example()
+
+//const result = await runCustomCapabilityJob_example();
+
+runSubscribe_example();
+
+//crashRecovery_example();
+//jobRecovery_example()
+
+
+const JOB_FILE = path.resolve("test_data/.jobs.json");
+
+export function persistJobs(snapshots: JobSnapshot<any, any>[]) {
+    fs.writeFileSync(JOB_FILE, JSON.stringify(snapshots, null, 2), "utf8");
 }
 
-function loadImage(filePath: string, mimeType: string, role: string) {
-    const fileBuffer = fs.readFileSync(filePath);
-    const buffer = fileBuffer.toString("base64");
-    const refImage: ClientReferenceImage = {
-        id: crypto.randomUUID(),
-        sourceType: "base64",
-        base64: buffer,
-        mimeType,
-        url: ensureDataUri(buffer, mimeType),
-        role: role as any
+export function loadPersistedJobs(): JobSnapshot<any, any>[] {
+    if (!fs.existsSync(JOB_FILE)) return [];
+    return JSON.parse(fs.readFileSync(JOB_FILE, "utf8"));
+}
+
+export const job1_example = async () => {
+
+    const jobManager = new JobManager({
+        persistJobs,
+        loadPersistedJobs,
+        hooks: {
+            onStart: job => console.log("Job started:", job.id),
+            onProgress: (chunk, job) => console.log("Hellow Chunk:", chunk, job.id),
+            onComplete: job => console.log("Job completed:", job.id),
+            onError: (err, job) => console.error("Job failed:", job.id, err)
+        }
+    });
+
+    const client = new AIClient(jobManager);
+
+    const request: ClientChatRequest = {
+        messages: [
+            {
+                role: "user",
+                content: [{ type: "text", text: "Explain quantum mechanics in 10 sentences" }]
+            }
+        ]
     };
 
-    return refImage;
+
+    const job = client.createCapabilityJob(
+        "chat",
+        { input: request }
+    );
+
+    // Run it
+    const ctx = new MultiModalExecutionContext();
+
+    jobManager.runJob(job.id, ctx);
+
+    return await job.getCompletionPromise();
 }
 
-function loadImageFromBuffer(buffer: string, mimeType: string, role: string) {
-    //let fileBuffer = fs.readFileSync(filePath);
-    //let buffer = fileBuffer.toString("base64");
-    const refImage: ClientReferenceImage = {
-        id: crypto.randomUUID(),
-        sourceType: "base64",
-        base64: buffer,
-        mimeType,
-        url: ensureDataUri(buffer, mimeType),
-        role: role as any
+export const job1_streaming_example = async () => {
+
+    const jobManager = new JobManager({
+        persistJobs,
+        loadPersistedJobs,
+        hooks: {
+            onStart: job => console.log("Job started:", job.id),
+            onProgress: (chunk, job) => console.log("Chunk:", chunk, job.id),
+            onComplete: job => console.log("Job completed:", job.id),
+            onError: (err, job) => console.error("Job failed:", job.id, err)
+        }
+    });
+
+    const client = new AIClient(jobManager);
+
+    client.setLifecycleHooks({
+        onChunkEmitted: (ctx) => console.log(`[AI] Emitted ${ctx.chunkIndex} → ${ctx.providerType}`),
+        onExecutionStart: (ctx) => console.log(`[AI] Execution Start ${ctx}`),
+        onExecutionFailure: (ctx) => console.log(`[AI] Execution Failure ${ctx}`),
+        onExecutionEnd: (ctx) => console.log(`[AI] Execution End ${ctx}`),
+        onAttemptStart: (ctx) => console.log(`[AI] Attempt ${ctx.attemptIndex} → ${ctx.providerType}`),
+        onAttemptSuccess: (ctx) => console.log(`[AI] Success ${ctx.providerType} in ${ctx.durationMs}ms`),
+        onAttemptFailure: (ctx) => console.warn(`[AI] Failure ${ctx.providerType}: ${ctx.error}`)
+    });
+
+
+    const request: ClientChatRequest = {
+        messages: [
+            {
+                role: "user",
+                content: [{ type: "text", text: "Explain quantum mechanics in 10 sentences" }]
+            }
+        ]
     };
 
-    return refImage;
+
+    const job1 = client.createCapabilityJob<CapabilityKeyType, ClientChatRequest, NormalizedChatMessage>(
+        "chatStream",
+        { input: request }
+    );
+
+    const ctx1 = new MultiModalExecutionContext();
+
+    jobManager.runJob(job1.id, ctx1, (chunk: JobChunk<NormalizedChatMessage>) => {
+        console.log("Received chunk:", chunk);
+        if (chunk.delta) {
+            process.stdout.write(
+                (chunk.delta.content?.[0] as any).text ?? ""
+            );
+        }
+        if (chunk.final) {
+            console.log("\n\nFinal message received");
+        }
+    });
+
+
+    // Second job (demonstrates persistence / reuse)
+
+    const request2: ClientChatRequest = {
+        messages: [
+            {
+                role: "user",
+                content: [{ type: "text", text: "Tell me a story about a cat in 4 lines" }]
+            }
+        ]
+    };
+
+    const job2 = client.createCapabilityJob<CapabilityKeyType, ClientChatRequest, NormalizedChatMessage>(
+        "chatStream",
+        { input: request2 }
+    );
+
+    const ctx2 = new MultiModalExecutionContext();
+
+    jobManager.runJob(job2.id, ctx2, (chunk: JobChunk<NormalizedChatMessage>) => {
+        if (chunk.delta) {
+            process.stdout.write(
+                (chunk.delta.content?.[0] as any).text ?? ""
+            );
+        }
+        if (chunk.final) {
+            console.log("\n\nFinal message received");
+        }
+    });
+
+    const result2 = await job2.getCompletionPromise();
+    return result2;
 }
+
+
+
+//console.log(await job1_example());
+
+/**
+ * Demonstrates:
+ * - background job execution
+ * - live progress via subscribe()
+ * - streaming chunks
+ * - awaiting completion separately
+ */
+export const job_background_example = async () => {
+    const jobManager = new JobManager({
+        maxConcurrency: 1,
+        hooks: {
+            onStart: job => console.log("[JobManager] Started:", job.id),
+            onComplete: job => console.log("[JobManager] Completed:", job.id),
+            onError: (err, job) =>
+                console.error("[JobManager] Failed:", job.id, err)
+        }
+    });
+
+    const client = new AIClient(jobManager);
+
+    const request = {
+        messages: [
+            {
+                role: "user",
+                content: [{ type: "text", text: "Explain black holes in 5 sentences" }]
+            }
+        ]
+    };
+
+    const job = client.createCapabilityJob(
+        "chatStream",
+        { input: request }
+    );
+
+    const ctx = new MultiModalExecutionContext();
+
+    // 🔔 Subscribe BEFORE starting the job
+    const unsubscribe = jobManager.subscribe(job.id, snapshot => {
+        console.log(
+            `[Subscriber] Job ${snapshot.id} → ${snapshot.status}`
+        );
+        console.log(
+            `  schema=${snapshot.schemaVersion ?? 1}, startedAt=${snapshot.startedAt ?? "n/a"}, endedAt=${snapshot.endedAt ?? "n/a"}`
+        );
+
+        if (snapshot.streaming?.chunksEmitted !== undefined) {
+            console.log(
+                `  chunks: ${snapshot.streaming.chunksEmitted}`
+            );
+        }
+    });
+
+    // 🚀 Start job in the background (NON-BLOCKING)
+    jobManager.runJob(job.id, ctx, (chunk: JobChunk<unknown>) => {
+        const delta = chunk.delta as NormalizedChatMessage | undefined;
+        if (delta?.content?.[0]?.type === "text") {
+            process.stdout.write(delta.content[0].text);
+        }
+
+        if (chunk.final) {
+            console.log("\n\n[Stream] Final chunk received");
+        }
+    });
+
+    console.log("[Main] Job started in background — doing other work...\n");
+
+    // ⏳ Await completion explicitly (optional)
+    //const result = await job.getCompletionPromise();
+
+    console.log("\n[Main] Job finished with result:");
+    // console.dir(result, { depth: null });
+
+    //unsubscribe();
+
+    // return result;
+};
+
+/**
+ * Example: Launch several background jobs concurrently.
+ * No awaits on completion. All jobs run in parallel.
+ */
+export const multiple_background_jobs_example = async () => {
+    const jobManager = new JobManager({
+        hooks: {
+            onStart: job => console.log(`[JobManager] started ${job.id}`),
+            onComplete: job => console.log(`[JobManager] completed ${job.id}`),
+            onError: (err, job) => console.error(`[JobManager] error ${job.id}`, err),
+        }
+    });
+
+    const client = new AIClient(jobManager);
+    const ctx = new MultiModalExecutionContext();
+
+    const prompts = [
+        "Explain recursion in simple terms",
+        "Write a limerick about TypeScript",
+        "Summarize what a job queue is",
+        "Give an analogy for async programming",
+    ];
+
+    const jobs = prompts.map((text, index) => {
+        const request: ClientChatRequest = {
+            messages: [
+                {
+                    role: "user",
+                    content: [{ type: "text", text }]
+                }
+            ]
+        };
+
+        const job = client.createCapabilityJob(
+            "chatStream",
+            { input: request }
+        );
+
+        jobManager.subscribe(job.id, (snapshot: JobSnapshot<any, any>) => {
+            switch (snapshot.status) {
+                case "pending":
+                    console.log(`[Job ${index}] pending`);
+                    break;
+
+                case "running":
+                    if (snapshot.streaming?.started) {
+                        console.log(
+                            `[Job ${index}] running (chunks=${snapshot.streaming.chunksEmitted}, schema=${snapshot.schemaVersion ?? 1})`
+                        );
+                    }
+                    break;
+
+                case "completed":
+                    console.log(`\n[Job ${index}] COMPLETED`);
+                    console.log(
+                        `[Job ${index}] timing startedAt=${snapshot.startedAt ?? "n/a"} endedAt=${snapshot.endedAt ?? "n/a"} durationMs=${snapshot.durationMs ?? "n/a"}`
+                    );
+                    console.dir(snapshot.output, { depth: null });
+                    break;
+
+                case "error":
+                    console.error(`[Job ${index}] ERROR`, snapshot.error);
+                    break;
+
+                case "aborted":
+                    console.warn(`[Job ${index}] ABORTED`);
+                    break;
+
+                case "interrupted":
+                    console.warn(`[Job ${index}] INTERRUPTED`);
+                    break;
+            }
+        });
+
+        return job;
+    });
+
+    // 🚀 Fire-and-forget: start all jobs concurrently
+    for (const job of jobs) {
+        jobManager.runJob(job.id, ctx);
+    }
+
+    console.log("All background jobs launched concurrently.");
+};
+
+//multiple_background_jobs_example();
+
+export const background_job_cancellation_example = async () => {
+    const jobManager = new JobManager({
+        hooks: {
+            onStart: job => console.log(`[JobManager] started ${job.id}`),
+            onComplete: job => console.log(`[JobManager] completed ${job.id}`),
+            onError: (err, job) => console.error(`[JobManager] error ${job.id}`, err),
+        }
+    });
+
+    const client = new AIClient(jobManager);
+    const ctx = new MultiModalExecutionContext();
+
+    const request: ClientChatRequest = {
+        messages: [
+            {
+                role: "user",
+                content: [
+                    {
+                        type: "text",
+                        text: "Write a very long, detailed explanation of how compilers work, step by step"
+                    }
+                ]
+            }
+        ]
+    };
+
+    const job = client.createCapabilityJob(
+        "chatStream",
+        { input: request }
+    );
+
+    // Observe job lifecycle
+    jobManager.subscribe(job.id, (snapshot: JobSnapshot<any, any>) => {
+        switch (snapshot.status) {
+            case "pending":
+                console.log("[Job] pending");
+                break;
+
+            case "running":
+                console.log(
+                    `[Job] running (chunks=${snapshot.streaming?.chunksEmitted ?? 0})`
+                );
+                break;
+
+            case "completed":
+                console.log("[Job] COMPLETED (unexpected)");
+                break;
+
+            case "aborted":
+                console.warn("[Job] ABORTED as expected");
+                break;
+
+            case "error":
+                console.error("[Job] ERROR", snapshot.error);
+                break;
+        }
+    });
+
+    // 🚀 Start job in background
+    jobManager.runJob(job.id, ctx, (chunk: JobChunk<unknown>) => {
+        const delta = chunk.delta as NormalizedChatMessage | undefined;
+        if (delta?.content?.[0]?.type === "text") {
+            process.stdout.write(delta.content[0].text);
+        }
+
+        if (chunk.final) {
+            console.log("\n\n[Stream] Final chunk received");
+        }
+    });
+
+    // ⏱ Abort after a short delay (mid-stream)
+    setTimeout(() => {
+        console.log("\n>>> ABORTING JOB <<<\n");
+        jobManager.abortJob(job.id, "User requested cancellation");
+    }, 25000);
+};
+
+
+//crashRecovery_example();
+//jobRecovery_example();
+
+//runCustomCapabilityJob_example()
+
 
 async function editImageMultiTurn(aiClient: AIClient) {
     // Sample subject image (Base64 or URL)
     //const subjectImage = loadImage(path.join('test_data/sunlit_lounge.png'), "image/png", "subject");
     //const maskImage = loadImage(path.join('test_data/sunlit_mask.png'), "image/png", "mask");
 
-    const session: AISession = aiClient.createSession();
 
     // generate
-    const generated = await aiClient.generateImage(
-        {
-            input: {
-                prompt: "A cinematic photo of a neon-lit cyberpunk street at night with a sneaky and fluffy cat",
-                params: {
-                    size: "1536x1024",
-                    format: "png",
-                    quality: "high",
-                    count: 1
-                }
-            }
-        },
-        session
-    );
+    /* const generated = await aiClient.generateImage(
+         {
+             input: {
+                 prompt: "A cinematic photo of a neon-lit cyberpunk street at night with a sneaky and fluffy cat",
+                 params: {
+                     size: "1536x1024",
+                     format: "png",
+                     quality: "high",
+ 
+                 }
+             }
+         },
+         session
+     );
+ 
+     saveFile(generated, 0);
+ 
+     const genBuffer = generated.output[0].base64;
+     const subjectImage: ClientReferenceImage = loadImageFromBuffer(genBuffer!, "image/png", "subject");
+ 
+     // Turn 1
+     console.log(`\n=== Turn 1 ===`);
+     const turn1 = await aiClient.editImage(
+         {
+             input: {
+                 prompt: "Modify the cat to be white",
+                 //referenceImages: [subjectImage, maskImage],
+                 referenceImages: [subjectImage],
+                 params: { count: 1 }
+             }
+         },
+         session
+     );
+ 
+     const turn1CRI: ClientReferenceImage = {
+         sourceType: "url",
+         url: ensureDataUri(turn1?.output?.[0]?.url || ""),
+         id: crypto.randomUUID(),
+         base64: turn1?.output?.[0]?.base64,
+         mimeType: "image/png"
+     };
+     /*for (let i = 0; i < turn1.output.length; i++)
+         saveFile(turn1, i);
+ 
+     // Turn 2
+     console.log(`\n=== Turn 2 ===`);
+     const turn2 = await aiClient.editImage({
+         input: {
+             prompt: "Add a collar to the cat",
+             referenceImages: [] // reuse last image from execution context
+         }
+     }, session);
+ 
+     for (let i = 0; i < turn2.output.length; i++)
+         saveFile(turn2, i);*/
 
-    saveFile(generated, 0);
-
-    const genBuffer = generated.output[0].base64;
-    const subjectImage: ClientReferenceImage = loadImageFromBuffer(genBuffer!, "image/png", "subject");
-
-    // Turn 1
-    console.log(`\n=== Turn 1 ===`);
-    const turn1 = await aiClient.editImage(
-        {
-            input: {
-                prompt: "Modify the cat to be white",
-                //referenceImages: [subjectImage, maskImage],
-                referenceImages: [subjectImage],
-                params: { count: 1 }
-            }
-        },
-        session
-    );
-
-    const turn1CRI: ClientReferenceImage = {
-        sourceType: "url",
-        url: ensureDataUri(turn1?.output?.[0]?.url || ""),
-        id: crypto.randomUUID(),
-        base64: turn1?.output?.[0]?.base64,
-        mimeType: "image/png"
-    };
-    /*for (let i = 0; i < turn1.output.length; i++)
-        saveFile(turn1, i);
-
-    // Turn 2
-    console.log(`\n=== Turn 2 ===`);
-    const turn2 = await aiClient.editImage({
-        input: {
-            prompt: "Add a collar to the cat",
-            referenceImages: [] // reuse last image from execution context
-        }
-    }, session);
-
-    for (let i = 0; i < turn2.output.length; i++)
-        saveFile(turn2, i);
-*/
     // Turn 3
     /*console.log(`\n=== Turn 3 ===`);
     const turn3 = await aiClient.editImage({
@@ -142,41 +516,27 @@ async function editImageMultiTurn(aiClient: AIClient) {
         saveFile(turn3, i);
 */
 
-    const analysis = await aiClient.analyzeImage(
-        {
-            input: { images: [turn1CRI] }
-        },
-        session
-    );
-    console.log(analysis);
-
-    console.log("Done");
+    /* const analysis = await aiClient.analyzeImage(
+         {
+             input: { images: [turn1CRI] }
+         },
+         
+     );
+     console.log(analysis);
+ 
+     console.log("Done");*/
 }
-
+/*
 async function editImageMultiTurnStream(aiClient: AIClient) {
+    
     const subjectImage = loadImage(path.join("test_data/sunlit_lounge.png"), "image/png", "subject");
-    const maskImage = loadImage(path.join("test_data/sunlit_mask.png"), "image/png", "mask");
+   const maskImage = loadImage(path.join("test_data/sunlit_mask.png"), "image/png", "mask");
 
-    const session: AISession = aiClient.createSession();
 
     async function consume(label: string, req: any) {
         console.log(`\n=== ${label} ===`);
 
         let i = 0;
-
-        for await (const chunk of aiClient.editImageStream(req, session)) {
-            if ((chunk.multimodalArtifacts as any)?.images?.length) {
-                for (const img of (chunk.multimodalArtifacts as any).images) {
-                    // Reuse your existing save helper by fabricating
-                    // the same shape it expects.
-                    saveFile({ output: [img] } as any, i++);
-                }
-            }
-
-            if (chunk.metadata?.status === "completed") {
-                console.log(`${label} completed`);
-            }
-        }
     }
 
     // Turn 1
@@ -206,50 +566,114 @@ async function editImageMultiTurnStream(aiClient: AIClient) {
 
     console.log("Done");
 }
-
+*/
 async function main() {
     console.log("Starting ProviderPlaneAI application...");
 
-    const aiClient = new AIClient();
+    let result = background_job_cancellation_example ();
 
-    console.log(`Configuration loaded for environment: ${process.env.NODE_ENV || "development"}`);
+    //let result = await openai_chat();
+    //let result = await openai_chat_stream();
+
+   // let result = await anthropic_chat();
+    //let result = await anthropic_chat_stream();
+
+    //let result = await gemini_chat();
+    //let result = await gemini_chat_stream();
+
+    //let result = await openai_moderation();
+    //let result = await anthropic_moderation();
+   // let result = await gemini_moderation();
+    
+    //let result = await openai_embedding();
+    //let result = await anthropic_embedding();
+    //let result = await gemini_embedding();
+
+    //let result = await openai_image_gen();
+    //let result = await openai_image_gen_stream();
+    
+    //let result = await gemini_image_gen();
+    //let result = await gemini_image_gen_stream();
+
+   // let result = await openai_image_analysis();
+   // console.log(result);
+    //result = await openai_image_analysis_stream();
+
+    //let result = await gemini_image_analysis();
+    //let result = await gemini_image_analysis_stream();
+
+    //let result = await anthropic_image_analysis();
+   // let result = await anthropic_image_analysis_stream();
+
+
+    //let result = await openai_image_edit();
+    //let result = await openai_image_edit_stream();
+    //let result = await runMultiImageEdit()
+    //let result = await runMultiImageEdit2()
+//    let result = await runMultiImageEdit3();
+  //  let result = await runMultiImageEdit4();
+    console.log(result);
+
+//console.log(result);
+//console.log("-----");
+//console.log(result2);
+    
+   // const aiClient = new AIClient();
+
+    //console.log(`Configuration loaded for environment: ${process.env.NODE_ENV || "development"}`);
 
     //    await aiClient.registerProvider(new OpenAIProvider(), AIProvider.OpenAI, "default");
     //await aiClient.registerProvider(new AnthropicProvider(), AIProvider.Anthropic, "default");
     //await aiClient.registerProvider(new GeminiProvider(), AIProvider.Gemini, "default");
-
+/*
     aiClient.setLifeCycleHooks({
         onChunkEmitted: (ctx) => console.log(`[AI] Emitted ${ctx.chunkIndex} → ${ctx.providerType}`),
         onExecutionStart: (ctx) => console.log(`[AI] Execution Start ${ctx}`),
         onExecutionFailure: (ctx) => console.log(`[AI] Execution Failure ${ctx}`),
         onExecutionEnd: (ctx) => console.log(`[AI] Execution End ${ctx}`),
         onAttemptStart: (ctx) => console.log(`[AI] Attempt ${ctx.attemptIndex} → ${ctx.providerType}`),
-
         onAttemptSuccess: (ctx) => console.log(`[AI] Success ${ctx.providerType} in ${ctx.durationMs}ms`),
-
         onAttemptFailure: (ctx) => console.warn(`[AI] Failure ${ctx.providerType}: ${ctx.error}`)
     });
+*/
+    /*const chatRequest: ClientChatRequest = {
+        messages: [
+            { role: "user", content: [{ type: "text", text: "Explain quantum computing in 4 lines." }] },
+            { role: "user", content: [{ type: "text", text: "Hello! Can you summarize the benefits of TypeScript?" }] }
+        ]
+    };*/
+
+    /*const ctx: MultiModalExecutionContext = new MultiModalExecutionContext();
+
+    //const result = await aiClient.chat({ input: chatRequest }, ctx);
+
+    for await (const chunk of aiClient.chatStream({ input: chatRequest }, ctx)) {
+        // Each 'chunk' is an AIResponseChunk<string>
+        process.stdout.write(chunk.delta || "");
+    }*/
+
+ //   console.log("Chat Response:", result.output);
 
     // await editImageMultiTurn(aiClient);
     //await editImageMultiTurnStream(aiClient);
 
-    const generated = await aiClient.generateImage(
-        {
-            input: {
-                prompt: "A cinematic photo of a neon-lit cyberpunk street at night with a sneaky and fluffy cat",
-                params: {
-                    size: "1536x1024",
-                    format: "png",
-                    quality: "high",
-                    count: 1
-                }
-            }
-        },
-        new AISession(),
-        [{ providerType: AIProvider.Gemini, connectionName: "default" }]
-    );
-
-    console.log(generated);
+    /*   const generated = await aiClient.generateImage(
+           {
+               input: {
+                   prompt: "A cinematic photo of a neon-lit cyberpunk street at night with a sneaky and fluffy cat",
+                   params: {
+                       size: "1536x1024",
+                       format: "png",
+                       quality: "high",
+                       count: 1
+                   }
+               }
+           },
+           new AISession(),
+           [{ providerType: AIProvider.Gemini, connectionName: "default" }]
+       );
+   
+       console.log(generated);*/
 
     /* const request: ClientEmbeddingRequest = {
              input: [
@@ -1075,7 +1499,7 @@ async function main() {
     //console.log("-------------------");
 }
 
-main().catch((error) => {
-    console.error("Error in main execution:", error);
-    process.exit(1);
-});
+//main().catch((error) => {
+    //console.error("Error in main execution:", error);
+    //process.exit(1);
+//});

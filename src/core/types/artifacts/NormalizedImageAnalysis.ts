@@ -1,15 +1,9 @@
-import { DetectedObject, OCRText, SafetyRating } from "#root/index.js";
+import { DetectedObject, NormalizedArtifactBase, OCRText, SafetyRating } from "#root/index.js";
 
 /**
  * Provider-agnostic normalized image analysis result.
  */
-export interface NormalizedImageAnalysis {
-    /**
-     * Id of the image this analysis refers to.
-     * Matches ClientReferenceImage.id.
-     */
-    id: string;
-
+export interface NormalizedImageAnalysis extends NormalizedArtifactBase {
     /**
      * Optional natural language description.
      */
@@ -36,7 +30,7 @@ export interface NormalizedImageAnalysis {
     tags?: string[];
 
     /**
-     * Raw provider response (escape hatch).
+     * The ID of the source image this analysis corresponds to.
      */
-    raw?: unknown;
+    sourceImageId?: string;
 }
