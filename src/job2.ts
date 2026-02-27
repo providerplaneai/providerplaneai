@@ -470,3 +470,54 @@ export const runRawPayloadBudget_example = async () => {
     console.log(`[RawBudget] disabled rawResponse kept: ${disabledJob.response?.rawResponse !== undefined}`);
     logRawBudgetDiagnostics("RawBudget disabled", disabledJob.response?.metadata as Record<string, any> | undefined);
 };
+
+export const runSubscribe_example = async () => {
+    console.log("=== Subscribe API example ===");
+
+    const jobManager = new JobManager({
+        hooks: {
+            onStart: (job) => console.log(`[Job] started ${job.id}`),
+            onComplete: (job) => console.log(`[Job] completed ${job.id}`),
+            onError: (err, job) => console.error(`[Job] error ${job.id}`, err)
+        }
+    });
+
+    const client = new AIClient(jobManager);
+    const ctx = new MultiModalExecutionContext();
+
+    type SubscribeInput = { message: string };
+    type SubscribeOutput = { echoed: string };
+
+    client.registerCapabilityExecutor("customSubscribeEcho", {
+        streaming: false,
+        async invoke(_, input): Promise<AIResponse<SubscribeOutput>> {
+            const message = String((input.input as SubscribeInput)?.message ?? "");
+            return {
+                output: { echoed: message },
+                id: `customSubscribeEcho-${Date.now()}`,
+                metadata: {}
+            };
+        }
+    });
+
+    const job = client.createCapabilityJob<"customSubscribeEcho", SubscribeInput, SubscribeOutput>(
+        "customSubscribeEcho",
+        { input: { message: "hello from subscribe" } }
+    );
+
+    // Subscribe before execution so the initial snapshot + all status updates are observed.
+    const unsubscribe = jobManager.subscribe(job.id, (snapshot) => {
+        const streamInfo = snapshot.streaming?.enabled
+            ? `chunks=${snapshot.streaming.chunksEmitted}, completed=${snapshot.streaming.completed}`
+            : "n/a";
+        console.log(`[Subscribe] update -> ${summarizeSnapshot(snapshot)}, streaming=${streamInfo}`);
+    });
+
+    jobManager.runJob(job.id, ctx);
+    const result = await job.getCompletionPromise();
+
+    console.log("[Subscribe] result:", result);
+
+    // Always unsubscribe when done to avoid leaking listeners in long-lived processes.
+    unsubscribe();
+};
