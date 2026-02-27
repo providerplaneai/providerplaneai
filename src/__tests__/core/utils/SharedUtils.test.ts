@@ -166,6 +166,7 @@ describe("SharedUtils", () => {
         await expect(resolveImageToBytes("http://192.168.0.1/x.png")).rejects.toThrow("Could not resolve reference image");
         await expect(resolveImageToBytes("http://[::1]/x.png")).rejects.toThrow("Could not resolve reference image");
         await expect(resolveImageToBytes("http://[fc00::1]/x.png")).rejects.toThrow("Could not resolve reference image");
+        await expect(resolveImageToBytes("http://[fd00::1]/x.png")).rejects.toThrow("Could not resolve reference image");
         await expect(resolveImageToBytes("http://[fe80::1]/x.png")).rejects.toThrow("Could not resolve reference image");
         await expect(resolveImageToBytes("http://[::ffff:127.0.0.1]/x.png")).rejects.toThrow(
             "Could not resolve reference image"
@@ -201,6 +202,30 @@ describe("SharedUtils", () => {
         lookupMock.mockResolvedValueOnce([{ address: "999.999.999.999", family: 4 }]);
         await expect(resolveImageToBytes("https://example.com/bad-ip.png")).rejects.toThrow("Could not resolve reference image");
         expect((globalThis as any).fetch).not.toHaveBeenCalled();
+    });
+
+    it("resolveImageToBytes handles IPv4-mapped IPv6 DNS targets for dotted, hex, and malformed tails", async () => {
+        (globalThis as any).fetch = vi.fn(async () => ({
+            ok: true,
+            statusText: "OK",
+            headers: { get: () => null },
+            body: { getReader: () => makeReader([[7]]) }
+        }));
+
+        lookupMock.mockResolvedValueOnce([{ address: "::ffff:8.8.8.8", family: 6 }]);
+        await expect(resolveImageToBytes("https://example.com/mapped-dotted.png")).resolves.toEqual(Buffer.from([7]));
+
+        lookupMock.mockResolvedValueOnce([{ address: "::ffff:0808:0808", family: 6 }]);
+        await expect(resolveImageToBytes("https://example.com/mapped-hex.png")).resolves.toEqual(Buffer.from([7]));
+
+        lookupMock.mockResolvedValueOnce([{ address: "::ffff:1:2:3", family: 6 }]);
+        await expect(resolveImageToBytes("https://example.com/mapped-too-many-parts.png")).resolves.toEqual(Buffer.from([7]));
+
+        lookupMock.mockResolvedValueOnce([{ address: "::ffff:zzzz:1", family: 6 }]);
+        await expect(resolveImageToBytes("https://example.com/mapped-nan.png")).resolves.toEqual(Buffer.from([7]));
+
+        lookupMock.mockResolvedValueOnce([{ address: "::ffff:10000:1", family: 6 }]);
+        await expect(resolveImageToBytes("https://example.com/mapped-out-of-range.png")).resolves.toEqual(Buffer.from([7]));
     });
 
     it("resolveImageToBytes enforces content-length and streamed byte limits", async () => {
