@@ -38,7 +38,10 @@ import {
     NonStreamingExecutor,
     StreamingExecutor,
     AIClientLifecycleHooks,
-    JobLifecycleHooks
+    JobLifecycleHooks,
+    readNumber,
+    expectObjectForCapability,
+    expectArrayForCapability
 } from "#root/index.js";
 
 /**
@@ -889,21 +892,21 @@ export class AIClient {
         const usage = this.extractRawUsage(raw);
 
         const inputTokens =
-            this.readNumber(m, "inputTokens") ??
-            this.readNumber(usage, "input_tokens") ??
-            this.readNumber(usage, "prompt_tokens") ??
-            this.readNumber(usage, "promptTokenCount");
+            readNumber(m, "inputTokens") ??
+            readNumber(usage, "input_tokens") ??
+            readNumber(usage, "prompt_tokens") ??
+            readNumber(usage, "promptTokenCount");
         const outputTokens =
-            this.readNumber(m, "outputTokens") ??
-            this.readNumber(usage, "output_tokens") ??
-            this.readNumber(usage, "completion_tokens") ??
-            this.readNumber(usage, "candidatesTokenCount");
+            readNumber(m, "outputTokens") ??
+            readNumber(usage, "output_tokens") ??
+            readNumber(usage, "completion_tokens") ??
+            readNumber(usage, "candidatesTokenCount");
         const totalTokens =
-            this.readNumber(m, "totalTokens") ??
-            this.readNumber(m, "tokensUsed") ??
-            this.readNumber(usage, "total_tokens") ??
-            this.readNumber(usage, "totalTokenCount");
-        const estimatedCost = this.readNumber(m, "estimatedCost") ?? this.readNumber(m, "cost");
+            readNumber(m, "totalTokens") ??
+            readNumber(m, "tokensUsed") ??
+            readNumber(usage, "total_tokens") ??
+            readNumber(usage, "totalTokenCount");
+        const estimatedCost = readNumber(m, "estimatedCost") ?? readNumber(m, "cost");
 
         return {
             inputTokens,
@@ -911,17 +914,6 @@ export class AIClient {
             totalTokens,
             estimatedCost
         };
-    }
-
-    /**
-     * Reads a finite number from a source object by key.
-     * @param source The object to read from.
-     * @param key The key to look up.
-     * @returns The number if present and finite, otherwise undefined.
-     */
-    private readNumber(source: Record<string, unknown>, key: string): number | undefined {
-        const value = source[key];
-        return typeof value === "number" && Number.isFinite(value) ? value : undefined;
     }
 
     /**
@@ -1012,18 +1004,18 @@ export class AIClient {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey:
-                context.applyAssistantMessage(this.expectObject<NormalizedChatMessage>(capability, output, "chat output"));
+                context.applyAssistantMessage(expectObjectForCapability<NormalizedChatMessage>(capability, output, "chat output"));
                 break;
 
             case CapabilityKeys.EmbedCapabilityKey:
                 context.attachArtifacts({
-                    embeddings: this.expectArray<NormalizedEmbedding>(capability, output, "embeddings output")
+                    embeddings: expectArrayForCapability<NormalizedEmbedding>(capability, output, "embeddings output")
                 });
                 break;
 
             case CapabilityKeys.ModerationCapabilityKey:
                 context.attachArtifacts({
-                    moderation: this.expectArray<NormalizedModeration>(capability, output, "moderation output")
+                    moderation: expectArrayForCapability<NormalizedModeration>(capability, output, "moderation output")
                 });
                 break;
 
@@ -1031,14 +1023,14 @@ export class AIClient {
             case CapabilityKeys.ImageGenerationStreamCapabilityKey:
             case CapabilityKeys.ImageEditCapabilityKey:
                 context.attachArtifacts({
-                    images: this.expectArray<NormalizedImage>(capability, output, "images output")
+                    images: expectArrayForCapability<NormalizedImage>(capability, output, "images output")
                 });
                 break;
 
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
                 context.attachArtifacts({
-                    analysis: this.expectArray<NormalizedImageAnalysis>(capability, output, "analysis output")
+                    analysis: expectArrayForCapability<NormalizedImageAnalysis>(capability, output, "analysis output")
                 });
                 break;
             case CapabilityKeys.ImageEditStreamCapabilityKey:
@@ -1131,54 +1123,22 @@ export class AIClient {
         switch (capability) {
             case CapabilityKeys.ChatCapabilityKey:
             case CapabilityKeys.ChatStreamCapabilityKey:
-                return { chat: [this.expectObject<NormalizedChatMessage>(capability, output, "chat output")] };
+                return { chat: [expectObjectForCapability<NormalizedChatMessage>(capability, output, "chat output")] };
             case CapabilityKeys.EmbedCapabilityKey:
-                return { embeddings: this.expectArray<NormalizedEmbedding>(capability, output, "embeddings output") };
+                return { embeddings: expectArrayForCapability<NormalizedEmbedding>(capability, output, "embeddings output") };
             case CapabilityKeys.ModerationCapabilityKey:
-                return { moderation: this.expectArray<NormalizedModeration>(capability, output, "moderation output") };
+                return { moderation: expectArrayForCapability<NormalizedModeration>(capability, output, "moderation output") };
             case CapabilityKeys.ImageGenerationCapabilityKey:
             case CapabilityKeys.ImageGenerationStreamCapabilityKey:
             case CapabilityKeys.ImageEditCapabilityKey:
-                return { images: this.expectArray<NormalizedImage>(capability, output, "images output") };
+                return { images: expectArrayForCapability<NormalizedImage>(capability, output, "images output") };
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
-                return { analysis: this.expectArray<NormalizedImageAnalysis>(capability, output, "analysis output") };
+                return { analysis: expectArrayForCapability<NormalizedImageAnalysis>(capability, output, "analysis output") };
             case CapabilityKeys.ImageEditStreamCapabilityKey:
                 return undefined;
             default:
                 return undefined;
         }
-    }
-
-    /**
-     * Asserts that a value is an array, throws if not.
-     * @param capability The capability key.
-     * @param value The value to check.
-     * @param label Label for error messages.
-     * @returns The value as an array.
-     * @throws Error if value is not an array.
-     */
-    private expectArray<T>(capability: CapabilityKeyType, value: unknown, label: string): T[] {
-        // Ensure value is an array, otherwise throw
-        if (!Array.isArray(value)) {
-            throw new Error(`AIClient: invalid ${label} for capability '${capability}' (expected array)`);
-        }
-        return value as T[];
-    }
-
-    /**
-     * Asserts that a value is an object (not array), throws if not.
-     * @param capability The capability key.
-     * @param value The value to check.
-     * @param label Label for error messages.
-     * @returns The value as an object.
-     * @throws Error if value is not an object.
-     */
-    private expectObject<T extends object>(capability: CapabilityKeyType, value: unknown, label: string): T {
-        // Ensure value is a non-array object, otherwise throw
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-            throw new Error(`AIClient: invalid ${label} for capability '${capability}' (expected object)`);
-        }
-        return value as T;
     }
 }

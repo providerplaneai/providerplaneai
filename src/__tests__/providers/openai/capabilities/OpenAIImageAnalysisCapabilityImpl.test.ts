@@ -1,332 +1,264 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIImageAnalysisCapabilityImpl } from '#root/providers/openai/capabilities/OpenAIImageAnalysisCapabilityImpl.js';
-import { AIProvider } from '#root/index.js';
+import { describe, expect, it, vi } from "vitest";
+import { OpenAIImageAnalysisCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIImageAnalysisCapabilityImpl.js";
+import { MultiModalExecutionContext } from "#root/index.js";
 
-const mockProvider = {
-    ensureInitialized: vi.fn(),
-    getMergedOptions: vi.fn((cap, opts) => ({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: {} }))
-};
-const mockClient = {
-    responses: {
-        create: vi.fn(),
-        stream: vi.fn()
-    }
-};
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({ model: "gpt-4.1", modelParams: {}, providerParams: {} }))
+    } as any;
+}
 
-describe('OpenAIImageAnalysisCapabilityImpl', () => {
-    const defaultSchema = {
-        type: "object",
-        properties: {
-            imageIndex: { type: "number", description: "Index of the analyzed image" },
-            description: { type: "string", description: "Natural language description of the image" },
-            tags: { type: "array", items: { type: "string" } },
-            objects: {
-                type: "array",
-                items: {
-                    type: "object",
-                    properties: {
-                        label: { type: "string" },
-                        confidence: { type: "number" },
-                        boundingBox: {
-                            type: "object",
-                            properties: {
-                                x: { type: "number" },
-                                y: { type: "number" },
-                                width: { type: "number" },
-                                height: { type: "number" }
-                            },
-                            required: ["x", "y", "width", "height"]
+const img = { id: "i1", base64: "QQ==", mimeType: "image/png" } as any;
+
+describe("OpenAIImageAnalysisCapabilityImpl", () => {
+    it("validates images and schema guards", async () => {
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), { responses: {} } as any);
+
+        await expect(cap.analyzeImage({ input: {} } as any, new MultiModalExecutionContext())).rejects.toThrow(
+            "At least one image"
+        );
+
+        const schemaBackup = OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA;
+        (OpenAIImageAnalysisCapabilityImpl as any).OPENAI_IMAGE_ANALYSIS_SCHEMA = { type: "array" };
+        await expect(cap.analyzeImage({ input: { images: [img] } } as any, new MultiModalExecutionContext())).rejects.toThrow(
+            "Invalid OpenAI function schema"
+        );
+        (OpenAIImageAnalysisCapabilityImpl as any).OPENAI_IMAGE_ANALYSIS_SCHEMA = schemaBackup;
+    });
+
+    it("aborts analyzeImage before request starts", async () => {
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), { responses: {} } as any);
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(
+            cap.analyzeImage({ input: { images: [img] } } as any, new MultiModalExecutionContext(), controller.signal)
+        ).rejects.toThrow("aborted before request started");
+    });
+
+    it("analyzeImage parses function_call output and ignores invalid items", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: "rid",
+                    status: "completed",
+                    output: [
+                        { type: "message", role: "assistant" },
+                        { type: "function_call", name: "other", arguments: "{}" },
+                        {
+                            type: "function_call",
+                            name: "image_analysis",
+                            arguments: '{"description":"cat","tags":["pet"],"objects":[{"label":"cat"}],"text":[{"text":"hi"}],"safety":{"flagged":true}}'
                         }
-                    },
-                    required: ["label"]
-                }
-            },
-            text: {
-                type: "array",
-                items: {
-                    type: "object",
-                    properties: {
-                        text: { type: "string" },
-                        confidence: { type: "number" }
-                    },
-                    required: ["text"]
-                }
-            },
-            safety: {
-                type: "object",
-                properties: {
-                    flagged: { type: "boolean" },
-                    categories: {
-                        type: "object",
-                        additionalProperties: { type: "boolean" }
-                    }
-                },
-                required: ["flagged"]
+                    ]
+                })
             }
-        },
-        required: []
-    };
-    beforeEach(() => {
-        vi.clearAllMocks();
-        OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA = defaultSchema;
-    });
-
-    it('throws if no images are provided (analyzeImage)', async () => {
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(analysis.analyzeImage({ input: { images: [] } } as any)).rejects.toThrow('At least one image is required for analysis');
-    });
-
-    it('throws if schema is invalid (analyzeImage)', async () => {
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA = {
-            type: 'not-object',
-            properties: defaultSchema.properties,
-            required: []
         };
-        await expect(analysis.analyzeImage({ input: { images: [{ base64: 'imgdata' }] } } as any)).rejects.toThrow("Invalid OpenAI function schema: root must be type 'object'");
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), client as any);
+
+        const res = await cap.analyzeImage({ input: { images: [img] }, context: { requestId: "r1" } } as any, new MultiModalExecutionContext());
+        expect(res.output).toHaveLength(1);
+        expect(res.output[0].description).toBe("cat");
+        expect(res.output[0].safety?.flagged).toBe(true);
+        expect(res.metadata?.requestId).toBe("r1");
     });
 
-    it('returns parsed analysis for valid image', async () => {
-        const fakeResponse = {
-            output: [{ type: 'function_call', name: 'image_analysis', arguments: '{"description":"desc","imageIndex":0}' }],
-            id: 'id1',
-            status: 'completed'
+    it("analyzeImage falls back to context requestId when response id is missing", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: undefined,
+                    status: undefined,
+                    output: [{ type: "function_call", name: "image_analysis", arguments: "{}" }]
+                })
+            }
         };
-        mockClient.responses.create.mockResolvedValue(fakeResponse);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.output[0].description).toBe('desc');
-        expect(res.id).toBe('id1');
-        expect(res.metadata?.provider).toBe(AIProvider.OpenAI);
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.analyzeImage(
+            { input: { images: [img] }, context: { requestId: "fallback-id" } } as any,
+            new MultiModalExecutionContext()
+        );
+
+        expect(res.id).toBe("fallback-id");
+        expect(res.metadata?.status).toBe("completed");
     });
 
-    it('skips output items that are not function_call or wrong name', async () => {
-        const fakeResponse = {
-            output: [
-                { type: 'not_function_call', name: 'image_analysis', arguments: '{}' },
-                { type: 'function_call', name: 'other_tool', arguments: '{}' }
-            ],
-            id: 'id2',
-            status: 'completed'
+    it("analyzeImage uses default model/options and falls back to generated id", async () => {
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({ model: undefined, modelParams: undefined, providerParams: undefined }))
+        } as any;
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: undefined,
+                    status: "ok",
+                    output: undefined
+                })
+            }
         };
-        mockClient.responses.create.mockResolvedValue(fakeResponse);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const res = await analysis.analyzeImage(req as any);
+        const cap = new OpenAIImageAnalysisCapabilityImpl(provider, client as any);
+        const res = await cap.analyzeImage({ input: { images: [img] } } as any, new MultiModalExecutionContext());
+        const call = client.responses.create.mock.calls[0][0];
+
+        expect(call.model).toBe("gpt-4.1");
+        expect(call.tool_choice.name).toBe("image_analysis");
+        expect(res.id).toBeDefined();
+    });
+
+    it("analyzeImage ignores invalid function-call JSON without failing request", async () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: "rid",
+                    status: "completed",
+                    output: [{ type: "function_call", name: "image_analysis", arguments: "{not-json" }]
+                })
+            }
+        };
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), client as any);
+
+        const res = await cap.analyzeImage({ input: { images: [img] } } as any, new MultiModalExecutionContext());
         expect(res.output).toEqual([]);
+        expect(warnSpy).toHaveBeenCalled();
+        warnSpy.mockRestore();
     });
 
-    it('handles JSON parse error gracefully', async () => {
-        const fakeResponse = {
-            output: [{ type: 'function_call', name: 'image_analysis', arguments: 'not-json' }],
-            id: 'id3',
-            status: 'completed'
+    it("analyzeImageStream yields completed chunk and error chunk", async () => {
+        const okStream = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.created", response: { id: "sid" } };
+                yield {
+                    type: "response.output_item.done",
+                    item: {
+                        type: "function_call",
+                        name: "image_analysis",
+                        arguments: '[{"description":"dog","safety":{"flagged":false}}]'
+                    }
+                };
+            }
         };
-        mockClient.responses.create.mockResolvedValue(fakeResponse);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.output).toEqual([]);
-    });
 
-    it('merges context metadata into response', async () => {
-        const fakeResponse = {
-            output: [{ type: 'function_call', name: 'image_analysis', arguments: '{"description":"desc"}' }],
-            id: 'id4',
-            status: 'completed'
+        const client = {
+            responses: {
+                stream: vi.fn().mockReturnValueOnce(okStream).mockImplementationOnce(() => {
+                    throw new Error("stream fail");
+                })
+            }
         };
-        mockClient.responses.create.mockResolvedValue(fakeResponse);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] }, context: { requestId: 'req4', metadata: { foo: 'bar' } } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.metadata?.requestId).toBe('req4');
-        expect(res.metadata?.foo).toBe('bar');
+
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), client as any);
+
+        const first = await cap.analyzeImageStream({ input: { images: [img] }, context: { requestId: "r" } } as any).next();
+        expect(first.value?.done).toBe(true);
+        expect(first.value?.metadata?.status).toBe("completed");
+        expect(first.value?.output[0].description).toBe("dog");
+
+        const second = await cap.analyzeImageStream({ input: { images: [img] } } as any).next();
+        expect(second.value?.done).toBe(true);
+        expect(second.value?.metadata?.status).toBe("error");
     });
 
-    it('passes correct model, mimeType, and options to responses.create', async () => {
-        mockClient.responses.create.mockResolvedValue({ output: [], id: 'idX', status: 'completed' });
-        mockProvider.getMergedOptions.mockReturnValueOnce({
-            model: 'custom-model',
-            modelParams: { temperature: 0.5 },
-            providerParams: { foo: 'bar' },
-            generalParams: {}
-        });
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'img', mimeType: 'image/jpeg' }] } };
-        await analysis.analyzeImage(req as any);
-        expect(mockClient.responses.create).toHaveBeenCalledWith(expect.objectContaining({
-            model: 'custom-model',
-            input: [expect.objectContaining({
-                role: 'user', content: expect.arrayContaining([
-                    expect.objectContaining({ type: 'input_image', image_url: expect.any(String) }),
-                    expect.objectContaining({ type: 'input_text', text: expect.any(String) })
-                ])
-            })],
-            tools: expect.any(Array),
-            temperature: 0.5,
-            foo: 'bar'
-        }));
-    });
-
-    // Streaming tests
-    it('throws if no images are provided (analyzeImageStream)', async () => {
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const gen = analysis.analyzeImageStream({ input: { images: [] } } as any);
-        await expect(gen.next()).rejects.toThrow('At least one image is required for analysis');
-    });
-
-    it('yields error if schema is invalid (analyzeImageStream)', async () => {
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA = {
-            type: 'not-object',
-            properties: defaultSchema.properties,
-            required: []
+    it("analyzeImageStream skips unrelated events and function calls", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.completed", response: { id: "sid-2" } };
+                yield { type: "response.output_item.done", item: { type: "function_call", name: "other", arguments: "{}" } };
+            }
         };
-        const gen = analysis.analyzeImageStream({ input: { images: [{ base64: 'imgdata' }] } } as any);
-        await expect(gen.next()).rejects.toThrow("Invalid OpenAI function schema: root must be type 'object'");
-    });
-
-    it('yields parsed chunk for valid stream event', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return { value: { type: 'response.output_item.done', item: { type: 'function_call', name: 'image_analysis', arguments: '{"description":"desc"}', call_id: 'cid1' } }, done: false };
-                }
-                return { done: true };
-            },
-            _yielded: false
+        const client = {
+            responses: {
+                stream: vi.fn().mockReturnValue(streamObj)
+            }
         };
-        mockClient.responses.stream.mockResolvedValue(fakeStream);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const gen = analysis.analyzeImageStream(req as any);
-        const chunk = await gen.next();
-        expect(chunk.value.output[0].description).toBe('desc');
-        expect(chunk.value.id).toBe('cid1');
-        expect(chunk.value.done).toBe(true);
-        expect(chunk.value.metadata?.provider).toBe(AIProvider.OpenAI);
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), client as any);
+
+        const all: any[] = [];
+        for await (const c of cap.analyzeImageStream({ input: { images: [img] } } as any)) {
+            all.push(c);
+        }
+        expect(all).toEqual([]);
     });
 
-    it('yields error chunk for JSON parse error in stream', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return { value: { type: 'response.output_item.done', item: { type: 'function_call', name: 'image_analysis', arguments: 'not-json', call_id: 'cid2' } }, done: false };
-                }
-                return { done: true };
-            },
-            _yielded: false
+    it("analyzeImageStream yields error chunk on malformed streamed function arguments", async () => {
+        const badStream = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.created", response: { id: "sid-bad" } };
+                yield {
+                    type: "response.output_item.done",
+                    item: { type: "function_call", name: "image_analysis", arguments: "{bad-json" }
+                };
+            }
         };
-        mockClient.responses.stream.mockResolvedValue(fakeStream);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const gen = analysis.analyzeImageStream(req as any);
-        const chunk = await gen.next();
-        expect(chunk.value.error).toBe("Failed to parse image analysis output: Unexpected token 'o', \"not-json\" is not valid JSON");
-        expect(chunk.value.done).toBe(true);
+        const client = { responses: { stream: vi.fn().mockReturnValue(badStream) } };
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), client as any);
+
+        const first = await cap.analyzeImageStream({ input: { images: [img] } } as any).next();
+        expect(first.value?.done).toBe(true);
+        expect(first.value?.metadata?.status).toBe("error");
     });
 
-    it('yields error chunk for thrown error in stream', async () => {
-        mockClient.responses.stream.mockRejectedValue(new Error('stream error'));
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const gen = analysis.analyzeImageStream(req as any);
-        const chunk = await gen.next();
-        expect(chunk.value.error).toBe('stream error');
-        expect(chunk.value.done).toBe(true);
-    });
-
-    it('returns empty output if response.output is undefined', async () => {
-        mockClient.responses.create.mockResolvedValue({ id: 'idEmpty', status: 'completed' });
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.output).toEqual([]);
-        expect(res.id).toBe('idEmpty');
-    });
-
-    it('returns multiple analyses if response.output has multiple valid items', async () => {
-        const fakeResponse = {
-            output: [
-                { type: 'function_call', name: 'image_analysis', arguments: '{"description":"desc1"}' },
-                { type: 'function_call', name: 'image_analysis', arguments: '{"description":"desc2"}' }
-            ],
-            id: 'idMulti',
-            status: 'completed'
+    it("analyzeImageStream supports context-image fallback and requestId id fallback", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield {
+                    type: "response.output_item.done",
+                    item: { type: "function_call", name: "image_analysis", arguments: '{"description":"x"}' }
+                };
+            }
         };
-        mockClient.responses.create.mockResolvedValue(fakeResponse);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.output.length).toBe(2);
-        expect(res.output[0].description).toBe('desc1');
-        expect(res.output[1].description).toBe('desc2');
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({ model: undefined, modelParams: undefined, providerParams: undefined }))
+        } as any;
+        const client = { responses: { stream: vi.fn().mockReturnValue(streamObj) } };
+        const cap = new OpenAIImageAnalysisCapabilityImpl(provider, client as any);
+        const ctx = new MultiModalExecutionContext();
+        ctx.attachArtifacts({ images: [img] as any });
+
+        const out = await cap.analyzeImageStream({ input: {}, context: { requestId: "rid" } } as any, ctx).next();
+        expect(out.value?.id).toBe("rid");
+        expect(out.value?.metadata?.model).toBeUndefined();
     });
 
-    it('returns multiple analyses if arguments is an array', async () => {
-        const fakeResponse = {
-            output: [
-                { type: 'function_call', name: 'image_analysis', arguments: '[{"description":"descA"},{"description":"descB"}]' }
-            ],
-            id: 'idArr',
-            status: 'completed'
-        };
-        mockClient.responses.create.mockResolvedValue(fakeResponse);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.output.length).toBe(2);
-        expect(res.output[0].description).toBe('descA');
-        expect(res.output[1].description).toBe('descB');
+    it("normalizeAnalyses handles nullish payload and missing safety", () => {
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+        expect(cap.normalizeAnalyses(null)).toEqual([]);
+        const out = cap.normalizeAnalyses({ description: "x", tags: [""], safety: undefined });
+        expect(out[0].safety).toBeUndefined();
+        expect(out[0].tags).toEqual([]);
     });
 
-    it('stream yields empty output if no valid items', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return { value: { type: 'response.output_item.done', item: { type: 'not_function_call', name: 'image_analysis', arguments: '{}', call_id: 'cidX' } }, done: false };
-                }
-                return { done: true };
-            },
-            _yielded: false
-        };
-        mockClient.responses.stream.mockResolvedValue(fakeStream);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const gen = analysis.analyzeImageStream(req as any);
-        const chunk = await gen.next();
-        expect(chunk.value.output).toEqual([]);
-        expect(chunk.value.done).toBe(true);
-    });
+    it("analyzeImageStream validates schema and exits on aborted signal", async () => {
+        const schemaBackup = OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA;
+        (OpenAIImageAnalysisCapabilityImpl as any).OPENAI_IMAGE_ANALYSIS_SCHEMA = { type: "array" };
 
-    it('stream yields multiple analyses if arguments is an array', async () => {
-        const fakeStream = {
-            [Symbol.asyncIterator]: function () { return this; },
-            next: async function () {
-                if (!this._yielded) {
-                    this._yielded = true;
-                    return { value: { type: 'response.output_item.done', item: { type: 'function_call', name: 'image_analysis', arguments: '[{"description":"descA"},{"description":"descB"}]', call_id: 'cidArr' } }, done: false };
-                }
-                return { done: true };
-            },
-            _yielded: false
+        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), { responses: {} } as any);
+        await expect(cap.analyzeImageStream({ input: { images: [img] } } as any).next()).rejects.toThrow("Invalid OpenAI function schema");
+
+        (OpenAIImageAnalysisCapabilityImpl as any).OPENAI_IMAGE_ANALYSIS_SCHEMA = schemaBackup;
+
+        const controller = new AbortController();
+        const streamClient = {
+            responses: {
+                stream: vi.fn().mockReturnValue({
+                    async *[Symbol.asyncIterator]() {
+                        yield { type: "response.created", response: { id: "sid" } };
+                    }
+                })
+            }
         };
-        mockClient.responses.stream.mockResolvedValue(fakeStream);
-        const analysis = new OpenAIImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata' }] } };
-        const gen = analysis.analyzeImageStream(req as any);
-        const chunk = await gen.next();
-        expect(chunk.value.output.length).toBe(2);
-        expect(chunk.value.output[0].description).toBe('descA');
-        expect(chunk.value.output[1].description).toBe('descB');
-        expect(chunk.value.id).toBe('cidArr');
-        expect(chunk.value.done).toBe(true);
+        const abortingCap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), streamClient as any);
+        controller.abort();
+
+        const out = await abortingCap.analyzeImageStream(
+            { input: { images: [img] } } as any,
+            new MultiModalExecutionContext(),
+            controller.signal
+        ).next();
+        expect(out.done).toBe(true);
+        expect(out.value).toBeUndefined();
     });
 });

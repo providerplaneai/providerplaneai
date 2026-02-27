@@ -1,128 +1,177 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AnthropicChatCapabilityImpl } from '#root/providers/anthropic/capabilities/AnthropicChatCapabilityImpl.js';
-import { CapabilityKeys, AIProvider } from '#root/index.js';
-import { BaseProvider } from '#root/core/provider/BaseProvider.js';
+import { describe, expect, it, vi } from "vitest";
+import { AnthropicChatCapabilityImpl } from "#root/providers/anthropic/capabilities/AnthropicChatCapabilityImpl.js";
 
-class MockProvider extends BaseProvider {
-    ensureInitialized = vi.fn();
-    getMergedOptions = vi.fn();
-    constructor() { super('anthropic' as any); }
-    // No need to implement init for these tests
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({
+            model: "claude-test",
+            modelParams: {},
+            providerParams: {},
+            generalParams: { chatStreamBatchSize: 3 }
+        }))
+    } as any;
 }
 
-const mockClient = {
-    messages: {
-        create: vi.fn(),
-        stream: vi.fn()
-    }
-};
+describe("AnthropicChatCapabilityImpl", () => {
+    it("throws for missing input messages in chat and stream", async () => {
+        const provider = makeProvider();
+        const cap = new AnthropicChatCapabilityImpl(provider, { messages: {} } as any);
 
-describe('AnthropicChatCapabilityImpl', () => {
-    let impl: AnthropicChatCapabilityImpl;
-    let mockProvider: MockProvider;
-    beforeEach(() => {
-        mockProvider = new MockProvider();
-        mockProvider.ensureInitialized.mockClear();
-        mockProvider.getMergedOptions.mockClear();
-        mockClient.messages.create.mockClear();
-        mockClient.messages.stream.mockClear();
-        impl = new AnthropicChatCapabilityImpl(mockProvider, mockClient as any);
+        await expect(cap.chat({ input: {} } as any)).rejects.toThrow("Received empty input messages");
+        await expect(cap.chatStream({ input: {} } as any).next()).rejects.toThrow("Received empty input messages");
+        expect(provider.ensureInitialized).toHaveBeenCalledTimes(2);
     });
 
-    it('chatStream yields all streaming events and final chunk', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'claude', modelParams: {}, providerParams: {}, generalParams: { chatStreamBatchSize: 2 } });
-        // Simulate streaming events
-        const events = [
-            { type: 'message_start', message: { id: 'msgid' } },
-            { type: 'content_block_delta', delta: { type: 'text_delta', text: 'h' } },
-            { type: 'content_block_delta', delta: { type: 'text_delta', text: 'i' } },
-            { type: 'content_block_delta', delta: { type: 'text_delta', text: '!' } }
-        ];
-        const stream = {
-            [Symbol.asyncIterator]: async function* () {
-                for (const e of events) yield e;
+    it("chat returns normalized assistant message and usage metadata", async () => {
+        const provider = makeProvider();
+        const client = {
+            messages: {
+                create: vi.fn().mockResolvedValue({
+                    id: "msg-1",
+                    stop_reason: "max_tokens",
+                    content: [
+                        { type: "text", text: "hello " },
+                        { type: "text", text: "world" },
+                        { type: "tool_use" }
+                    ],
+                    usage: { input_tokens: 2, output_tokens: 3 }
+                })
+            }
+        };
+
+        const cap = new AnthropicChatCapabilityImpl(provider, client as any);
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] },
+            context: { requestId: "r1", metadata: { trace: "t1" } }
+        } as any);
+
+        expect(res.output.id).toBe("msg-1");
+        expect(res.output.role).toBe("assistant");
+        expect(res.output.content[0]).toMatchObject({ type: "text", text: "hello world" });
+        expect(res.output.metadata?.status).toBe("incomplete");
+        expect(res.metadata?.provider).toBe("anthropic");
+        expect(res.metadata?.requestId).toBe("r1");
+        expect(res.metadata?.inputTokens).toBe(2);
+        expect(res.metadata?.outputTokens).toBe(3);
+        expect(res.metadata?.totalTokens).toBe(5);
+    });
+
+    it("chat rejects unsupported non-text message parts", async () => {
+        const provider = makeProvider();
+        const client = { messages: { create: vi.fn() } };
+        const cap = new AnthropicChatCapabilityImpl(provider, client as any);
+
+        await expect(
+            cap.chat({
+                input: { messages: [{ role: "user", content: [{ type: "image", url: "x" }] }] }
+            } as any)
+        ).rejects.toThrow("Anthropic chat only supports text parts");
+    });
+
+    it("chat rejects pre-aborted requests and maps completed stop reasons", async () => {
+        const provider = makeProvider();
+        const client = {
+            messages: {
+                create: vi.fn().mockResolvedValue({
+                    id: "msg-2",
+                    stop_reason: "end_turn",
+                    content: [{ type: "text", text: "ok" }]
+                })
+            }
+        };
+        const cap = new AnthropicChatCapabilityImpl(provider, client as any);
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(
+            cap.chat({ input: { messages: [{ role: "user", content: [{ type: "text", text: "x" }] }] } } as any, undefined, controller.signal)
+        ).rejects.toThrow("Request aborted");
+
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "x" }] }] }
+        } as any);
+        expect(res.metadata?.status).toBe("completed");
+    });
+
+    it("chatStream emits batched deltas and a final completed chunk", async () => {
+        const provider = makeProvider();
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "message_start", message: { id: "m-stream" } };
+                yield { type: "content_block_delta", delta: { type: "text_delta", text: "ab" } };
+                yield { type: "content_block_delta", delta: { type: "text_delta", text: "cd" } };
             },
-            finalMessage: async () => ({ stop_reason: 'end_turn' })
+            finalMessage: vi.fn().mockResolvedValue({ usage: { input_tokens: 1, output_tokens: 4 } })
         };
-        mockClient.messages.stream.mockReturnValue(stream);
-        const req = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }] },
-            options: {},
-            context: { requestId: 'r1' }
-        };
-        const gen = impl.chatStream(req, undefined);
-        const chunks = [];
-        for await (const chunk of gen) {
-            chunks.push(chunk);
+
+        const client = { messages: { stream: vi.fn().mockReturnValue(streamObj) } };
+        const cap = new AnthropicChatCapabilityImpl(provider, client as any);
+
+        const chunks: any[] = [];
+        for await (const c of cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] },
+            context: { requestId: "rid" }
+        } as any)) {
+            chunks.push(c);
         }
-        // First batch: 'hi' (batchSize=2)
-        expect(chunks[0]).toMatchObject({ delta: 'hi', output: 'hi', done: false, id: 'msgid', metadata: expect.objectContaining({ status: 'incomplete' }) });
-        // Second batch: '!' (buffer flush)
-        expect(chunks[1]).toMatchObject({ delta: '!', output: '!', done: false, id: 'msgid', metadata: expect.objectContaining({ status: 'incomplete' }) });
-        // Final chunk: accumulatedText = 'hi!'
-        expect(chunks[2]).toMatchObject({ delta: '', output: 'hi!', done: true, id: 'msgid', metadata: expect.objectContaining({ status: 'completed' }) });
+
+        expect(chunks.length).toBe(2);
+        expect(chunks[0].delta.content[0]?.text).toBe("abcd");
+        expect(chunks[0].metadata.status).toBe("incomplete");
+        expect(chunks[1].done).toBe(true);
+        expect(chunks[1].metadata.status).toBe("completed");
+        expect(chunks[1].output.metadata?.totalTokens).toBe(5);
     });
 
-    it('throws if input messages are missing (chat)', async () => {
-        await expect(impl.chat({ input: { messages: [] }, options: {} }, undefined)).rejects.toThrow('Received empty input messages');
-    });
-
-    it('calls provider.ensureInitialized and getMergedOptions (chat)', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'claude', modelParams: {}, providerParams: {} });
-        mockClient.messages.create.mockResolvedValue({ id: 'id', content: [{ type: 'text', text: 'hi' }], usage: { output_tokens: 1 }, stop_reason: 'end_turn' });
-        const req = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }] },
-            options: {},
-            context: { requestId: 'r1' }
+    it("chatStream yields an error chunk when stream throws Stream aborted", async () => {
+        const provider = makeProvider();
+        const client = {
+            messages: {
+                stream: vi.fn(() => {
+                    throw new Error("Stream aborted");
+                })
+            }
         };
-        const res = await impl.chat(req, undefined);
-        expect(mockProvider.ensureInitialized).toHaveBeenCalled();
-        expect(mockProvider.getMergedOptions).toHaveBeenCalledWith(CapabilityKeys.ChatCapabilityKey, req.options);
-        expect(res.output).toBe('hi');
-        expect(res.id).toBe('id');
-        expect(res.metadata?.provider).toBe(AIProvider.Anthropic);
+        const cap = new AnthropicChatCapabilityImpl(provider, client as any);
+
+        const out = await cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+        } as any).next();
+
+        expect(out.value?.done).toBe(true);
+        expect(out.value?.metadata?.status).toBe("error");
     });
 
-    it('extractText returns concatenated text', () => {
-        expect(impl["extractText"]({ content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }, { type: 'notext', text: 'c' }] })).toBe('ab');
-    });
-
-    it('buildMessages maps messages', () => {
-        const msgs = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }];
-        expect(impl["buildMessages"](msgs)).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]);
-    });
-
-    it('mapParts throws on unsupported type', () => {
-        expect(() => impl["mapParts"]([{ type: 'image' }])).toThrow('Unsupported Anthropic chat part: image');
-    });
-
-    it('normalizeAnthropicStatus maps stop reasons', () => {
-        expect(impl["normalizeAnthropicStatus"]('max_tokens')).toBe('incomplete');
-        expect(impl["normalizeAnthropicStatus"]('pause_turn')).toBe('incomplete');
-        expect(impl["normalizeAnthropicStatus"]('end_turn')).toBe('completed');
-        expect(impl["normalizeAnthropicStatus"]('stop_sequence')).toBe('completed');
-        expect(impl["normalizeAnthropicStatus"]('tool_use')).toBe('completed');
-        expect(impl["normalizeAnthropicStatus"]('refusal')).toBe('completed');
-        expect(impl["normalizeAnthropicStatus"](null)).toBe('completed');
-        expect(impl["normalizeAnthropicStatus"](undefined)).toBe('completed');
-    });
-
-    it('chatStream throws if input messages are missing', async () => {
-        const gen = impl.chatStream({ input: { messages: [] }, options: {} }, undefined);
-        await expect(gen.next()).rejects.toThrow('Received empty input messages');
-    });
-
-    it('chatStream yields error chunk on error', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'claude', modelParams: {}, providerParams: {}, generalParams: {} });
-        mockClient.messages.stream.mockImplementation(() => { throw new Error('fail'); });
-        const req = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }] },
-            options: {},
-            context: { requestId: 'r1' }
+    it("chatStream flushes short buffer and exits silently when aborted", async () => {
+        const provider = makeProvider();
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "message_start", message: { id: "m-stream-2" } };
+                yield { type: "content_block_delta", delta: { type: "text_delta", text: "a" } };
+            },
+            finalMessage: vi.fn().mockRejectedValue(new Error("no final"))
         };
-        const gen = impl.chatStream(req, undefined);
-        const { value } = await gen.next();
-        expect(value.done).toBe(true);
-        expect(value.metadata.status).toBe('error');
+        const client = { messages: { stream: vi.fn().mockReturnValue(streamObj) } };
+        const cap = new AnthropicChatCapabilityImpl(provider, client as any);
+
+        const chunks: any[] = [];
+        for await (const c of cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+        } as any)) {
+            chunks.push(c);
+        }
+        expect(chunks[0].delta.content[0]?.text).toBe("a");
+        expect(chunks[chunks.length - 1]?.done).toBe(true);
+
+        const controller = new AbortController();
+        controller.abort();
+        const aborted = await cap.chatStream(
+            { input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] } } as any,
+            undefined,
+            controller.signal
+        ).next();
+        expect(aborted.done).toBe(true);
+        expect(aborted.value).toBeUndefined();
     });
 });

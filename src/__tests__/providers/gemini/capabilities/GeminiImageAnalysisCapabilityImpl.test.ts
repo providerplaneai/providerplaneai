@@ -1,101 +1,165 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GeminiImageAnalysisCapabilityImpl } from '#root/providers/gemini/capabilities/GeminiImageAnalysisCapabilityImpl.js';
-import { AIProvider } from '#root/index.js';
+import { describe, expect, it, vi } from "vitest";
+import { GeminiImageAnalysisCapabilityImpl } from "#root/providers/gemini/capabilities/GeminiImageAnalysisCapabilityImpl.js";
+import { MultiModalExecutionContext } from "#root/index.js";
 
-const mockProvider = {
-    ensureInitialized: vi.fn(),
-    getMergedOptions: vi.fn((cap, opts) => ({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: {} }))
-};
-const mockClient = {
-    models: {
-        generateContent: vi.fn()
-    }
-};
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({ model: "gemini-2.5-pro", modelParams: {}, providerParams: {} }))
+    } as any;
+}
 
-describe('GeminiImageAnalysisCapabilityImpl', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+const img = { id: "i1", base64: "QQ==", mimeType: "image/png" } as any;
+
+describe("GeminiImageAnalysisCapabilityImpl", () => {
+    it("requires at least one image", async () => {
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), { models: {} } as any);
+        await expect(cap.analyzeImage({ input: {} } as any, new MultiModalExecutionContext())).rejects.toThrow(
+            "At least one image"
+        );
+        await expect(cap.analyzeImageStream({ input: {} } as any, new MultiModalExecutionContext()).next()).rejects.toThrow(
+            "At least one image"
+        );
     });
 
-    it('throws if no images are provided', async () => {
-        const analysis = new GeminiImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(analysis.analyzeImage({ input: { images: [] } } as any)).rejects.toThrow('At least one image is required for analysis');
+    it("analyzeImage uses executionContext latest images when input images missing", async () => {
+        const client = {
+            models: {
+                generateContent: vi.fn().mockResolvedValue({
+                    text: '{"description":"scene","tags":["tag1"],"safety":{"flagged":false}}',
+                    responseId: "resp-1"
+                })
+            }
+        };
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), client as any);
+
+        const ctx = new MultiModalExecutionContext();
+        ctx.attachArtifacts({ images: [img] as any });
+
+        const res = await cap.analyzeImage({ input: {} } as any, ctx);
+        expect(res.output).toHaveLength(1);
+        expect(res.output[0].description).toBe("scene");
+        expect(res.metadata?.countsMatch).toBe(true);
     });
 
-    it('returns parsed analysis for valid image', async () => {
-        const fakeResponse = { text: '{"description":"desc","tags":["a"]}', responseId: 'id1' };
-        mockClient.models.generateContent.mockResolvedValue(fakeResponse);
-        const analysis = new GeminiImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata', id: 'img1' }] } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.output[0].description).toBe('desc');
-        expect(res.output[0].id).toBe('img1');
-        expect(res.id).toBe('id1');
-        expect(res.metadata?.provider).toBe(AIProvider.Gemini);
+    it("analyzeImage uses default model and reports counts mismatch when parsed length differs", async () => {
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({ model: undefined, modelParams: undefined, providerParams: undefined }))
+        } as any;
+        const client = {
+            models: {
+                generateContent: vi.fn().mockResolvedValue({
+                    text: '{"description":"only-one"}',
+                    responseId: undefined
+                })
+            }
+        };
+        const cap = new GeminiImageAnalysisCapabilityImpl(provider, client as any);
+
+        const res = await cap.analyzeImage({ input: { images: [img, { ...img, id: "i2" }] }, context: { requestId: "rq" } } as any);
+        expect(client.models.generateContent.mock.calls[0][0].model).toBe("gemini-2.5-pro");
+        expect(res.id).toBe("rq");
+        expect(res.metadata?.countsMatch).toBe(false);
     });
 
-    it('returns fallback description if JSON parse fails', async () => {
-        mockClient.models.generateContent.mockResolvedValue({ text: 'not-json', responseId: 'id2' });
-        const analysis = new GeminiImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata', id: 'img2' }] } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.output[0].description).toBe('not-json');
-        expect(res.output[0].id).toBe('img2');
-        expect(res.id).toBe('id2');
+    it("analyzeImage aborts when signal is aborted", async () => {
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), { models: {} } as any);
+        const controller = new AbortController();
+        controller.abort();
+        await expect(cap.analyzeImage({ input: { images: [img] } } as any, undefined, controller.signal)).rejects.toThrow(
+            "Request aborted"
+        );
     });
 
-    it('merges context metadata into response', async () => {
-        mockClient.models.generateContent.mockResolvedValue({ text: '{"description":"desc"}', responseId: 'id3' });
-        const analysis = new GeminiImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'imgdata', id: 'img3' }] }, context: { requestId: 'req3', metadata: { foo: 'bar' } } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.metadata?.requestId).toBe('req3');
-        expect(res.metadata?.foo).toBe('bar');
+    it("analyzeImageStream emits completion chunk and handles stream errors", async () => {
+        const okStream = {
+            async *[Symbol.asyncIterator]() {
+                yield { text: '{"description":"dog"', responseId: "s1" };
+                yield { text: ',"tags":["pet"],"safety":{"flagged":false}}', responseId: "s1" };
+            }
+        };
+
+        const client = {
+            models: {
+                generateContentStream: vi
+                    .fn()
+                    .mockResolvedValueOnce(okStream)
+                    .mockRejectedValueOnce(new Error("stream fail"))
+            }
+        };
+
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), client as any);
+
+        const first = await cap.analyzeImageStream({ input: { images: [img] }, context: { requestId: "r" } } as any).next();
+        expect(first.value?.done).toBe(true);
+        expect(first.value?.metadata?.status).toBe("completed");
+        expect(first.value?.output[0].description).toBe("dog");
+
+        const second = await cap.analyzeImageStream({ input: { images: [img] } } as any).next();
+        expect(second.value?.done).toBe(true);
+        expect(second.value?.metadata?.status).toBe("error");
     });
 
-    it('handles multiple images, both parse success and failure', async () => {
-        // First image: valid JSON, second: invalid JSON
-        const responses = [
-            { text: '{"description":"desc1"}', responseId: 'idA' },
-            { text: 'not-json', responseId: 'idB' }
-        ];
-        let call = 0;
-        mockClient.models.generateContent.mockImplementation(() => Promise.resolve(responses[call++]));
-        const analysis = new GeminiImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [
-            { base64: 'img1', id: 'imgA' },
-            { base64: 'img2', id: 'imgB' }
-        ] } };
-        const res = await analysis.analyzeImage(req as any);
-        expect(res.output[0].description).toBe('desc1');
-        expect(res.output[0].id).toBe('imgA');
-        expect(res.output[1].description).toBe('not-json');
-        expect(res.output[1].id).toBe('imgB');
-        // Should use first responseId for id
-        expect(res.id).toBe('idA');
+    it("analyzeImageStream tolerates empty text chunks and falls back to generated id", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { text: "", responseId: undefined };
+            }
+        };
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({ model: undefined, modelParams: undefined, providerParams: undefined }))
+        } as any;
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(streamObj)
+            }
+        };
+        const cap = new GeminiImageAnalysisCapabilityImpl(provider, client as any);
+        const out = await cap.analyzeImageStream({ input: { images: [img] } } as any).next();
+
+        expect(out.value?.done).toBe(true);
+        expect(out.value?.id).toBeDefined();
+        expect(out.value?.metadata?.countsMatch).toBe(false);
     });
 
-    it('passes correct model, mimeType, and config to generateContent', async () => {
-        mockClient.models.generateContent.mockResolvedValue({ text: '{"description":"desc"}', responseId: 'idX' });
-        mockProvider.getMergedOptions.mockReturnValueOnce({
-            model: 'custom-model',
-            modelParams: { temperature: 0.5 },
-            providerParams: { foo: 'bar' },
-            generalParams: {}
-        });
-        const analysis = new GeminiImageAnalysisCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { images: [{ base64: 'img', id: 'imgX', mimeType: 'image/jpeg' }] } };
-        await analysis.analyzeImage(req as any);
-        expect(mockClient.models.generateContent).toHaveBeenCalledWith(expect.objectContaining({
-            model: 'custom-model',
-            contents: [expect.objectContaining({
-                parts: expect.arrayContaining([
-                    expect.objectContaining({ text: expect.any(String) }),
-                    expect.objectContaining({ inlineData: expect.objectContaining({ mimeType: 'image/jpeg', data: 'img' }) })
-                ])
-            })],
-            config: expect.objectContaining({ temperature: 0.5 }),
-            foo: 'bar'
-        }));
+    it("analyzeImageStream exits silently when request is aborted", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { text: '{"description":"dog"}', responseId: "s1" };
+            }
+        };
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(streamObj)
+            }
+        };
+
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), client as any);
+        const controller = new AbortController();
+        controller.abort();
+
+        const out = await cap.analyzeImageStream(
+            { input: { images: [img] } } as any,
+            new MultiModalExecutionContext(),
+            controller.signal
+        ).next();
+        expect(out.done).toBe(true);
+        expect(out.value).toBeUndefined();
+    });
+
+    it("normalizeGeminiAnalyses applies defaults and provider safety metadata", () => {
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), { models: {} } as any) as any;
+        const out = cap.normalizeGeminiAnalyses({ description: "x" }, [img]);
+        expect(out[0].id).toBe("i1");
+        expect(out[0].safety.provider).toBe("gemini");
+        expect(out[0].safety.flagged).toBe(false);
+    });
+
+    it("normalizeGeminiAnalyses preserves text confidence entries", () => {
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), { models: {} } as any) as any;
+        const out = cap.normalizeGeminiAnalyses({ description: "x", text: [{ text: "word", confidence: 0.8 }] }, [img]);
+        expect(out[0].text?.[0]).toEqual({ text: "word", confidence: 0.8 });
     });
 });

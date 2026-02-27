@@ -1,194 +1,183 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIChatCapabilityImpl } from '#root/providers/openai/capabilities/OpenAIChatCapabilityImpl.js';
-import { CapabilityKeys, AIProvider } from '#root/index.js';
-import { BaseProvider } from '#root/core/provider/BaseProvider.js';
+import { describe, expect, it, vi } from "vitest";
+import { OpenAIChatCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIChatCapabilityImpl.js";
 
-class MockProvider extends BaseProvider {
-    ensureInitialized = vi.fn();
-    getMergedOptions = vi.fn();
-    constructor() { super('openai' as any); }
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({
+            model: "gpt-4.1",
+            modelParams: {},
+            providerParams: {},
+            generalParams: { chatStreamBatchSize: 3 }
+        }))
+    } as any;
 }
 
-const mockClient = {
-    responses: {
-        create: vi.fn(),
-        stream: vi.fn()
-    }
-};
+describe("OpenAIChatCapabilityImpl", () => {
+    it("throws for missing input messages and aborted request", async () => {
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), { responses: {} } as any);
 
-describe('OpenAIChatCapabilityImpl', () => {
-    let impl: OpenAIChatCapabilityImpl;
-    let mockProvider: MockProvider;
+        await expect(cap.chat({ input: {} } as any)).rejects.toThrow("Received empty input messages");
+        await expect(cap.chatStream({ input: {} } as any).next()).rejects.toThrow("Received empty input messages");
 
-    beforeEach(() => {
-        mockProvider = new MockProvider();
-        mockProvider.ensureInitialized.mockClear();
-        mockProvider.getMergedOptions.mockClear();
-        mockClient.responses.create.mockClear();
-        mockClient.responses.stream.mockClear();
-        impl = new OpenAIChatCapabilityImpl(mockProvider, mockClient as any);
+        const controller = new AbortController();
+        controller.abort();
+        await expect(
+            cap.chat({ input: { messages: [{ role: "user", content: [{ type: "text", text: "x" }] }] } } as any, undefined, controller.signal)
+        ).rejects.toThrow("Request aborted");
     });
 
-    it('chat returns output and metadata', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'gpt-4', modelParams: {}, providerParams: {} });
-        mockClient.responses.create.mockResolvedValue({ output_text: 'hi', id: 'id', status: 'completed', usage: { total_tokens: 1 } });
-        const req = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }] },
-            options: {},
-            context: { requestId: 'r1' }
-        };
-        const res = await impl.chat(req, undefined);
-        expect(mockProvider.ensureInitialized).toHaveBeenCalled();
-        expect(mockProvider.getMergedOptions).toHaveBeenCalledWith(CapabilityKeys.ChatCapabilityKey, req.options);
-        expect(res.output).toBe('hi');
-        expect(res.id).toBe('id');
-        expect(res.metadata?.provider).toBe(AIProvider.OpenAI);
-    });
-
-    it('chat throws if input messages are missing', async () => {
-        await expect(impl.chat({ input: { messages: [] }, options: {} }, undefined)).rejects.toThrow('Received empty input messages');
-    });
-
-    it('chatStream yields all streaming events and final chunk', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'gpt-4', modelParams: {}, providerParams: {}, generalParams: { chatStreamBatchSize: 2 } });
-        // Simulate streaming events
-        const events = [
-            { type: 'response.output_text.delta', delta: 'h' },
-            { type: 'response.output_text.delta', delta: 'i' },
-            { type: 'response.output_text.delta', delta: '!' },
-            { type: 'response.output_text.done' }
-        ];
-        const stream = {
-            [Symbol.asyncIterator]: async function* () {
-                for (const e of events) yield e;
+    it("chat normalizes assistant text from response output", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: "r1",
+                    status: "completed",
+                    usage: { total_tokens: 5, input_tokens: 2, output_tokens: 3 },
+                    output: [
+                        { type: "message", role: "assistant", content: [{ type: "output_text", text: "hello" }] },
+                        { type: "message", role: "assistant", content: [{ type: "output_text", text: " world" }] },
+                        { type: "message", role: "user", content: [{ type: "output_text", text: "ignored" }] }
+                    ]
+                })
             }
         };
-        mockClient.responses.stream.mockReturnValue(stream);
-        const req = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }] },
-            options: {},
-            context: { requestId: 'r1' }
-        };
-        const gen = impl.chatStream(req, undefined);
-        const chunks = [];
-        for await (const chunk of gen) {
-            chunks.push(chunk);
-        }
-        // First batch: 'hi' (batchSize=2)
-        expect(chunks[0]).toMatchObject({ delta: 'hi', output: 'hi', done: false, id: undefined, metadata: expect.objectContaining({ status: 'incomplete' }) });
-        // Second batch: '!' (buffer flush)
-        expect(chunks[1]).toMatchObject({ delta: '!', output: '!', done: false, id: undefined, metadata: expect.objectContaining({ status: 'incomplete' }) });
-        // Final chunk: accumulatedText = 'hi!'
-        expect(chunks[2]).toMatchObject({ delta: '', output: 'hi!', done: true, id: undefined, metadata: expect.objectContaining({ status: 'completed' }) });
+
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] },
+            context: { requestId: "rid" }
+        } as any);
+
+        expect(res.id).toBe("r1");
+        expect(res.output.role).toBe("assistant");
+        expect(res.output.content[0]).toMatchObject({ type: "text", text: "hello world" });
+        expect(res.metadata?.provider).toBe("openai");
+        expect(res.metadata?.requestId).toBe("rid");
     });
 
-    it('chatStream throws if input messages are missing', async () => {
-        const gen = impl.chatStream({ input: { messages: [] }, options: {} }, undefined);
-        await expect(gen.next()).rejects.toThrow('Received empty input messages');
-    });
-
-    it('chat throws on unsupported message part', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'gpt-4', modelParams: {}, providerParams: {} });
-        const badReq = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'foo', text: 'bad' }] }] },
-            options: {}
-        };
-        await expect(impl.chat(badReq as any, undefined)).rejects.toThrow('foo part must have url or base64');
-    });
-
-    it('chat returns empty string if output_text is missing', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'gpt-4', modelParams: {}, providerParams: {} });
-        mockClient.responses.create.mockResolvedValue({ id: 'id', status: 'completed', usage: { total_tokens: 1 } });
-        const req = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }] },
-            options: {},
-            context: { requestId: 'r1' }
-        };
-        const res = await impl.chat(req, undefined);
-        expect(res.output).toBe('');
-    });
-
-    it('chatStream yields error chunk on error', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'gpt-4', modelParams: {}, providerParams: {}, generalParams: {} });
-        mockClient.responses.stream.mockImplementation(() => { throw new Error('fail'); });
-        const req = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }] },
-            options: {},
-            context: { requestId: 'r1' }
-        };
-        const gen = impl.chatStream(req, undefined);
-        const { value } = await gen.next();
-        expect(value.done).toBe(true);
-        expect(value.metadata.status).toBe('error');
-    });
-
-    it('chatStream flushes buffer correctly with batchSize', async () => {
-        mockProvider.getMergedOptions.mockReturnValue({ model: 'gpt-4', modelParams: {}, providerParams: {}, generalParams: { chatStreamBatchSize: 1 } });
-        const events = [
-            { type: 'response.output_text.delta', delta: 'A' },
-            { type: 'response.output_text.delta', delta: 'B' },
-            { type: 'response.output_text.delta', delta: 'C' },
-            { type: 'response.output_text.done' }
-        ];
-        const stream = {
-            [Symbol.asyncIterator]: async function* () {
-                for (const e of events) yield e;
+    it("chat handles empty output payloads", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: "r-empty",
+                    status: "completed"
+                })
             }
         };
-        mockClient.responses.stream.mockReturnValue(stream);
-        const req = {
-            input: { messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }] },
-            options: {},
-            context: { requestId: 'r1' }
+
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] }
+        } as any);
+
+        expect(res.output.content).toEqual([]);
+    });
+
+    it("chatStream emits batched, flush, and final chunks", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.created", response: { id: "sid" } };
+                yield { type: "response.output_text.delta", delta: "ab" };
+                yield { type: "response.output_text.delta", delta: "cd" };
+                yield { type: "response.output_text.done" };
+            }
         };
-        const gen = impl.chatStream(req, undefined);
-        const chunks = [];
-        for await (const chunk of gen) {
-            chunks.push(chunk);
+        const client = { responses: { stream: vi.fn().mockResolvedValue(streamObj) } };
+
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), client as any);
+        const chunks: any[] = [];
+        for await (const c of cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] },
+            context: { requestId: "rq" }
+        } as any)) {
+            chunks.push(c);
         }
-        expect(chunks[0].delta).toBe('A');
-        expect(chunks[1].delta).toBe('B');
-        expect(chunks[2].delta).toBe('C');
-        expect(chunks[3].delta).toBe('');
-        expect(chunks[3].output).toBe('ABC');
-        expect(chunks[3].done).toBe(true);
+
+        expect(chunks).toHaveLength(3);
+        expect(chunks[0].metadata.status).toBe("incomplete");
+        expect(chunks[0].delta.content[0]?.text).toBe("abcd");
+        expect(chunks[1].metadata.status).toBe("incomplete");
+        expect(chunks[1].output.content[0]?.text).toBe("abcd");
+        expect(chunks[2].done).toBe(true);
+        expect(chunks[2].metadata.status).toBe("completed");
     });
 
-    it('mapParts throws for non-text part missing url/base64', () => {
-        const badParts = [{ type: 'image', text: 'bad' }];
-        expect(() => (impl as any).mapParts(badParts)).toThrow('image part must have url or base64');
+    it("chatStream yields error chunk for Stream aborted", async () => {
+        const client = {
+            responses: {
+                stream: vi.fn().mockRejectedValue(new Error("Stream aborted"))
+            }
+        };
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), client as any);
+
+        const out = await cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+        } as any).next();
+
+        expect(out.value?.done).toBe(true);
+        expect(out.value?.metadata?.status).toBe("error");
     });
 
-    it('mapParts throws for unsupported part type', () => {
-        const badParts = [{ type: 'unsupported', url: 'http://example.com/file' }];
-        expect(() => (impl as any).mapParts(badParts)).toThrow('Unsupported message part: unsupported');
+    it("chatStream exits silently when signal is already aborted", async () => {
+        const client = { responses: { stream: vi.fn() } };
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), client as any);
+        const controller = new AbortController();
+        controller.abort();
+
+        const out = await cap.chatStream(
+            {
+                input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+            } as any,
+            undefined,
+            controller.signal
+        ).next();
+
+        expect(out.done).toBe(true);
+        expect(out.value).toBeUndefined();
+        expect(client.responses.stream).not.toHaveBeenCalled();
     });
 
-    it('mapParts returns correct OpenAI format for all supported types', () => {
-        const parts = [
-            { type: 'text', text: 'hello' },
-            { type: 'image', url: 'http://img', mimeType: 'image/png' },
-            { type: 'audio', url: 'http://audio', mimeType: 'audio/wav' },
-            { type: 'video', url: 'http://video', mimeType: 'video/mp4' },
-            { type: 'file', url: 'http://file', filename: 'f.txt', mimeType: 'text/plain' }
-        ];
-        const mapped = (impl as any).mapParts(parts);
-        expect(mapped[0]).toEqual({ type: 'input_text', text: 'hello' });
-        expect(mapped[1]).toEqual({ type: 'input_image', image_url: 'http://img' });
-        expect(mapped[2]).toEqual({ type: 'input_audio', audio_url: 'http://audio' });
-        expect(mapped[3]).toEqual({ type: 'input_video', video_url: 'http://video' });
-        expect(mapped[4]).toEqual({ type: 'input_file', file_url: 'http://file', filename: 'f.txt', mime_type: 'text/plain' });
+    it("chatStream ignores non-delta events and empty deltas", async () => {
+        const streamObj = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "response.created", response: { id: "sid-2" } };
+                yield { type: "response.some_other_event" };
+                yield { type: "response.output_text.delta" };
+                yield { type: "response.output_text.done" };
+            }
+        };
+        const client = { responses: { stream: vi.fn().mockResolvedValue(streamObj) } };
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), client as any);
+
+        const chunks: any[] = [];
+        for await (const c of cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+        } as any)) {
+            chunks.push(c);
+        }
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].done).toBe(true);
     });
 
-    it('buildMessages returns correct format for OpenAI', () => {
-        const messages = [
-            { role: 'user', content: [ { type: 'text', text: 'hi' } ] },
-            { role: 'assistant', content: [ { type: 'text', text: 'hello' } ] }
-        ];
-        const built = (impl as any).buildMessages(messages);
-        expect(built).toEqual([
-            { role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
-            { role: 'assistant', content: [{ type: 'input_text', text: 'hello' }] }
+    it("mapParts enforces media requirements and supports all part types", async () => {
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+
+        expect(() => cap.mapParts([{ type: "image" }])).toThrow("must have url or base64");
+        expect(() => cap.mapParts([{ type: "unknown", url: "x" }])).toThrow("Unsupported message part");
+
+        const parts = cap.mapParts([
+            { type: "text", text: "t" },
+            { type: "image", base64: "QQ==", mimeType: "image/png" },
+            { type: "audio", base64: "QQ==", mimeType: "audio/wav" },
+            { type: "video", base64: "QQ==", mimeType: "video/mp4" },
+            { type: "file", base64: "QQ==", mimeType: "text/plain", filename: "a.txt" }
         ]);
+
+        expect(parts).toHaveLength(5);
+        expect(parts[0].type).toBe("input_text");
+        expect(parts[1].type).toBe("input_image");
+        expect(parts[4].type).toBe("input_file");
     });
 });

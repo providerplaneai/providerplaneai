@@ -1,7 +1,7 @@
 import config from "config";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
-import { ClientReferenceImage, JobSnapshot } from "#root/index.js";
+import { CapabilityKeyType, ClientReferenceImage, JobSnapshot } from "#root/index.js";
 
 /**
  * Default timeout (ms) for remote image fetches. Infinity disables timeout.
@@ -367,7 +367,7 @@ export function parseBestEffortJson<T = any>(text: string): T[] {
     try {
         const parsed = JSON.parse(trimmed);
         return Array.isArray(parsed) ? parsed : [parsed];
-    } catch {}
+    } catch { }
 
     // 2. Split by newline first
     const lines = trimmed
@@ -413,3 +413,46 @@ export function validateNonNegativeInteger(value: unknown, fieldName: string) {
         throw new Error(`Invalid appConfig.${fieldName}: expected a non-negative integer`);
     }
 }
+
+/**
+ * Asserts that a value is an array, throws if not.
+ * @param capability The capability key.
+ * @param value The value to check.
+ * @param label Label for error messages.
+ * @returns The value as an array.
+ * @throws Error if value is not an array.
+ */
+export function expectArrayForCapability<T>(capability: CapabilityKeyType, value: unknown, label: string): T[] {
+    // Ensure value is an array, otherwise throw
+    if (!Array.isArray(value)) {
+        throw new Error(`Invalid ${label} for capability '${capability}' (expected array)`);
+    }
+    return value as T[];
+}
+
+/**
+ * Asserts that a value is an object (not array), throws if not.
+ * @param capability The capability key.
+ * @param value The value to check.
+ * @param label Label for error messages.
+ * @returns The value as an object.
+ * @throws Error if value is not an object.
+ */
+export function expectObjectForCapability<T extends object>(capability: CapabilityKeyType, value: unknown, label: string): T {
+    // Ensure value is a non-array object, otherwise throw
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(`Invalid ${label} for capability '${capability}' (expected object)`);
+    }
+    return value as T;
+}
+
+/**
+ * Reads a finite number from a source object by key.
+ * @param source The object to read from.
+ * @param key The key to look up.
+ * @returns The number if present and finite, otherwise undefined.
+ */
+export function readNumber(source: Record<string, unknown>, key: string): number | undefined {
+    const value = source[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}    

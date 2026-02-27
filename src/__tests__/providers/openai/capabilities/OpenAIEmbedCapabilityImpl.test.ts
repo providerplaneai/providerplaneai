@@ -1,93 +1,76 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIEmbedCapabilityImpl } from '#root/providers/openai/capabilities/OpenAIEmbedCapabilityImpl.js';
-import { AIProvider, CapabilityKeys } from '#root/index.js';
+import { describe, expect, it, vi } from "vitest";
+import { OpenAIEmbedCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIEmbedCapabilityImpl.js";
 
-const mockProvider = {
-    ensureInitialized: vi.fn(),
-    getMergedOptions: vi.fn((cap, opts) => ({ model: 'mock-model', modelParams: {}, providerParams: {}, generalParams: {} }))
-};
-const mockClient = {
-    embeddings: {
-        create: vi.fn()
-    }
-};
+function makeProvider() {
+    return {
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn(() => ({ model: "text-embedding-3-large", modelParams: {}, providerParams: {} }))
+    } as any;
+}
 
-describe('OpenAIEmbedCapabilityImpl', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe("OpenAIEmbedCapabilityImpl", () => {
+    it("validates missing input", async () => {
+        const cap = new OpenAIEmbedCapabilityImpl(makeProvider(), { embeddings: {} } as any);
+        await expect(cap.embed({ input: {} } as any)).rejects.toThrow("Invalid embedding input");
     });
 
-    it('throws if input is missing', async () => {
-        const embed = new OpenAIEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        await expect(embed.embed({ input: undefined } as any)).rejects.toThrow('Invalid embedding input');
+    it("throws when API returns no data", async () => {
+        const client = {
+            embeddings: {
+                create: vi.fn().mockResolvedValue({ data: [] })
+            }
+        };
+        const cap = new OpenAIEmbedCapabilityImpl(makeProvider(), client as any);
+
+        await expect(cap.embed({ input: { input: "x" } } as any)).rejects.toThrow("OpenAI returned no embeddings");
     });
 
-        it('throws if API returns no data', async () => {
-            mockClient.embeddings.create.mockResolvedValue({ data: [] });
-            const embed = new OpenAIEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-            // OpenAI implementation does not throw, but returns output as undefined if no data
-            const res = await embed.embed({ input: { input: 'foo' } } as any);
-            expect(res.output).toBeUndefined();
-        });
+    it("normalizes embedding vectors and metadata", async () => {
+        const client = {
+            embeddings: {
+                create: vi.fn().mockResolvedValue({
+                    data: [{ embedding: [0.1, 0.2] }, { embedding: [0.3] }],
+                    usage: { total_tokens: 9 }
+                })
+            }
+        };
+        const cap = new OpenAIEmbedCapabilityImpl(makeProvider(), client as any);
 
-        it('returns output as undefined if embedding is missing in response', async () => {
-            mockClient.embeddings.create.mockResolvedValue({ data: [{ notEmbedding: [1, 2, 3] }] });
-            const embed = new OpenAIEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-            const res = await embed.embed({ input: { input: 'foo' } } as any);
-            expect(res.output).toBeUndefined();
-        });
+        const res = await cap.embed({ input: { input: ["a", "b"] }, context: { requestId: "r1" } } as any);
 
-    it('returns normalized embedding response for single input', async () => {
-        mockClient.embeddings.create.mockResolvedValue({ data: [{ embedding: [1, 2, 3] }], usage: { total_tokens: 10 } });
-        const embed = new OpenAIEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        const res = await embed.embed({ input: { input: 'foo' } } as any);
-        expect(res.output).toEqual([1, 2, 3]);
-        expect(res.metadata?.provider).toBe(AIProvider.OpenAI);
-        expect(res.metadata?.tokensUsed).toBe(10);
+        expect(res.output).toHaveLength(2);
+        expect(res.output[0].vector).toEqual([0.1, 0.2]);
+        expect(res.output[0].dimensions).toBe(2);
+        expect(res.output[1].vector).toEqual([0.3]);
+        expect(res.metadata?.tokensUsed).toBe(9);
+        expect(res.output[1].metadata?.requestId).toBe("r1");
     });
 
-    it('returns normalized embedding response for multiple inputs', async () => {
-        mockClient.embeddings.create.mockResolvedValue({ data: [{ embedding: [1, 2, 3] }, { embedding: [4, 5, 6] }], usage: { total_tokens: 20 } });
-        const embed = new OpenAIEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        const res = await embed.embed({ input: { input: ['foo', 'bar'] } } as any);
-        expect(res.output).toEqual([[1, 2, 3], [4, 5, 6]]);
-        expect(res.metadata?.provider).toBe(AIProvider.OpenAI);
-        expect(res.metadata?.tokensUsed).toBe(20);
-    });
+    it("handles single-input defaults, custom purpose, and missing usage", async () => {
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({ model: undefined, modelParams: undefined, providerParams: undefined }))
+        } as any;
+        const client = {
+            embeddings: {
+                create: vi.fn().mockResolvedValue({
+                    data: [{ embedding: [1, 2, 3] }]
+                })
+            }
+        };
+        const cap = new OpenAIEmbedCapabilityImpl(provider, client as any);
 
-    it('passes correct model and options to embeddings.create (custom options)', async () => {
-        mockClient.embeddings.create.mockResolvedValue({ data: [{ embedding: [1] }] });
-        mockProvider.getMergedOptions.mockReturnValueOnce({
-            model: 'custom',
-            modelParams: { customParam: 123 },
-            providerParams: { foo: 'bar' },
-            generalParams: {}
-        });
-        const embed = new OpenAIEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { input: 'foo' }, options: { model: 'custom', modelParams: { customParam: 123 }, providerParams: { foo: 'bar' } } };
-        await embed.embed(req as any);
-        expect(mockClient.embeddings.create).toHaveBeenCalledWith(expect.objectContaining({
-            model: 'custom',
-            input: 'foo',
-            customParam: 123,
-            foo: 'bar'
-        }));
-    });
+        const req = {
+            input: { input: "hello", inputId: "in-1" },
+            purpose: "retrieval"
+        } as any;
 
-    it('uses default model if not provided', async () => {
-        mockClient.embeddings.create.mockResolvedValue({ data: [{ embedding: [1] }] });
-        mockProvider.getMergedOptions.mockReturnValueOnce({
-            model: "text-embedding-3-large",
-            modelParams: {},
-            providerParams: {},
-            generalParams: {}
-        });
-        const embed = new OpenAIEmbedCapabilityImpl(mockProvider as any, mockClient as any);
-        const req = { input: { input: 'foo' } };
-        await embed.embed(req as any);
-        expect(mockClient.embeddings.create).toHaveBeenCalledWith(expect.objectContaining({
-            model: 'text-embedding-3-large',
-            input: 'foo'
-        }));
+        const res = await cap.embed(req);
+        const call = client.embeddings.create.mock.calls[0][0];
+
+        expect(call.model).toBe("text-embedding-3-large");
+        expect(res.output[0].inputId).toBe("in-1");
+        expect(res.output[0].purpose).toBe("retrieval");
+        expect(res.metadata?.tokensUsed).toBeUndefined();
     });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AllProvidersFailedError } from '#root/core/types/exceptions/AllProvidersFailedError.js';
-import { AIProvider } from '#root/core/index.js';
+import { AIProvider } from '#root/core/provider/Provider.js';
 
 describe('AllProvidersFailedError', () => {
     const capability = 'chat';
