@@ -12,6 +12,14 @@ on:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    env:
+      # Required by ConfigLoader during tests/build; dummy values are enough
+      # for unit tests that mock provider SDK calls.
+      OPENAI_API_KEY_1: ci-dummy-openai-key-1
+      OPENAI_API_KEY_2: ci-dummy-openai-key-2
+      ANTHROPIC_API_KEY_1: ci-dummy-anthropic-key-1
+      VOYAGE_API_KEY: ci-dummy-voyage-key-1
+      GEMINI_API_KEY_1: ci-dummy-gemini-key-1
 
     strategy:
       fail-fast: false
