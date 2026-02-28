@@ -1,6 +1,11 @@
 # Test data
 test_data
 
+# Playground files
+job1.ts
+job2.ts
+playground.ts
+
 # Logs
 logs
 *.log
