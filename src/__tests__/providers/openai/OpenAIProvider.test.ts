@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const openAIConstructor = vi.hoisted(
     () =>
         vi.fn(function OpenAIMock() {
-            return { responses: {}, embeddings: {}, moderations: {} };
+            return { responses: {}, embeddings: {}, moderations: {}, audio: {} };
         })
 );
 vi.mock("openai", () => ({ default: openAIConstructor }));
@@ -41,6 +41,11 @@ describe("OpenAIProvider", () => {
         expect(provider.hasCapability(CapabilityKeys.ImageEditStreamCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.ImageAnalysisCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.ImageAnalysisStreamCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.AudioTranscriptionCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.AudioTranscriptionStreamCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.AudioTranslationCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.AudioTextToSpeechCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey)).toBe(true);
     });
 
     it("forwards to chat delegate and throws when missing", async () => {
@@ -79,12 +84,28 @@ describe("OpenAIProvider", () => {
             analyzeImage: vi.fn().mockResolvedValue({ output: [] }),
             analyzeImageStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
         };
+        (provider as any).audioDelegate = {
+            transcribeAudio: vi.fn().mockResolvedValue({ output: [] }),
+            transcribeAudioStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })()),
+            translateAudio: vi.fn().mockResolvedValue({ output: [] }),
+            textToSpeech: vi.fn().mockResolvedValue({ output: [] }),
+            textToSpeechStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
+        };
 
         await expect(provider.embed({ input: { input: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.moderation({ input: { input: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.generateImage({ input: { prompt: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.editImage({ input: { prompt: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.analyzeImage({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).resolves.toMatchObject({ output: [] });
+        await expect(provider.transcribeAudio({ input: { file: {} } } as any, ctx)).resolves.toMatchObject({ output: [] });
+        await expect(provider.translateAudio({ input: { file: {} } } as any, ctx)).resolves.toMatchObject({ output: [] });
+        await expect(provider.textToSpeech({ input: { text: "hello" } } as any, ctx)).resolves.toMatchObject({ output: [] });
+        await expect(provider.transcribeAudioStream({ input: { file: {} } } as any, ctx).next()).resolves.toMatchObject({
+            done: false
+        });
+        await expect(provider.textToSpeechStream({ input: { text: "hello" } } as any, ctx).next()).resolves.toMatchObject({
+            done: false
+        });
 
         await expect(provider.generateImageStream({ input: { prompt: "x" } } as any, ctx).next()).resolves.toMatchObject({ done: false });
         await expect(provider.editImageStream({ input: { prompt: "x" } } as any, ctx).next()).resolves.toMatchObject({ done: false });
@@ -109,5 +130,10 @@ describe("OpenAIProvider", () => {
         expect(() => provider.editImageStream({ input: { prompt: "x" } } as any, ctx)).toThrow(CapabilityUnsupportedError);
         await expect(provider.analyzeImage({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
         expect(() => provider.analyzeImageStream({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).toThrow(CapabilityUnsupportedError);
+        await expect(provider.transcribeAudio({ input: { file: {} } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
+        expect(() => provider.transcribeAudioStream({ input: { file: {} } } as any, ctx)).toThrow(CapabilityUnsupportedError);
+        await expect(provider.translateAudio({ input: { file: {} } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
+        await expect(provider.textToSpeech({ input: { text: "x" } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
+        expect(() => provider.textToSpeechStream({ input: { text: "x" } } as any, ctx)).toThrow(CapabilityUnsupportedError);
     });
 });

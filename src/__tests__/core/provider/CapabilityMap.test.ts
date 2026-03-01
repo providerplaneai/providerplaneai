@@ -5,6 +5,11 @@ describe("CapabilityMap module", () => {
     it("exports expected capability key constants", () => {
         expect(CapabilityKeys.ChatCapabilityKey).toBe("chat");
         expect(CapabilityKeys.ChatStreamCapabilityKey).toBe("chatStream");
+        expect(CapabilityKeys.AudioTranscriptionCapabilityKey).toBe("audioTranscription");
+        expect(CapabilityKeys.AudioTranscriptionStreamCapabilityKey).toBe("audioTranscriptionStream");
+        expect(CapabilityKeys.AudioTranslationCapabilityKey).toBe("audioTranslation");
+        expect(CapabilityKeys.AudioTextToSpeechCapabilityKey).toBe("audioTts");
+        expect(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey).toBe("audioTtsStream");
         expect(CapabilityKeys.ImageGenerationCapabilityKey).toBe("imageGeneration");
         expect(CapabilityKeys.ImageGenerationStreamCapabilityKey).toBe("imageGenerationStream");
         expect(CapabilityKeys.ImageEditCapabilityKey).toBe("imageEdit");
@@ -21,4 +26,3 @@ describe("CapabilityMap module", () => {
         expect(unique.size).toBe(values.length);
     });
 });
-

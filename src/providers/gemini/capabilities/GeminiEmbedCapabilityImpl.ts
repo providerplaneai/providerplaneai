@@ -11,6 +11,9 @@ import {
     NormalizedEmbedding
 } from "#root/index.js";
 
+const DEFAULT_GEMINI_EMBED_MODEL = "text-embedding-004";
+const DEFAULT_GEMINI_EMBED_TASK_TYPE = "RETRIEVAL_QUERY";
+
 /**
  * GeminiEmbedCapabilityImpl: Implements embedding capability for Gemini.
  *
@@ -77,12 +80,12 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
         const inputs = Array.isArray(input.input) ? input.input : [input.input];
 
         const response = await this.client.models.embedContent({
-            model: merged.model ?? "text-embedding-004",
+            model: merged.model ?? DEFAULT_GEMINI_EMBED_MODEL,
             contents: inputs.map((t) => ({ parts: [{ text: t }] })),
             config: {
                 // TaskType is Gemini's unique feature.
                 // It defaults to 'RETRIEVAL_QUERY' if not provided.
-                taskType: merged.modelParams?.taskType || "RETRIEVAL_QUERY",
+                taskType: merged.modelParams?.taskType || DEFAULT_GEMINI_EMBED_TASK_TYPE,
                 outputDimensionality: merged.modelParams?.dimensions
             }
         });

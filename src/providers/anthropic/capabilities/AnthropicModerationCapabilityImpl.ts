@@ -64,6 +64,7 @@ Respond ONLY with a valid JSON object (no markdown, no preamble) with this exact
 }
 
 User content to moderate: {{CONTENT}}`;
+const DEFAULT_ANTHROPIC_MODERATION_MODEL = "claude-sonnet-4-20250514";
 
 /**
  * Anthropic moderation capability implementation.
@@ -134,7 +135,7 @@ export class AnthropicModerationCapabilityImpl implements ModerationCapability<
             inputs.map((content) =>
                 this.client.messages.create(
                     {
-                        model: merged.model ?? "claude-sonnet-4-20250514",
+                        model: merged.model ?? DEFAULT_ANTHROPIC_MODERATION_MODEL,
                         max_tokens: merged.modelParams?.max_tokens ?? 512,
                         messages: [
                             {

@@ -14,6 +14,8 @@ import {
     NormalizedImageAnalysis
 } from "#root/index.js";
 
+const DEFAULT_OPENAI_IMAGE_ANALYSIS_MODEL = "gpt-4.1";
+
 /**
  * OpenAIImageAnalysisCapabilityImpl: Implements image analysis for OpenAI using the Vision API and tool schema.
  *
@@ -172,7 +174,7 @@ export class OpenAIImageAnalysisCapabilityImpl
 
         const response = await this.client.responses.create(
             {
-                model: merged.model ?? "gpt-4.1",
+                model: merged.model ?? DEFAULT_OPENAI_IMAGE_ANALYSIS_MODEL,
                 input: [{ role: "user", content }],
                 tools: [
                     {
@@ -283,7 +285,7 @@ export class OpenAIImageAnalysisCapabilityImpl
         try {
             const stream = this.client.responses.stream(
                 {
-                    model: merged.model ?? "gpt-4.1",
+                    model: merged.model ?? DEFAULT_OPENAI_IMAGE_ANALYSIS_MODEL,
                     input: [{ role: "user", content }],
                     tools: [
                         {

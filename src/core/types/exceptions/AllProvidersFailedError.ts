@@ -65,7 +65,8 @@ export class AllProvidersFailedError extends Error {
                         connectionName: a.connectionName,
                         attemptIndex: a.attemptIndex,
                         durationMs: a.durationMs,
-                        error: a.error
+                        error: a.error,
+                        errorCode: a.errorCode
                     };
                 })
             }
@@ -87,7 +88,8 @@ export class AllProvidersFailedError extends Error {
                     providerType: a.providerType,
                     connectionName: a.connectionName,
                     durationMs: a.durationMs,
-                    error: a.error
+                    error: a.error,
+                    errorCode: a.errorCode
                 };
             })
         };

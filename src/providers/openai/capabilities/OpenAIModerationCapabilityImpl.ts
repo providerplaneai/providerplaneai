@@ -11,6 +11,8 @@ import {
     MultiModalExecutionContext
 } from "#root/index.js";
 
+const DEFAULT_OPENAI_MODERATION_MODEL = "omni-moderation-latest";
+
 /**
  * OpenAIModerationCapabilityImpl: Implements moderation for OpenAI using the moderation API.
  *
@@ -80,7 +82,7 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<Clie
         // Call OpenAI moderation API
         const response = await this.client.moderations.create(
             {
-                model: merged.model ?? "omni-moderation-latest",
+                model: merged.model ?? DEFAULT_OPENAI_MODERATION_MODEL,
                 input: inputs,
                 ...(merged.modelParams ?? {}),
                 ...(merged.providerParams ?? {})
@@ -110,7 +112,7 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<Clie
                 reason: reason || undefined,
                 metadata: {
                     provider: AIProvider.OpenAI,
-                    model: merged.model ?? "omni-moderation-latest",
+                    model: merged.model ?? DEFAULT_OPENAI_MODERATION_MODEL,
                     inputIndex: index,
                     requestId: context?.requestId
                 }
@@ -124,7 +126,7 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<Clie
             metadata: {
                 ...(context?.metadata ?? {}),
                 provider: AIProvider.OpenAI,
-                model: merged.model ?? "omni-moderation-latest",
+                model: merged.model ?? DEFAULT_OPENAI_MODERATION_MODEL,
                 status: "completed",
                 requestId: context?.requestId
             }

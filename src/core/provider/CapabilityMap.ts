@@ -1,7 +1,13 @@
 import {
+    AudioTranscriptionCapability,
+    AudioTranscriptionStreamCapability,
+    AudioTranslationCapability,
     ChatCapability,
     ChatStreamCapability,
     ClientChatRequest,
+    ClientAudioTranscriptionRequest,
+    ClientAudioTranslationRequest,
+    ClientTextToSpeechRequest,
     ClientEmbeddingRequest,
     ClientImageAnalysisRequest,
     ClientImageEditRequest,
@@ -15,6 +21,9 @@ import {
     ImageGenerationCapability,
     ImageGenerationStreamCapability,
     ModerationCapability,
+    TextToSpeechCapability,
+    TextToSpeechStreamCapability,
+    NormalizedAudio,
     NormalizedChatMessage,
     NormalizedEmbedding,
     NormalizedImage,
@@ -30,6 +39,11 @@ import {
 export const CapabilityKeys = {
     ChatCapabilityKey: "chat",
     ChatStreamCapabilityKey: "chatStream",
+    AudioTranscriptionCapabilityKey: "audioTranscription",
+    AudioTranscriptionStreamCapabilityKey: "audioTranscriptionStream",
+    AudioTranslationCapabilityKey: "audioTranslation",
+    AudioTextToSpeechCapabilityKey: "audioTts",
+    AudioTextToSpeechStreamCapabilityKey: "audioTtsStream",
     ImageGenerationCapabilityKey: "imageGeneration",
     ImageGenerationStreamCapabilityKey: "imageGenerationStream",
     ImageEditCapabilityKey: "imageEdit",
@@ -54,6 +68,23 @@ export type CapabilityKeyType = BuiltInCapabilityKey | CustomCapabilityKey;
 export interface CapabilityMap {
     [CapabilityKeys.ChatCapabilityKey]: ChatCapability<ClientChatRequest, NormalizedChatMessage>;
     [CapabilityKeys.ChatStreamCapabilityKey]: ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>;
+    [CapabilityKeys.AudioTranscriptionCapabilityKey]: AudioTranscriptionCapability<
+        ClientAudioTranscriptionRequest,
+        NormalizedAudio[]
+    >;
+    [CapabilityKeys.AudioTranscriptionStreamCapabilityKey]: AudioTranscriptionStreamCapability<
+        ClientAudioTranscriptionRequest,
+        NormalizedAudio[]
+    >;
+    [CapabilityKeys.AudioTranslationCapabilityKey]: AudioTranslationCapability<
+        ClientAudioTranslationRequest,
+        NormalizedAudio[]
+    >;
+    [CapabilityKeys.AudioTextToSpeechCapabilityKey]: TextToSpeechCapability<ClientTextToSpeechRequest, NormalizedAudio[]>;
+    [CapabilityKeys.AudioTextToSpeechStreamCapabilityKey]: TextToSpeechStreamCapability<
+        ClientTextToSpeechRequest,
+        NormalizedAudio[]
+    >;
     [CapabilityKeys.ImageGenerationCapabilityKey]: ImageGenerationCapability<ClientImageGenerationRequest, NormalizedImage[]>;
     [CapabilityKeys.ImageGenerationStreamCapabilityKey]: ImageGenerationStreamCapability<
         ClientImageGenerationRequest,

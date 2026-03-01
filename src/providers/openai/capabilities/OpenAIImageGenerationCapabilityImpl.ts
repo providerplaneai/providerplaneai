@@ -14,6 +14,8 @@ import {
     NormalizedImage
 } from "#root/index.js";
 
+const DEFAULT_OPENAI_IMAGE_MODEL = "gpt-4.1";
+
 /**
  * Implements image generation for OpenAI, supporting both non-streaming and streaming modes.
  *
@@ -80,7 +82,7 @@ export class OpenAIImageGenerationCapabilityImpl
         // Generate images via OpenAI Responses API
         const response = await this.client.responses.create(
             {
-                model: merged.model ?? "gpt-4.1",
+                model: merged.model ?? DEFAULT_OPENAI_IMAGE_MODEL,
                 input: [{ role: "user", content: this.buildContent(input) }],
                 tools: [
                     {
@@ -157,7 +159,7 @@ export class OpenAIImageGenerationCapabilityImpl
         try {
             const stream = this.client.responses.stream(
                 {
-                    model: merged.model ?? "gpt-4.1",
+                    model: merged.model ?? DEFAULT_OPENAI_IMAGE_MODEL,
                     input: [{ role: "user", content: this.buildContent(input) }],
                     tools: [
                         {

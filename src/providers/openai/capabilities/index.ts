@@ -1,4 +1,5 @@
 export * from "./OpenAIChatCapabilityImpl.js";
+export * from "./OpenAIAudioCapabilityImpl.js";
 export * from "./OpenAIEmbedCapabilityImpl.js";
 export * from "./OpenAIImageAnalysisCapabilityImpl.js";
 export * from "./OpenAIImageGenerationCapabilityImpl.js";

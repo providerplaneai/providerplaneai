@@ -10,6 +10,8 @@ import {
     NormalizedEmbedding
 } from "#root/index.js";
 
+const DEFAULT_ANTHROPIC_EMBED_MODEL = "voyage-3";
+
 /**
  * Typed representation of Voyage AI embeddings API response (used for Anthropic embeddings).
  *
@@ -121,7 +123,7 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
             },
             body: JSON.stringify({
                 input: inputs,
-                model: merged.model ?? "voyage-3",
+                model: merged.model ?? DEFAULT_ANTHROPIC_EMBED_MODEL,
                 ...(merged.modelParams ?? {}),
                 ...(merged.providerParams ?? {})
             }),

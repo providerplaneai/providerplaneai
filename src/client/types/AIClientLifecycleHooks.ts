@@ -20,6 +20,7 @@ export interface ProviderAttemptContext {
 export interface ProviderAttemptResult extends ProviderAttemptContext {
     durationMs: number;
     error?: string;
+    errorCode?: string;
     chunksEmitted?: number; // optional for streaming providers
     inputTokens?: number;
     outputTokens?: number;

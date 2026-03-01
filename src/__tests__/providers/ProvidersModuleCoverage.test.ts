@@ -10,6 +10,7 @@ describe("providers module coverage", () => {
 
         const modules = await Promise.all([
             import("#root/providers/openai/capabilities/index.js"),
+            import("#root/providers/openai/capabilities/OpenAIAudioCapabilityImpl.js"),
             import("#root/providers/openai/capabilities/OpenAIChatCapabilityImpl.js"),
             import("#root/providers/openai/capabilities/OpenAIEmbedCapabilityImpl.js"),
             import("#root/providers/openai/capabilities/OpenAIImageAnalysisCapabilityImpl.js"),
@@ -22,6 +23,7 @@ describe("providers module coverage", () => {
             import("#root/providers/anthropic/capabilities/AnthropicImageAnalysisCapabilityImpl.js"),
             import("#root/providers/anthropic/capabilities/AnthropicModerationCapabilityImpl.js"),
             import("#root/providers/gemini/capabilities/index.js"),
+            import("#root/providers/gemini/capabilities/GeminiAudioCapabilityImpl.js"),
             import("#root/providers/gemini/capabilities/GeminiChatCapabilityImpl.js"),
             import("#root/providers/gemini/capabilities/GeminiEmbedCapabilityImpl.js"),
             import("#root/providers/gemini/capabilities/GeminiImageAnalysisCapabilityImpl.js"),
@@ -29,7 +31,7 @@ describe("providers module coverage", () => {
             import("#root/providers/gemini/capabilities/GeminiModerationCapabilityImpl.js")
         ]);
 
-        expect(modules).toHaveLength(18);
+        expect(modules).toHaveLength(20);
         for (const mod of modules) {
             expect(mod).toBeTruthy();
         }

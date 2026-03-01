@@ -72,6 +72,7 @@ describe("AnthropicEmbedCapabilityImpl", () => {
         const single = await cap.embed({ input: { input: "hello" }, context: { requestId: "r1" } } as any);
         expect(single.output).toHaveLength(1);
         expect(single.output[0].vector).toEqual([0.1]);
+        expect(single.output[0].inputId).toBeUndefined();
         expect(single.metadata?.embeddingProvider).toBe("voyage-ai");
 
         const multi = await cap.embed({ input: { input: ["a", "b"] }, context: { requestId: "r2" } } as any);
@@ -79,5 +80,36 @@ describe("AnthropicEmbedCapabilityImpl", () => {
         expect(multi.output[0].vector).toEqual([0.1]);
         expect(multi.output[1].vector).toEqual([0.2, 0.3]);
         expect(multi.output[0].metadata?.requestId).toBe("r2");
+    });
+
+    it("uses Voyage response model fallback and preserves single-input inputId", async () => {
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({ model: undefined, modelParams: {}, providerParams: {} }))
+        } as any;
+        const cap = new AnthropicEmbedCapabilityImpl(provider);
+
+        vi.stubGlobal(
+            "fetch",
+            vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    object: "list",
+                    model: "voyage-fallback-model",
+                    usage: { total_tokens: 3 },
+                    data: [{ object: "embedding", index: 0, embedding: [0.9, 0.1] }]
+                })
+            })
+        );
+
+        const res = await cap.embed({
+            input: { input: "hello", inputId: "input-1" },
+            context: { requestId: "r3" }
+        } as any);
+
+        expect(res.output).toHaveLength(1);
+        expect(res.output[0].inputId).toBe("input-1");
+        expect(res.output[0].metadata?.model).toBe("voyage-fallback-model");
+        expect(res.metadata?.model).toBe("voyage-fallback-model");
     });
 });

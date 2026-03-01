@@ -14,6 +14,8 @@ import {
     parseBestEffortJson
 } from "#root/index.js";
 
+const DEFAULT_GEMINI_IMAGE_ANALYSIS_MODEL = "gemini-2.5-pro";
+
 /**
  * GeminiImageAnalysisCapabilityImpl: Implements image analysis for Gemini using strict prompting.
  *
@@ -115,6 +117,7 @@ export class GeminiImageAnalysisCapabilityImpl
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisCapabilityKey, options);
 
+        // Prompt + inline image bytes in a single user turn keeps ordering deterministic.
         const contents = [
             {
                 role: "user",
@@ -131,7 +134,7 @@ export class GeminiImageAnalysisCapabilityImpl
         ];
 
         const response = await this.client.models.generateContent({
-            model: merged.model ?? "gemini-2.5-pro",
+            model: merged.model ?? DEFAULT_GEMINI_IMAGE_ANALYSIS_MODEL,
             contents,
             config: {
                 temperature: 0,
@@ -140,6 +143,7 @@ export class GeminiImageAnalysisCapabilityImpl
             ...(merged.providerParams ?? {})
         });
 
+        // Gemini can return imperfect JSON; parseBestEffortJson tolerates minor formatting drift.
         const parsed = parseBestEffortJson<GeminiImageAnalysisPayload>(response.text ?? "");
 
         const normalized = this.normalizeGeminiAnalyses(parsed, images);
@@ -155,6 +159,7 @@ export class GeminiImageAnalysisCapabilityImpl
                 model: merged.model,
                 status: "completed",
                 requestId: context?.requestId,
+                // Useful telemetry signal when model emits fewer/more objects than input images.
                 countsMatch: parsed.length === images.length
             }
         };
@@ -200,7 +205,7 @@ export class GeminiImageAnalysisCapabilityImpl
 
         try {
             const stream = await this.client.models.generateContentStream({
-                model: merged.model ?? "gemini-2.5-pro",
+                model: merged.model ?? DEFAULT_GEMINI_IMAGE_ANALYSIS_MODEL,
                 contents: [
                     {
                         role: "user",
@@ -248,6 +253,7 @@ export class GeminiImageAnalysisCapabilityImpl
                     model: merged.model,
                     status: "completed",
                     requestId: context?.requestId,
+                    // Lets callers detect partial/misaligned structured output quickly.
                     countsMatch: parsed.length === images.length
                 }
             };
@@ -277,9 +283,11 @@ export class GeminiImageAnalysisCapabilityImpl
         payload: GeminiImageAnalysisPayload | GeminiImageAnalysisPayload[],
         images: { id?: string }[]
     ): NormalizedImageAnalysis[] {
+        // Single-object and array outputs are both accepted to keep parsing resilient.
         const items = Array.isArray(payload) ? payload : [payload];
 
         return items.map((item, index) => ({
+            // Prefer explicit imageIndex from model output; otherwise fall back to array order.
             id: images[item.imageIndex ?? index]?.id ?? crypto.randomUUID(),
             description: item.description,
             tags: item.tags?.filter(Boolean),

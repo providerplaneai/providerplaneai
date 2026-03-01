@@ -8,14 +8,15 @@ describe("core/provider/capabilities module exports", () => {
 
     it("individual capability modules are importable", async () => {
         const chat = await import("#root/core/provider/capabilities/ChatCapability.js");
+        const audio = await import("#root/core/provider/capabilities/AudioCapability.js");
         const embed = await import("#root/core/provider/capabilities/EmbedCapability.js");
         const image = await import("#root/core/provider/capabilities/ImageCapability.js");
         const moderation = await import("#root/core/provider/capabilities/ModerationCapability.js");
 
         expect(chat).toBeTypeOf("object");
+        expect(audio).toBeTypeOf("object");
         expect(embed).toBeTypeOf("object");
         expect(image).toBeTypeOf("object");
         expect(moderation).toBeTypeOf("object");
     });
 });
-
