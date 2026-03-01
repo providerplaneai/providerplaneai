@@ -33,7 +33,11 @@
                 "defaultModels": {
                     "chat": "gpt-5",
                     "embed": "text-embedding-3-large",
-                    "audio": "gpt-4o-transcribe",
+                    "audioTranscription": "gpt-4o-transcribe",
+                    "audioTranscriptionStream": "gpt-4o-transcribe",
+                    "audioTranslation": "whisper-1",
+                    "audioTts": "gpt-4o-mini-tts",
+                    "audioTtsStream": "gpt-4o-mini-tts",
                     "video": "sora-2",
                     "moderation": "omni-moderation-latest"
                 },
@@ -74,20 +78,54 @@
                         }
                     },
                     "gpt-4o-transcribe": {
-                        "audio": {
+                        "audioTranscription": {
                             "modelParams": {
                                 "language": "en"
                             },
-                            "providerParams": {}
+                            "providerParams": {},
+                            "generalParams": {
+                                "audioStreamBatchSize": 64
+                            }
+                        },
+                        "audioTranscriptionStream": {
+                            "modelParams": {
+                                "language": "en"
+                            },
+                            "providerParams": {},
+                            "generalParams": {
+                                "audioStreamBatchSize": 64
+                            }
+                        }
+                    },
+                    "whisper-1": {
+                        "audioTranslation": {
+                            "modelParams": {
+                                "response_format": "json"
+                            },
+                            "providerParams": {},
+                            "generalParams": {}
                         }
                     },
                     "gpt-4o-mini-tts": {
-                        "audio": {
+                        "audioTts": {
                             "modelParams": {
                                 "language": "en",
                                 "voice": "alloy"
                             },
-                            "providerParams": {}
+                            "providerParams": {},
+                            "generalParams": {
+                                "maxTtsOutputBytes": 8388608
+                            }
+                        },
+                        "audioTtsStream": {
+                            "modelParams": {
+                                "language": "en",
+                                "voice": "alloy"
+                            },
+                            "providerParams": {},
+                            "generalParams": {
+                                "maxTtsOutputBytes": 8388608
+                            }
                         }
                     },
                     "sora-2": {
@@ -109,78 +147,7 @@
             },
             "fallback": {
                 "type": "openai",
-                "apiKeyEnvVar": "OPENAI_API_KEY_2",
-                "defaultModel": "gpt-5",
-                "defaultModels": {
-                    "chat": "gpt-5",
-                    "completion": "gpt-3.5-turbo-instruct",
-                    "embedding": "text-embedding-3-large",
-                    "image": "gpt-5",
-                    "audio": "gpt-4o-transcribe",
-                    "video": "sora-2",
-                    "moderation": "omni-moderation-latest"
-                },
-                "providerDefaults": {
-                },
-                "models": {
-                    "gpt-5": {
-                        "chat": {
-                            "modelParams": {
-                                "instructions": "Talk like a pirate."
-                            },
-                            "providerParams": {}
-                        }
-                    },
-                    "text-embedding-3-large": {
-                        "embed": {
-                            "modelParams": {
-                                "encodingFormat": "float",
-                                "dimensions": 3072
-                            },
-                            "providerParams": {}
-                        }
-                    },
-                    "gpt-3.5-turbo-instruct": {
-                        "completion": {
-                            "modelParams": {
-                                "max_tokens": 512
-                            },
-                            "providerParams": {}
-                        }
-                    },
-                    "gpt-4o-transcribe": {
-                        "audio": {
-                            "modelParams": {
-                                "language": "en"
-                            },
-                            "providerParams": {}
-                        }
-                    },
-                    "gpt-4o-mini-tts": {
-                        "audio": {
-                            "modelParams": {
-                                "language": "en",
-                                "voice": "alloy"
-                            },
-                            "providerParams": {}
-                        }
-                    },
-                    "sora-2": {
-                        "video": {
-                            "modelParams": {
-                                "seconds": "8",
-                                "size": "1280x720"
-                            },
-                            "providerParams": {}
-                        }
-                    },
-                    "omni-moderation-latest": {
-                        "moderation": {
-                            "modelParams": {},
-                            "providerParams": {}
-                        }
-                    }
-                }
+                "apiKeyEnvVar": "OPENAI_API_KEY_2"                
             }
         },
         "anthropic": {
@@ -227,7 +194,12 @@
                     "chat": "gemini-2.5-flash-lite",
                     "embed": "gemini-embedding-001",
                     "imageGeneration": "imagen-4.0-generate-001",
-                    "imageGenerateStream": "imagen-4.0-generate-001"
+                    "imageGenerateStream": "imagen-4.0-generate-001",
+                    "audioTranscription": "gemini-2.5-flash",
+                    "audioTranscriptionStream": "gemini-2.5-flash",
+                    "audioTranslation": "gemini-2.5-flash",
+                    "audioTts": "gemini-2.5-flash-preview-tts",
+                    "audioTtsStream": "gemini-2.5-flash-preview-tts"                
                 },
                 "providerDefaults": {
                     "providerParams": {}
@@ -250,6 +222,51 @@
                             "providerParams": {},
                             "generalParams": {
                                 "chatStreamBatchSize": 64
+                            }
+                        }
+                    },
+                    "gemini-2.5-flash": {
+                        "audioTranscription": {
+                            "modelParams": {},
+                            "providerParams": {},
+                            "generalParams": {
+                                "audioStreamBatchSize": 64
+                            }
+                        },
+                        "audioTranscriptionStream": {
+                            "modelParams": {},
+                            "providerParams": {},
+                            "generalParams": {
+                                "audioStreamBatchSize": 64
+                            }
+                        },
+                        "audioTranslation": {
+                            "modelParams": {},
+                            "providerParams": {},
+                            "generalParams": {}
+                        }
+                    },
+                    "gemini-2.5-flash-preview-tts": {
+                        "audioTts": {
+                            "modelParams": {},
+                            "providerParams": {},
+                            "generalParams": {
+                                "geminiTtsMaxAttempts": 3,
+                                "geminiTtsRetryBaseMs": 100,
+                                "geminiTtsRetryMaxMs": 1000,
+                                "geminiTtsRetryJitterRatio": 0.2,
+                                "maxTtsOutputBytes": 8388608
+                            }
+                        },
+                        "audioTtsStream": {
+                            "modelParams": {},
+                            "providerParams": {},
+                            "generalParams": {
+                                "geminiTtsMaxAttempts": 3,
+                                "geminiTtsRetryBaseMs": 100,
+                                "geminiTtsRetryMaxMs": 1000,
+                                "geminiTtsRetryJitterRatio": 0.2,
+                                "maxTtsOutputBytes": 8388608
                             }
                         }
                     },

@@ -143,6 +143,25 @@ describe("AnthropicChatCapabilityImpl", () => {
         expect(out.value?.metadata?.status).toBe("error");
     });
 
+    it("chatStream suppresses non-abort stream errors (no terminal error chunk)", async () => {
+        const provider = makeProvider();
+        const client = {
+            messages: {
+                stream: vi.fn(() => {
+                    throw new Error("transport failed");
+                })
+            }
+        };
+        const cap = new AnthropicChatCapabilityImpl(provider, client as any);
+
+        const out = await cap.chatStream({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "go" }] }] }
+        } as any).next();
+
+        expect(out.done).toBe(true);
+        expect(out.value).toBeUndefined();
+    });
+
     it("chatStream flushes short buffer and exits silently when aborted", async () => {
         const provider = makeProvider();
         const streamObj = {

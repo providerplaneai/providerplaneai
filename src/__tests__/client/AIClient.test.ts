@@ -410,25 +410,30 @@ describe("AIClient private policy execution", () => {
         expect(result.metadata?.providerAttempts).toHaveLength(2);
     });
 
-    it("executeWithPolicy records missing-provider failures then succeeds on later provider with sanitized error metadata", async () => {
+    it("executeWithPolicy preserves structured errorCode in sanitized providerAttempts metadata", async () => {
         const { AIClient, root } = await loadClient();
         const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
         const ctx = new root.MultiModalExecutionContext();
-        const capability = root.CapabilityKeys.ChatCapabilityKey;
+        const capability = "custom:audio-code";
 
         vi.spyOn(root, "withRequestContext").mockImplementation(async (_req, fn) => fn(_req));
+        client.registerProvider(makeProvider((c) => c === capability), root.AIProvider.OpenAI, "fallback");
         const chain: ProviderRef[] = [
-            { providerType: root.AIProvider.OpenAI, connectionName: "missing" },
-            { providerType: root.AIProvider.OpenAI, connectionName: "default" }
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" },
+            { providerType: root.AIProvider.OpenAI, connectionName: "fallback" }
         ];
 
-        const executeFn = vi.fn(async () => ({ output: { role: "assistant", content: [] }, metadata: {} }));
+        const executeFn = vi
+            .fn()
+            .mockRejectedValueOnce(new root.AudioCapabilityError("AUDIO_EMPTY_RESPONSE", "no audio"))
+            .mockResolvedValueOnce({ output: "ok", metadata: {} });
         const result = await (client as any).executeWithPolicy(capability, { input: {} }, ctx, executeFn, chain);
         const attempts = result.metadata?.providerAttempts as Array<Record<string, unknown>>;
 
-        expect(executeFn).toHaveBeenCalledTimes(1);
+        expect(executeFn).toHaveBeenCalledTimes(2);
         expect(attempts).toHaveLength(2);
         expect(attempts[0].error).toBe("Provider attempt failed");
+        expect(attempts[0].errorCode).toBe("AUDIO_EMPTY_RESPONSE");
         expect(attempts[1].error).toBeUndefined();
     });
 
@@ -659,6 +664,15 @@ describe("AIClient private helpers", () => {
         expect(forwarded.aborted).toBe(false);
         upstream.abort("boom");
         expect(forwarded.aborted).toBe(true);
+
+        const alreadyAborted = new AbortController();
+        alreadyAborted.abort("already");
+        const preAbortedForwarded = client.createExecutionSignal({
+            input: {},
+            signal: alreadyAborted.signal,
+            timeoutMs: 1000
+        });
+        expect(preAbortedForwarded.aborted).toBe(true);
     });
 
     it("createExecutionSignal enforces timeout abort", async () => {
@@ -678,6 +692,8 @@ describe("AIClient private helpers", () => {
         const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
 
         expect(client.modalityForCapability(root.CapabilityKeys.EmbedCapabilityKey)).toBe("embedding");
+        expect(client.modalityForCapability(root.CapabilityKeys.ChatCapabilityKey)).toBe("chat");
+        expect(client.modalityForCapability(root.CapabilityKeys.AudioTranscriptionCapabilityKey)).toBe("audio");
         expect(client.modalityForCapability(root.CapabilityKeys.ModerationCapabilityKey)).toBe("moderation");
         expect(client.modalityForCapability(root.CapabilityKeys.ImageGenerationCapabilityKey)).toBe("imageGeneration");
         expect(client.modalityForCapability(root.CapabilityKeys.ImageEditCapabilityKey)).toBe("imageEdit");
@@ -687,6 +703,7 @@ describe("AIClient private helpers", () => {
         expect(client.extractRawUsage(null)).toEqual({});
         expect(client.extractRawUsage({ usage: { total_tokens: 3 } })).toEqual({ total_tokens: 3 });
         expect(client.extractRawUsage({ usageMetadata: { totalTokenCount: 4 } })).toEqual({ totalTokenCount: 4 });
+        expect(client.extractRawUsage({ any: "value" })).toEqual({});
 
         const extracted = client.extractAttemptUsage(
             { inputTokens: 1, outputTokens: 2, totalTokens: 3, estimatedCost: 0.1 },
@@ -694,22 +711,38 @@ describe("AIClient private helpers", () => {
         );
         expect(extracted).toMatchObject({ inputTokens: 1, outputTokens: 2, totalTokens: 3, estimatedCost: 0.1 });
 
+        const extractedFallback = client.extractAttemptUsage(
+            {},
+            { usageMetadata: { promptTokenCount: 7, candidatesTokenCount: 8, totalTokenCount: 15 } }
+        );
+        expect(extractedFallback).toMatchObject({ inputTokens: 7, outputTokens: 8, totalTokens: 15 });
+
         const ctx = {
             applyAssistantMessage: vi.fn(),
             attachArtifacts: vi.fn()
         };
         client.applyOutputToContext(root.CapabilityKeys.ChatCapabilityKey, { role: "assistant", content: [] }, ctx);
         client.applyOutputToContext(root.CapabilityKeys.EmbedCapabilityKey, [{ vector: [1] }], ctx);
+        client.applyOutputToContext(
+            root.CapabilityKeys.AudioTranscriptionCapabilityKey,
+            [{ kind: "transcription", mimeType: "audio/wav", transcript: "hello" }],
+            ctx
+        );
         client.applyOutputToContext(root.CapabilityKeys.ModerationCapabilityKey, [{ flagged: false }], ctx);
         client.applyOutputToContext(root.CapabilityKeys.ImageGenerationCapabilityKey, [{ id: "i" }], ctx);
         client.applyOutputToContext(root.CapabilityKeys.ImageAnalysisCapabilityKey, [{ id: "a" }], ctx);
         client.applyOutputToContext(root.CapabilityKeys.ImageEditStreamCapabilityKey, [{ id: "m" }], ctx);
         client.applyOutputToContext("custom:unknown", { any: true }, ctx);
         expect(ctx.applyAssistantMessage).toHaveBeenCalledTimes(1);
-        expect(ctx.attachArtifacts).toHaveBeenCalledTimes(4);
+        expect(ctx.attachArtifacts).toHaveBeenCalledTimes(5);
 
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ChatCapabilityKey, { role: "assistant", content: [] })).toHaveProperty("chat");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.EmbedCapabilityKey, [{ vector: [1] }])).toHaveProperty("embeddings");
+        expect(
+            client.buildArtifactsFromOutput(root.CapabilityKeys.AudioTextToSpeechCapabilityKey, [
+                { kind: "tts", mimeType: "audio/mpeg", base64: "AQID" }
+            ])
+        ).toHaveProperty("audio");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ModerationCapabilityKey, [{ flagged: false }])).toHaveProperty("moderation");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageGenerationCapabilityKey, [{ id: "i" }])).toHaveProperty("images");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageAnalysisCapabilityKey, [{ id: "a" }])).toHaveProperty("analysis");
@@ -724,5 +757,10 @@ describe("AIClient private helpers", () => {
         });
         expect(target.images).toHaveLength(2);
         expect(target.embeddings).toHaveLength(1);
+
+        const coded = client.extractAttemptErrorCode(new root.AudioCapabilityError("AUDIO_EMPTY_RESPONSE", "no audio"));
+        const parsed = client.extractAttemptErrorCode(new Error("[AUDIO_OUTPUT_TOO_LARGE] too big"));
+        expect(coded).toBe("AUDIO_EMPTY_RESPONSE");
+        expect(parsed).toBe("AUDIO_OUTPUT_TOO_LARGE");
     });
 });

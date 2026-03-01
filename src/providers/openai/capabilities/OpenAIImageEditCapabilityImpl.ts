@@ -16,13 +16,15 @@ import {
     NormalizedMask
 } from "#root/index.js";
 
+const DEFAULT_OPENAI_IMAGE_EDIT_MODEL = "gpt-4.1";
+
 /**
  * OpenAIImageEditCapabilityImpl: Implements provider-agnostic image editing using OpenAI.
  *
  * Supports:
  * - Non-streaming and streaming image edits
  * - Multi-turn history
- * - Automatic and manual masks
+ * - Manual masks
  * - Normalized outputs for images and masks
  */
 export class OpenAIImageEditCapabilityImpl
@@ -61,7 +63,7 @@ export class OpenAIImageEditCapabilityImpl
 
         const response = await this.client.responses.create(
             {
-                model: merged.model ?? "gpt-4.1",
+                model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                 input: [{ role: "user", content }],
                 tools: [
                     {
@@ -96,7 +98,7 @@ export class OpenAIImageEditCapabilityImpl
             metadata: {
                 ...(context?.metadata ?? {}),
                 provider: AIProvider.OpenAI,
-                model: merged.model ?? "gpt-4.1",
+                model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                 status: "completed",
                 requestId: context?.requestId
             }
@@ -133,7 +135,7 @@ export class OpenAIImageEditCapabilityImpl
 
             const stream = this.client.responses.stream(
                 {
-                    model: merged.model ?? "gpt-4.1",
+                    model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                     input: [{ role: "user", content }],
                     tools: [
                         {
@@ -188,7 +190,7 @@ export class OpenAIImageEditCapabilityImpl
                     metadata: {
                         ...(context?.metadata ?? {}),
                         provider: AIProvider.OpenAI,
-                        model: merged.model ?? "gpt-4.1",
+                        model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                         status: "incomplete",
                         requestId: context?.requestId
                     }
@@ -208,7 +210,7 @@ export class OpenAIImageEditCapabilityImpl
                 metadata: {
                     ...(context?.metadata ?? {}),
                     provider: AIProvider.OpenAI,
-                    model: merged.model ?? "gpt-4.1",
+                    model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                     status: "completed",
                     requestId: context?.requestId
                 }
@@ -227,7 +229,7 @@ export class OpenAIImageEditCapabilityImpl
                 metadata: {
                     ...(context?.metadata ?? {}),
                     provider: AIProvider.OpenAI,
-                    model: merged.model ?? "gpt-4.1",
+                    model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                     status: "error",
                     requestId: context?.requestId
                 }

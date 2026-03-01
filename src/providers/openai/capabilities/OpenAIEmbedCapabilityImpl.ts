@@ -11,6 +11,8 @@ import {
     NormalizedEmbedding
 } from "#root/index.js";
 
+const DEFAULT_OPENAI_EMBED_MODEL = "text-embedding-3-large";
+
 /**
  * OpenAIEmbedCapabilityImpl: Implements embedding capability for OpenAI.
  *
@@ -73,7 +75,7 @@ export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
         // OpenAI supports batch embeddings in a single API call
         const response: OpenAI.Embeddings.CreateEmbeddingResponse = await this.client.embeddings.create(
             {
-                model: merged.model ?? "text-embedding-3-large",
+                model: merged.model ?? DEFAULT_OPENAI_EMBED_MODEL,
                 input: input.input,
                 ...(merged.modelParams ?? {}),
                 ...(merged.providerParams ?? {})

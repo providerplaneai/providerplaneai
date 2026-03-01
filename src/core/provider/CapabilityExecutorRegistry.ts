@@ -217,6 +217,31 @@ export function createDefaultExecutors(): CapabilityExecutorRegistry {
         invoke: (capability, input, ctx, signal) => capability.embed(input, ctx, signal)
     });
 
+    registry.register(CapabilityKeys.AudioTranscriptionCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.transcribeAudio(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.AudioTranscriptionStreamCapabilityKey, {
+        streaming: true,
+        invoke: (capability, input, ctx, signal) => capability.transcribeAudioStream(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.AudioTranslationCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.translateAudio(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.AudioTextToSpeechCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.textToSpeech(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey, {
+        streaming: true,
+        invoke: (capability, input, ctx, signal) => capability.textToSpeechStream(input, ctx, signal)
+    });
+
     // Register default non-streaming moderation executor
     registry.register(CapabilityKeys.ModerationCapabilityKey, {
         streaming: false,

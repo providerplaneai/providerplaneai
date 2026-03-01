@@ -14,6 +14,8 @@ import {
     NormalizedChatMessage
 } from "#root/index.js";
 
+const DEFAULT_GEMINI_CHAT_MODEL = "gemini-2.5-flash-latest";
+
 export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatRequest>, ChatStreamCapability<ClientChatRequest> {
     constructor(
         private readonly provider: BaseProvider,
@@ -36,7 +38,7 @@ export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatReques
         const merged = this.provider.getMergedOptions(CapabilityKeys.ChatCapabilityKey, options);
 
         const response = await this.client.models.generateContent({
-            model: (merged.model ?? "gemini-2.5-flash-latest").replace(/^models\//, ""),
+            model: (merged.model ?? DEFAULT_GEMINI_CHAT_MODEL).replace(/^models\//, ""),
             contents: this.buildContents(input.messages),
             ...(merged.modelParams ?? {}),
             ...(merged.providerParams ?? {})
@@ -89,7 +91,7 @@ export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatReques
 
         try {
             const stream = await this.client.models.generateContentStream({
-                model: (merged.model ?? "gemini-2.5-flash-latest").replace(/^models\//, ""),
+                model: (merged.model ?? DEFAULT_GEMINI_CHAT_MODEL).replace(/^models\//, ""),
                 contents: this.buildContents(input.messages),
                 ...(merged.modelParams ?? {}),
                 ...(merged.providerParams ?? {})

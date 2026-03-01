@@ -25,6 +25,7 @@ import {
     NormalizedModeration,
     NormalizedChatMessage,
     NormalizedEmbedding,
+    NormalizedAudio,
     NormalizedUserInput,
     TimelineArtifacts,
     BuiltInCapabilityKey,
@@ -37,6 +38,7 @@ import {
     CapabilityExecutor,
     NonStreamingExecutor,
     StreamingExecutor,
+    AudioCapabilityError,
     AIClientLifecycleHooks,
     JobLifecycleHooks,
     readNumber,
@@ -421,6 +423,8 @@ export class AIClient {
             this._jobManager.getMaxRawBytesPerJob() ??
             this.appConfig.appConfig?.maxRawBytesPerJob;
 
+        // This is the core job creation logic that wires together capability execution, provider routing, lifecycle hooks, and response handling.
+        // The executor is responsible for invoking the capability on a provider and returning results in a standardized format.
         const job = new GenericJob<AIRequest<TInput>, TOutput>(
             request,
             streaming,
@@ -626,7 +630,8 @@ export class AIClient {
                 const failure: ProviderAttemptResult = {
                     ...attemptCtx,
                     durationMs: Date.now() - startTime,
-                    error: err instanceof Error ? err.message : String(err)
+                    error: err instanceof Error ? err.message : String(err),
+                    errorCode: this.extractAttemptErrorCode(err)
                 };
 
                 errors.push(failure);
@@ -826,7 +831,8 @@ export class AIClient {
                     ...attemptCtx,
                     durationMs: Date.now() - startTime,
                     chunksEmitted,
-                    error: err instanceof Error ? err.message : String(err)
+                    error: err instanceof Error ? err.message : String(err),
+                    errorCode: this.extractAttemptErrorCode(err)
                 };
 
                 errors.push(failure);
@@ -876,8 +882,28 @@ export class AIClient {
             outputTokens: attempt.outputTokens,
             totalTokens: attempt.totalTokens,
             estimatedCost: attempt.estimatedCost,
-            ...(attempt.error ? { error: "Provider attempt failed" } : {})
+            ...(attempt.error ? { error: "Provider attempt failed" } : {}),
+            ...(attempt.errorCode ? { errorCode: attempt.errorCode } : {})
         };
+    }
+
+    private extractAttemptErrorCode(err: unknown): string | undefined {
+        if (!err) {
+            return undefined;
+        }
+
+        if (err instanceof AudioCapabilityError) {
+            return err.code;
+        }
+
+        const message = err instanceof Error ? err.message : String(err);
+        const bracketCode = message.match(/^\[([A-Z0-9_]+)\]/)?.[1];
+        if (bracketCode) {
+            return bracketCode;
+        }
+
+        const objectCode = (err as { code?: unknown })?.code;
+        return typeof objectCode === "string" && objectCode.length > 0 ? objectCode : undefined;
     }
 
     /**
@@ -976,6 +1002,12 @@ export class AIClient {
             case CapabilityKeys.EmbedCapabilityKey:
                 // Embedding capability
                 return "embedding";
+            case CapabilityKeys.AudioTranscriptionCapabilityKey:
+            case CapabilityKeys.AudioTranscriptionStreamCapabilityKey:
+            case CapabilityKeys.AudioTranslationCapabilityKey:
+            case CapabilityKeys.AudioTextToSpeechCapabilityKey:
+            case CapabilityKeys.AudioTextToSpeechStreamCapabilityKey:
+                return "audio";
             case CapabilityKeys.ModerationCapabilityKey:
                 // Moderation capability
                 return "moderation";
@@ -1015,6 +1047,16 @@ export class AIClient {
             case CapabilityKeys.EmbedCapabilityKey:
                 context.attachArtifacts({
                     embeddings: expectArrayForCapability<NormalizedEmbedding>(capability, output, "embeddings output")
+                });
+                break;
+
+            case CapabilityKeys.AudioTranscriptionCapabilityKey:
+            case CapabilityKeys.AudioTranscriptionStreamCapabilityKey:
+            case CapabilityKeys.AudioTranslationCapabilityKey:
+            case CapabilityKeys.AudioTextToSpeechCapabilityKey:
+            case CapabilityKeys.AudioTextToSpeechStreamCapabilityKey:
+                context.attachArtifacts({
+                    audio: expectArrayForCapability<NormalizedAudio>(capability, output, "audio output")
                 });
                 break;
 
@@ -1131,6 +1173,12 @@ export class AIClient {
                 return { chat: [expectObjectForCapability<NormalizedChatMessage>(capability, output, "chat output")] };
             case CapabilityKeys.EmbedCapabilityKey:
                 return { embeddings: expectArrayForCapability<NormalizedEmbedding>(capability, output, "embeddings output") };
+            case CapabilityKeys.AudioTranscriptionCapabilityKey:
+            case CapabilityKeys.AudioTranscriptionStreamCapabilityKey:
+            case CapabilityKeys.AudioTranslationCapabilityKey:
+            case CapabilityKeys.AudioTextToSpeechCapabilityKey:
+            case CapabilityKeys.AudioTextToSpeechStreamCapabilityKey:
+                return { audio: expectArrayForCapability<NormalizedAudio>(capability, output, "audio output") };
             case CapabilityKeys.ModerationCapabilityKey:
                 return { moderation: expectArrayForCapability<NormalizedModeration>(capability, output, "moderation output") };
             case CapabilityKeys.ImageGenerationCapabilityKey:

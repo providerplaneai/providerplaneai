@@ -16,7 +16,8 @@ describe('AllProvidersFailedError', () => {
             attemptIndex: 0,
             startTime: 123,
             durationMs: 100,
-            error: 'timeout'
+            error: 'timeout',
+            errorCode: 'AUDIO_EMPTY_RESPONSE'
         },
         {
             capability,
@@ -83,6 +84,7 @@ describe('AllProvidersFailedError', () => {
         expect(json.error.capability).toBe(capability);
         expect(Array.isArray(json.error.attempts)).toBe(true);
         expect(json.error.attempts.length).toBe(2);
+        expect(json.error.attempts[0]?.errorCode).toBe('AUDIO_EMPTY_RESPONSE');
     });
 
     it('toSummary returns concise summary', () => {
@@ -91,6 +93,7 @@ describe('AllProvidersFailedError', () => {
         expect(summary.name).toBe('AllProvidersFailedError');
         expect(summary.capability).toBe(capability);
         expect(Array.isArray(summary.attempts)).toBe(true);
+        expect(summary.attempts[0]?.errorCode).toBe('AUDIO_EMPTY_RESPONSE');
     });
 
     it('handles empty providerChain and attempts', () => {

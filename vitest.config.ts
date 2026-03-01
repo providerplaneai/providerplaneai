@@ -15,6 +15,12 @@ export default defineConfig({
         environment: "node",
         setupFiles: "src/__tests__/setupTests.ts",
         coverage: {
+            thresholds: {
+                lines: 90,
+                functions: 90,
+                branches: 85, // Branch coverage is often lower due to error handling paths, so set slightly lower threshold
+                statements: 90
+            },
             clean: false,
             reportsDirectory: coverageDir,
             cleanOnRerun: true,

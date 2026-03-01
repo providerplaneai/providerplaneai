@@ -11,6 +11,8 @@ import {
     NormalizedModeration
 } from "#root/index.js";
 
+const DEFAULT_GEMINI_MODERATION_MODEL = "gemini-2.5-flash-lite";
+
 /**
  * GeminiModerationCapabilityImpl: Implements moderation for Gemini using structured response schema.
  *
@@ -107,7 +109,7 @@ export class GeminiModerationCapabilityImpl implements ModerationCapability<Clie
                     `Respond strictly according to policy.\n\nContent:\n"${text}"`;
 
                 return this.client.models.generateContent({
-                    model: merged.model ?? "gemini-2.5-flash-lite",
+                    model: merged.model ?? DEFAULT_GEMINI_MODERATION_MODEL,
                     contents: [{ role: "user", parts: [{ text: prompt }] }],
                     config: {
                         responseMimeType: "application/json",

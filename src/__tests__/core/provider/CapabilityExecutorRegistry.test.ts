@@ -61,6 +61,11 @@ describe("CapabilityExecutorRegistry", () => {
 
         expect(registry.get(CapabilityKeys.ChatCapabilityKey).streaming).toBe(false);
         expect(registry.get(CapabilityKeys.ChatStreamCapabilityKey).streaming).toBe(true);
+        expect(registry.get(CapabilityKeys.AudioTranscriptionCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.AudioTranscriptionStreamCapabilityKey).streaming).toBe(true);
+        expect(registry.get(CapabilityKeys.AudioTranslationCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.AudioTextToSpeechCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey).streaming).toBe(true);
         expect(registry.get(CapabilityKeys.ImageGenerationCapabilityKey).streaming).toBe(false);
         expect(registry.get(CapabilityKeys.ImageGenerationStreamCapabilityKey).streaming).toBe(true);
         expect(registry.get(CapabilityKeys.ImageAnalysisCapabilityKey).streaming).toBe(false);
@@ -80,10 +85,22 @@ describe("CapabilityExecutorRegistry", () => {
         const image = vi.fn(async () => ({ output: "image-ok" }));
         const analysis = vi.fn(async () => ({ output: "analysis-ok" }));
         const edit = vi.fn(async () => ({ output: "edit-ok" }));
+        const transcribeAudio = vi.fn(async () => ({ output: "transcribe-ok" }));
+        const translateAudio = vi.fn(async () => ({ output: "translate-ok" }));
+        const textToSpeech = vi.fn(async () => ({ output: "tts-ok" }));
         const embed = vi.fn(async () => ({ output: "embed-ok" }));
         const moderation = vi.fn(async () => ({ output: "moderation-ok" }));
 
         await registry.get(CapabilityKeys.ChatCapabilityKey).invoke({ chat } as any, input, ctx);
+        await registry
+            .get(CapabilityKeys.AudioTranscriptionCapabilityKey)
+            .invoke({ transcribeAudio } as any, input, ctx);
+        await registry
+            .get(CapabilityKeys.AudioTranslationCapabilityKey)
+            .invoke({ translateAudio } as any, input, ctx);
+        await registry
+            .get(CapabilityKeys.AudioTextToSpeechCapabilityKey)
+            .invoke({ textToSpeech } as any, input, ctx);
         await registry.get(CapabilityKeys.ImageGenerationCapabilityKey).invoke({ generateImage: image } as any, input, ctx);
         await registry.get(CapabilityKeys.ImageAnalysisCapabilityKey).invoke({ analyzeImage: analysis } as any, input, ctx);
         await registry.get(CapabilityKeys.ImageEditCapabilityKey).invoke({ editImage: edit } as any, input, ctx);
@@ -91,6 +108,9 @@ describe("CapabilityExecutorRegistry", () => {
         await registry.get(CapabilityKeys.ModerationCapabilityKey).invoke({ moderation } as any, input, ctx);
 
         expect(chat).toHaveBeenCalledTimes(1);
+        expect(transcribeAudio).toHaveBeenCalledTimes(1);
+        expect(translateAudio).toHaveBeenCalledTimes(1);
+        expect(textToSpeech).toHaveBeenCalledTimes(1);
         expect(image).toHaveBeenCalledTimes(1);
         expect(analysis).toHaveBeenCalledTimes(1);
         expect(edit).toHaveBeenCalledTimes(1);
@@ -115,24 +135,46 @@ describe("CapabilityExecutorRegistry", () => {
         const editStream = vi.fn(async function* () {
             yield { delta: "e1" };
         });
+        const audioTranscriptionStream = vi.fn(async function* () {
+            yield { delta: "t1" };
+        });
+        const audioTtsStream = vi.fn(async function* () {
+            yield { delta: "s1" };
+        });
 
         const chatExec = registry.get(CapabilityKeys.ChatStreamCapabilityKey) as StreamingExecutor<any, any, any>;
         const imageExec = registry.get(CapabilityKeys.ImageGenerationStreamCapabilityKey) as StreamingExecutor<any, any, any>;
         const analysisExec = registry.get(CapabilityKeys.ImageAnalysisStreamCapabilityKey) as StreamingExecutor<any, any, any>;
         const editExec = registry.get(CapabilityKeys.ImageEditStreamCapabilityKey) as StreamingExecutor<any, any, any>;
+        const audioTranscriptionExec = registry.get(
+            CapabilityKeys.AudioTranscriptionStreamCapabilityKey
+        ) as StreamingExecutor<any, any, any>;
+        const audioTtsExec = registry.get(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey) as StreamingExecutor<
+            any,
+            any,
+            any
+        >;
 
         const chatChunks = await collect(chatExec.invoke({ chatStream } as any, input, ctx));
         const imageChunks = await collect(imageExec.invoke({ generateImageStream: imageStream } as any, input, ctx));
         const analysisChunks = await collect(analysisExec.invoke({ analyzeImageStream: analysisStream } as any, input, ctx));
         const editChunks = await collect(editExec.invoke({ editImageStream: editStream } as any, input, ctx));
+        const transcriptionChunks = await collect(
+            audioTranscriptionExec.invoke({ transcribeAudioStream: audioTranscriptionStream } as any, input, ctx)
+        );
+        const ttsChunks = await collect(audioTtsExec.invoke({ textToSpeechStream: audioTtsStream } as any, input, ctx));
 
         expect(chatStream).toHaveBeenCalledTimes(1);
         expect(imageStream).toHaveBeenCalledTimes(1);
         expect(analysisStream).toHaveBeenCalledTimes(1);
         expect(editStream).toHaveBeenCalledTimes(1);
+        expect(audioTranscriptionStream).toHaveBeenCalledTimes(1);
+        expect(audioTtsStream).toHaveBeenCalledTimes(1);
         expect(chatChunks).toEqual([{ delta: "c1" }]);
         expect(imageChunks).toEqual([{ delta: "i1" }]);
         expect(analysisChunks).toEqual([{ delta: "a1" }]);
         expect(editChunks).toEqual([{ delta: "e1" }]);
+        expect(transcriptionChunks).toEqual([{ delta: "t1" }]);
+        expect(ttsChunks).toEqual([{ delta: "s1" }]);
     });
 });

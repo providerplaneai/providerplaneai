@@ -16,26 +16,37 @@ import {
 } from "#root/index.js";
 
 /**
- * AnthropicChatCapabilityImpl
+ * Anthropic chat capability implementation.
  *
- * Semantic parity with OpenAI chat:
- * - NormalizedChatMessage output
- * - Streaming delta + accumulated output
+ * This adapter maps Anthropic message APIs into ProviderPlaneAI's normalized chat
+ * response and chunk shapes, while keeping provider-specific event details local.
+ *
+ * Current behavior:
+ * - Text-only chat parts are supported.
+ * - Non-stream and stream paths both expose normalized usage metadata when available.
  */
 export class AnthropicChatCapabilityImpl
     implements
         ChatCapability<ClientChatRequest, NormalizedChatMessage>,
         ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
 {
+    /**
+     * @param provider Owning provider instance (initialization + config access)
+     * @param client Initialized Anthropic SDK client
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: Anthropic
     ) {}
 
-    /* ------------------------------------------------------------------ */
-    /* Non-streaming chat                                                  */
-    /* ------------------------------------------------------------------ */
-
+    /**
+     * Executes a non-streaming Anthropic chat request.
+     *
+     * @param request Unified chat request
+     * @param _executionContext Optional execution context (unused)
+     * @param signal Optional abort signal
+     * @returns Normalized single assistant message response
+     */
     async chat(
         request: AIRequest<ClientChatRequest>,
         _executionContext?: MultiModalExecutionContext,
@@ -55,6 +66,7 @@ export class AnthropicChatCapabilityImpl
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.ChatCapabilityKey, options);
 
+        // Use the same max_tokens default as the stream path for consistent behavior.
         const response = await this.client.messages.create(
             {
                 model: merged.model,
@@ -93,10 +105,17 @@ export class AnthropicChatCapabilityImpl
         };
     }
 
-    /* ------------------------------------------------------------------ */
-    /* Streaming chat                                                      */
-    /* ------------------------------------------------------------------ */
-
+    /**
+     * Executes a streaming Anthropic chat request.
+     *
+     * Chunks are buffered and emitted in batches (`chatStreamBatchSize`) to
+     * reduce chunk churn for downstream consumers.
+     *
+     * @param request Unified chat request
+     * @param _executionContext Optional execution context (unused)
+     * @param signal Optional abort signal
+     * @returns Async stream of normalized chat chunks
+     */
     async *chatStream(
         request: AIRequest<ClientChatRequest>,
         _executionContext?: MultiModalExecutionContext,
@@ -112,6 +131,7 @@ export class AnthropicChatCapabilityImpl
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.ChatStreamCapabilityKey, options);
 
+        // Batch small provider deltas into larger chunks for smoother UI updates.
         const batchSize = Number(merged?.generalParams?.chatStreamBatchSize ?? 64);
 
         let responseId: string | undefined;
@@ -135,6 +155,7 @@ export class AnthropicChatCapabilityImpl
                     return;
                 }
 
+                // Capture provider response id as soon as it is available.
                 if (event.type === "message_start") {
                     responseId ??= event.message?.id;
                 }
@@ -144,6 +165,7 @@ export class AnthropicChatCapabilityImpl
                     accumulatedText += text;
                     buffer += text;
 
+                    // Flush buffer once threshold is reached.
                     if (buffer.length >= batchSize) {
                         yield this.createChunk(buffer, accumulatedText, responseId, context, merged.model, "incomplete");
                         buffer = "";
@@ -151,6 +173,7 @@ export class AnthropicChatCapabilityImpl
                 }
             }
 
+            // Flush any remaining buffered text at stream end.
             if (buffer.length > 0) {
                 yield this.createChunk(buffer, accumulatedText, responseId, context, merged.model, "incomplete");
             }
@@ -160,7 +183,7 @@ export class AnthropicChatCapabilityImpl
                 const final = await stream.finalMessage();
                 finalUsage = final?.usage;
             } catch {
-                /* ignored */
+                // Usage retrieval failure should not fail the stream after content was emitted.
             }
 
             yield this.createChunk(
@@ -175,13 +198,28 @@ export class AnthropicChatCapabilityImpl
                 finalUsage
             );
         } catch (err) {
-            // Abort is NOT an error — do not emit a terminal chunk
+            // Intentionally preserves existing behavior:
+            // emit an error chunk only for abort/explicit stream-aborted conditions.
             if (signal?.aborted || (err instanceof Error && err.message === "Stream aborted")) {
                 yield this.createChunk("", "", responseId, context, merged.model, "error", true, err);
             }
         }
     }
 
+    /**
+     * Builds one normalized stream chunk.
+     *
+     * @param deltaText Newly received text delta
+     * @param accumulatedText Full assistant text accumulated so far
+     * @param responseId Provider response id when available
+     * @param context Request context
+     * @param model Resolved model name
+     * @param status Chunk status
+     * @param done Whether this is the terminal chunk
+     * @param error Optional terminal error payload
+     * @param usage Optional Anthropic usage payload
+     * @returns Normalized chunk with delta, output, and metadata
+     */
     private createChunk(
         deltaText: string,
         accumulatedText: string,
@@ -193,7 +231,7 @@ export class AnthropicChatCapabilityImpl
         error?: unknown,
         usage?: Anthropic.Messages.Usage
     ): AIResponseChunk<NormalizedChatMessage> {
-        // Merge metadata from context + chunk info
+        // Shared metadata shape for both chunk message payloads and top-level chunk metadata.
         const messageMetadata = {
             ...(context?.metadata ?? {}),
             provider: AIProvider.Anthropic,
@@ -233,6 +271,12 @@ export class AnthropicChatCapabilityImpl
         };
     }
 
+    /**
+     * Extracts normalized usage fields from Anthropic usage payload.
+     *
+     * @param usage Anthropic usage object
+     * @returns Normalized token counts
+     */
     private extractUsage(usage?: Anthropic.Messages.Usage): {
         inputTokens?: number;
         outputTokens?: number;
@@ -251,6 +295,12 @@ export class AnthropicChatCapabilityImpl
         };
     }
 
+    /**
+     * Extracts concatenated assistant text from Anthropic message content blocks.
+     *
+     * @param message Raw Anthropic message
+     * @returns Concatenated text content
+     */
     private extractText(message: any): string {
         return (message?.content ?? [])
             .filter((c: any) => c.type === "text")
@@ -258,6 +308,12 @@ export class AnthropicChatCapabilityImpl
             .join("");
     }
 
+    /**
+     * Maps provider-agnostic client messages into Anthropic message format.
+     *
+     * @param messages Client chat messages
+     * @returns Anthropic message array
+     */
     private buildMessages(messages: ClientChatMessage[]): any[] {
         return messages.map((m) => ({
             role: m.role,
@@ -265,6 +321,14 @@ export class AnthropicChatCapabilityImpl
         }));
     }
 
+    /**
+     * Maps chat parts to Anthropic content blocks.
+     *
+     * Current contract is text-only for Anthropic chat in this implementation.
+     *
+     * @param parts Client message parts
+     * @returns Anthropic content blocks
+     */
     private mapParts(parts: ClientMessagePart[]): any[] {
         return parts.map((part) => {
             if (part.type !== "text") {
@@ -274,6 +338,12 @@ export class AnthropicChatCapabilityImpl
         });
     }
 
+    /**
+     * Normalizes Anthropic stop reasons into provider-agnostic completion status.
+     *
+     * @param stopReason Anthropic stop reason
+     * @returns `incomplete` when generation was truncated/paused, else `completed`
+     */
     private normalizeAnthropicStatus(stopReason: Anthropic.Messages.StopReason | null | undefined): "completed" | "incomplete" {
         switch (stopReason) {
             case "max_tokens":

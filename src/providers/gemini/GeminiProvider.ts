@@ -4,17 +4,24 @@ import {
     AIRequest,
     AIResponse,
     AIResponseChunk,
+    AudioTranscriptionCapability,
+    AudioTranscriptionStreamCapability,
+    AudioTranslationCapability,
     BaseProvider,
     CapabilityKeys,
     CapabilityUnsupportedError,
     ChatCapability,
     ChatStreamCapability,
+    ClientAudioTranscriptionRequest,
+    ClientAudioTranslationRequest,
+    ClientTextToSpeechRequest,
     ClientChatRequest,
     ClientEmbeddingRequest,
     ClientImageAnalysisRequest,
     ClientImageGenerationRequest,
     ClientModerationRequest,
     EmbedCapability,
+    GeminiAudioCapabilityImpl,
     GeminiChatCapabilityImpl,
     GeminiEmbedCapabilityImpl,
     GeminiImageAnalysisCapabilityImpl,
@@ -26,12 +33,15 @@ import {
     ImageGenerationStreamCapability,
     ModerationCapability,
     MultiModalExecutionContext,
+    NormalizedAudio,
     NormalizedChatMessage,
     NormalizedEmbedding,
     NormalizedImage,
     NormalizedImageAnalysis,
     NormalizedModeration,
-    ProviderConnectionConfig
+    ProviderConnectionConfig,
+    TextToSpeechCapability,
+    TextToSpeechStreamCapability
 } from "#root/index.js";
 
 /**
@@ -60,7 +70,12 @@ export class GeminiProvider
         ImageGenerationCapability<ClientImageGenerationRequest>,
         ImageGenerationStreamCapability<ClientImageGenerationRequest>,
         ImageAnalysisCapability<ClientImageAnalysisRequest>,
-        ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
+        ImageAnalysisStreamCapability<ClientImageAnalysisRequest>,
+        AudioTranscriptionCapability<ClientAudioTranscriptionRequest>,
+        AudioTranscriptionStreamCapability<ClientAudioTranscriptionRequest>,
+        AudioTranslationCapability<ClientAudioTranslationRequest>,
+        TextToSpeechCapability<ClientTextToSpeechRequest>,
+        TextToSpeechStreamCapability<ClientTextToSpeechRequest>
 {
     /** Underlying Google Gemini SDK client */
     private client: GoogleGenAI | null = null;
@@ -71,6 +86,7 @@ export class GeminiProvider
     private imageAnalysisDelegate: GeminiImageAnalysisCapabilityImpl | null = null;
     private moderationDelegate: GeminiModerationCapabilityImpl | null = null;
     private embedDelegate: GeminiEmbedCapabilityImpl | null = null;
+    private audioDelegate: GeminiAudioCapabilityImpl | null = null;
 
     public constructor() {
         super(AIProvider.Gemini);
@@ -102,6 +118,7 @@ export class GeminiProvider
         this.embedDelegate = new GeminiEmbedCapabilityImpl(this, this.client);
         this.imageGenerationDelegate = new GeminiImageGenerationCapabilityImpl(this, this.client);
         this.imageAnalysisDelegate = new GeminiImageAnalysisCapabilityImpl(this, this.client);
+        this.audioDelegate = new GeminiAudioCapabilityImpl(this, this.client);
 
         // Register supported capabilities
         this.registerCapability(
@@ -135,6 +152,26 @@ export class GeminiProvider
         this.registerCapability(
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.AudioTranscriptionCapabilityKey,
+            this as AudioTranscriptionCapability<ClientAudioTranscriptionRequest, NormalizedAudio[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.AudioTranscriptionStreamCapabilityKey,
+            this as AudioTranscriptionStreamCapability<ClientAudioTranscriptionRequest, NormalizedAudio[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.AudioTranslationCapabilityKey,
+            this as AudioTranslationCapability<ClientAudioTranslationRequest, NormalizedAudio[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.AudioTextToSpeechCapabilityKey,
+            this as TextToSpeechCapability<ClientTextToSpeechRequest, NormalizedAudio[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.AudioTextToSpeechStreamCapabilityKey,
+            this as TextToSpeechStreamCapability<ClientTextToSpeechRequest, NormalizedAudio[]>
         );
     }
 
@@ -296,5 +333,100 @@ export class GeminiProvider
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisStreamCapabilityKey);
         }
         return this.imageAnalysisDelegate.analyzeImageStream(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming audio transcription request.
+     *
+     * @param req Unified AI request containing audio input and transcription options.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for request cancellation.
+     * @returns AIResponse containing normalized transcription artifact(s).
+     */
+    async transcribeAudio(
+        req: AIRequest<ClientAudioTranscriptionRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedAudio[]>> {
+        if (!this.audioDelegate || typeof this.audioDelegate.transcribeAudio !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionCapabilityKey);
+        }
+        return await this.audioDelegate.transcribeAudio(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a streaming audio transcription request.
+     *
+     * @param req Unified AI request containing audio input and transcription options.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for request cancellation.
+     * @returns Async iterable emitting incremental transcription chunks.
+     */
+    transcribeAudioStream(
+        req: AIRequest<ClientAudioTranscriptionRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
+        if (!this.audioDelegate || typeof this.audioDelegate.transcribeAudioStream !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionStreamCapabilityKey);
+        }
+        return this.audioDelegate.transcribeAudioStream(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming audio translation request.
+     *
+     * @param req Unified AI request containing source audio and translation options.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for request cancellation.
+     * @returns AIResponse containing normalized translated transcript artifact(s).
+     */
+    async translateAudio(
+        req: AIRequest<ClientAudioTranslationRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedAudio[]>> {
+        if (!this.audioDelegate || typeof this.audioDelegate.translateAudio !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranslationCapabilityKey);
+        }
+        return await this.audioDelegate.translateAudio(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming text-to-speech request.
+     *
+     * @param req Unified AI request containing input text and TTS options.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for request cancellation.
+     * @returns AIResponse containing normalized synthesized audio artifact(s).
+     */
+    async textToSpeech(
+        req: AIRequest<ClientTextToSpeechRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedAudio[]>> {
+        if (!this.audioDelegate || typeof this.audioDelegate.textToSpeech !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTextToSpeechCapabilityKey);
+        }
+        return await this.audioDelegate.textToSpeech(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a streaming text-to-speech request.
+     *
+     * @param req Unified AI request containing input text and TTS options.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for request cancellation.
+     * @returns Async iterable emitting incremental synthesized audio chunks.
+     */
+    textToSpeechStream(
+        req: AIRequest<ClientTextToSpeechRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
+        if (!this.audioDelegate || typeof this.audioDelegate.textToSpeechStream !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTextToSpeechStreamCapabilityKey);
+        }
+        return this.audioDelegate.textToSpeechStream(req, executionContext, signal);
     }
 }

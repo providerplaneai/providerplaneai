@@ -23,6 +23,7 @@ Include description, tags, safety, and identified objects for each image.
 Do not merge images.
 Use imageIndex based on the order provided.
 `;
+const DEFAULT_ANTHROPIC_IMAGE_ANALYSIS_MODEL = "claude-sonnet-4-20250514";
 
 export class AnthropicImageAnalysisCapabilityImpl
     implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
@@ -64,7 +65,7 @@ export class AnthropicImageAnalysisCapabilityImpl
 
             const response = await this.client.messages.create(
                 {
-                    model: merged.model ?? "claude-sonnet-4-20250514",
+                    model: merged.model ?? DEFAULT_ANTHROPIC_IMAGE_ANALYSIS_MODEL,
                     max_tokens: merged.modelParams?.max_tokens ?? 1024,
                     messages: this.buildVisionMessages(input.prompt ?? DEFAULT_ANTHROPIC_VISION_PROMPT, [image]),
                     ...merged.modelParams,
@@ -124,7 +125,7 @@ export class AnthropicImageAnalysisCapabilityImpl
             try {
                 const stream = await this.client.messages.stream(
                     {
-                        model: merged.model ?? "claude-sonnet-4-20250514",
+                        model: merged.model ?? DEFAULT_ANTHROPIC_IMAGE_ANALYSIS_MODEL,
                         max_tokens: merged.modelParams?.max_tokens ?? 1024,
                         messages: this.buildVisionMessages(input.prompt ?? DEFAULT_ANTHROPIC_VISION_PROMPT, [image]),
                         ...merged.modelParams,

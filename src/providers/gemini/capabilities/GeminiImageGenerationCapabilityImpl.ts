@@ -16,6 +16,8 @@ import {
     resolveImageToBytes
 } from "#root/index.js";
 
+const DEFAULT_GEMINI_IMAGE_GENERATION_MODEL = "imagen-4.0-generate-001";
+
 /**
  * Canonical aspect ratios supported by Imagen4
  */
@@ -117,7 +119,7 @@ export class GeminiImageGenerationCapabilityImpl
 
         // 3. Execute Imagen 4 Generation
         const response = (await (this.client.models as any).generateImages({
-            model: merged.model ?? "imagen-4.0-generate-001",
+            model: merged.model ?? DEFAULT_GEMINI_IMAGE_GENERATION_MODEL,
             prompt: finalPrompt,
             referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
             config: {
@@ -159,7 +161,7 @@ export class GeminiImageGenerationCapabilityImpl
             metadata: {
                 ...(context?.metadata ?? {}),
                 provider: AIProvider.Gemini,
-                model: merged.model ?? "imagen-4.0-generate-001",
+                model: merged.model ?? DEFAULT_GEMINI_IMAGE_GENERATION_MODEL,
                 status: "completed",
                 requestId: context?.requestId
             }
@@ -213,7 +215,7 @@ export class GeminiImageGenerationCapabilityImpl
 
             // Execute generation
             const response = (await (this.client.models as any).generateImages({
-                model: merged.model ?? "imagen-4.0-generate-001",
+                model: merged.model ?? DEFAULT_GEMINI_IMAGE_GENERATION_MODEL,
                 prompt: finalPrompt,
                 referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
                 config: {
@@ -256,7 +258,7 @@ export class GeminiImageGenerationCapabilityImpl
                 metadata: {
                     ...(context?.metadata ?? {}),
                     provider: AIProvider.Gemini,
-                    model: merged.model ?? "imagen-4.0-generate-001",
+                    model: merged.model ?? DEFAULT_GEMINI_IMAGE_GENERATION_MODEL,
                     status: "completed",
                     requestId: context?.requestId
                 }
@@ -274,7 +276,7 @@ export class GeminiImageGenerationCapabilityImpl
                 metadata: {
                     ...(context?.metadata ?? {}),
                     provider: AIProvider.Gemini,
-                    model: merged.model ?? "imagen-4.0-generate-001",
+                    model: merged.model ?? DEFAULT_GEMINI_IMAGE_GENERATION_MODEL,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
