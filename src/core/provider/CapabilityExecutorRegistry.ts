@@ -242,6 +242,31 @@ export function createDefaultExecutors(): CapabilityExecutorRegistry {
         invoke: (capability, input, ctx, signal) => capability.textToSpeechStream(input, ctx, signal)
     });
 
+    registry.register(CapabilityKeys.VideoGenerationCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.generateVideo(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.VideoDownloadCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.downloadVideo(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.VideoExtendCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.extendVideo(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.VideoAnalysisCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.analyzeVideo(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.VideoRemixCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.remixVideo(input, ctx, signal)
+    });
+
     // Register default non-streaming moderation executor
     registry.register(CapabilityKeys.ModerationCapabilityKey, {
         streaming: false,

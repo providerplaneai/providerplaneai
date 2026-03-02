@@ -7,7 +7,8 @@ import {
     NormalizedImageAnalysis,
     NormalizedMask,
     NormalizedModeration,
-    NormalizedVideo
+    NormalizedVideo,
+    NormalizedVideoAnalysis
 } from "#root/index.js";
 
 /**
@@ -15,7 +16,7 @@ import {
  * It is designed to be flexible and extensible, allowing for different types of artifacts to be added as needed.
  */
 export interface TimelineArtifacts {
-    analysis?: NormalizedImageAnalysis[];
+    analysis?: (NormalizedImageAnalysis | NormalizedVideoAnalysis)[];
     images?: NormalizedImage[];
     masks?: NormalizedMask[];
     embeddings?: NormalizedEmbedding[];

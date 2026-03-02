@@ -9,6 +9,8 @@ import {
     JobStatus,
     MultiModalExecutionContext,
     ProviderRef,
+    sanitizeTimelineArtifacts,
+    stripBinaryPayloadFields,
     TimelineArtifacts
 } from "#root/index.js";
 
@@ -24,6 +26,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     private readonly providerChain?: ProviderRef[];
     private readonly storeRawResponses: boolean;
     private readonly maxRawBytesPerJob?: number;
+    private readonly stripBinaryPayloadsInSnapshotsAndTimeline: boolean;
 
     private _id = crypto.randomUUID();
     private _output?: TOutput;
@@ -89,6 +92,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
             providerChain?: ProviderRef[];
             storeRawResponses?: boolean;
             maxRawBytesPerJob?: number;
+            stripBinaryPayloadsInSnapshotsAndTimeline?: boolean;
         }
     ) {
         if (
@@ -108,6 +112,8 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         this.providerChain = executionMetadata?.providerChain;
         this.storeRawResponses = executionMetadata?.storeRawResponses ?? true;
         this.maxRawBytesPerJob = executionMetadata?.maxRawBytesPerJob;
+        this.stripBinaryPayloadsInSnapshotsAndTimeline =
+            executionMetadata?.stripBinaryPayloadsInSnapshotsAndTimeline ?? false;
         this.completionPromise = new Promise<TOutput>((resolve, reject) => {
             this.resolveCompletion = resolve;
             this.rejectCompletion = reject;
@@ -239,6 +245,13 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     }
 
     toSnapshot(): JobSnapshot<TInput, TOutput> {
+        const output = this.stripBinaryPayloadsInSnapshotsAndTimeline
+            ? stripBinaryPayloadFields(this.output)
+            : this.output;
+        const multimodalArtifacts = this.stripBinaryPayloadsInSnapshotsAndTimeline
+            ? (sanitizeTimelineArtifacts(this.artifacts) as TimelineArtifacts)
+            : ({ ...this.artifacts } as TimelineArtifacts);
+
         return {
             schemaVersion: 1,
             id: this.id,
@@ -246,9 +259,9 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
             providerChain: this.providerChain,
             status: this.status,
             input: this.input,
-            output: this.output,
+            output,
             error: this._error?.message,
-            multimodalArtifacts: { ...this.artifacts },
+            multimodalArtifacts,
             startedAt: this.startTime,
             endedAt: this.endTime,
             runCount: this.runCount,
@@ -301,7 +314,9 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         this._error = snapshot.error ? new Error(snapshot.error) : undefined;
         this.setStatus(snapshot.status === "running" ? "interrupted" : snapshot.status);
 
-        this.artifacts = { ...(snapshot.multimodalArtifacts ?? {}) };
+        this.artifacts = this.stripBinaryPayloadsInSnapshotsAndTimeline
+            ? ((sanitizeTimelineArtifacts(snapshot.multimodalArtifacts) ?? {}) as TimelineArtifacts)
+            : { ...(snapshot.multimodalArtifacts ?? {}) };
         this.rebuildArtifactSeen();
         this.startTime = snapshot.startedAt;
         this.endTime = snapshot.endedAt;
@@ -335,6 +350,9 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     private mergeArtifacts(artifacts?: TimelineArtifacts) {
         if (!artifacts) {
             return;
+        }
+        if (this.stripBinaryPayloadsInSnapshotsAndTimeline) {
+            artifacts = (sanitizeTimelineArtifacts(artifacts) ?? {}) as TimelineArtifacts;
         }
 
         for (const key of Object.keys(artifacts) as (keyof TimelineArtifacts)[]) {

@@ -7,4 +7,5 @@ export * from "./NormalizedMask.js";
 export * from "./NormalizedModeration.js";
 export * from "./NormalizedAudio.js";
 export * from "./NormalizedVideo.js";
+export * from "./NormalizedVideoAnalysis.js";
 export * from "./NormalizedFile.js";

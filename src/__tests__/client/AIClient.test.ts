@@ -43,6 +43,7 @@ describe("AIClient", () => {
         expect(manager.getMaxQueueSize()).toBe(1024);
         expect(manager.getMaxStoredResponseChunks()).toBe(1024);
         expect(manager.getStoreRawResponses()).toBe(true);
+        expect(manager.getStripBinaryPayloadsInSnapshotsAndTimeline()).toBe(true);
         expect(manager.getMaxRawBytesPerJob()).toBe(1048576);
     });
 
@@ -53,6 +54,7 @@ describe("AIClient", () => {
             maxQueueSize: 199,
             maxStoredResponseChunks: 299,
             storeRawResponses: true,
+            stripBinaryPayloadsInSnapshotsAndTimeline: true,
             maxRawBytesPerJob: 8192
         });
 
@@ -62,6 +64,7 @@ describe("AIClient", () => {
         expect(manager.getMaxQueueSize()).toBe(199);
         expect(manager.getMaxStoredResponseChunks()).toBe(299);
         expect(manager.getStoreRawResponses()).toBe(true);
+        expect(manager.getStripBinaryPayloadsInSnapshotsAndTimeline()).toBe(true);
         expect(manager.getMaxRawBytesPerJob()).toBe(8192);
     });
 
@@ -694,6 +697,11 @@ describe("AIClient private helpers", () => {
         expect(client.modalityForCapability(root.CapabilityKeys.EmbedCapabilityKey)).toBe("embedding");
         expect(client.modalityForCapability(root.CapabilityKeys.ChatCapabilityKey)).toBe("chat");
         expect(client.modalityForCapability(root.CapabilityKeys.AudioTranscriptionCapabilityKey)).toBe("audio");
+        expect(client.modalityForCapability(root.CapabilityKeys.VideoGenerationCapabilityKey)).toBe("video");
+        expect(client.modalityForCapability(root.CapabilityKeys.VideoAnalysisCapabilityKey)).toBe("video");
+        expect(client.modalityForCapability(root.CapabilityKeys.VideoDownloadCapabilityKey)).toBe("video");
+        expect(client.modalityForCapability(root.CapabilityKeys.VideoExtendCapabilityKey)).toBe("video");
+        expect(client.modalityForCapability(root.CapabilityKeys.VideoRemixCapabilityKey)).toBe("video");
         expect(client.modalityForCapability(root.CapabilityKeys.ModerationCapabilityKey)).toBe("moderation");
         expect(client.modalityForCapability(root.CapabilityKeys.ImageGenerationCapabilityKey)).toBe("imageGeneration");
         expect(client.modalityForCapability(root.CapabilityKeys.ImageEditCapabilityKey)).toBe("imageEdit");
@@ -729,12 +737,17 @@ describe("AIClient private helpers", () => {
             ctx
         );
         client.applyOutputToContext(root.CapabilityKeys.ModerationCapabilityKey, [{ flagged: false }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.VideoGenerationCapabilityKey, [{ id: "v", mimeType: "video/mp4" }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.VideoAnalysisCapabilityKey, [{ id: "va", summary: "scene" }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.VideoDownloadCapabilityKey, [{ id: "vd", mimeType: "video/mp4" }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.VideoExtendCapabilityKey, [{ id: "ve", mimeType: "video/mp4" }], ctx);
+        client.applyOutputToContext(root.CapabilityKeys.VideoRemixCapabilityKey, [{ id: "vr", mimeType: "video/mp4" }], ctx);
         client.applyOutputToContext(root.CapabilityKeys.ImageGenerationCapabilityKey, [{ id: "i" }], ctx);
         client.applyOutputToContext(root.CapabilityKeys.ImageAnalysisCapabilityKey, [{ id: "a" }], ctx);
         client.applyOutputToContext(root.CapabilityKeys.ImageEditStreamCapabilityKey, [{ id: "m" }], ctx);
         client.applyOutputToContext("custom:unknown", { any: true }, ctx);
         expect(ctx.applyAssistantMessage).toHaveBeenCalledTimes(1);
-        expect(ctx.attachArtifacts).toHaveBeenCalledTimes(5);
+        expect(ctx.attachArtifacts).toHaveBeenCalledTimes(10);
 
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ChatCapabilityKey, { role: "assistant", content: [] })).toHaveProperty("chat");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.EmbedCapabilityKey, [{ vector: [1] }])).toHaveProperty("embeddings");
@@ -743,6 +756,31 @@ describe("AIClient private helpers", () => {
                 { kind: "tts", mimeType: "audio/mpeg", base64: "AQID" }
             ])
         ).toHaveProperty("audio");
+        expect(
+            client.buildArtifactsFromOutput(root.CapabilityKeys.VideoGenerationCapabilityKey, [
+                { id: "v", mimeType: "video/mp4" }
+            ])
+        ).toHaveProperty("video");
+        expect(
+            client.buildArtifactsFromOutput(root.CapabilityKeys.VideoAnalysisCapabilityKey, [
+                { id: "va", summary: "scene" }
+            ])
+        ).toHaveProperty("analysis");
+        expect(
+            client.buildArtifactsFromOutput(root.CapabilityKeys.VideoDownloadCapabilityKey, [
+                { id: "vd", mimeType: "video/mp4" }
+            ])
+        ).toHaveProperty("video");
+        expect(
+            client.buildArtifactsFromOutput(root.CapabilityKeys.VideoExtendCapabilityKey, [
+                { id: "ve", mimeType: "video/mp4" }
+            ])
+        ).toHaveProperty("video");
+        expect(
+            client.buildArtifactsFromOutput(root.CapabilityKeys.VideoRemixCapabilityKey, [
+                { id: "vr", mimeType: "video/mp4" }
+            ])
+        ).toHaveProperty("video");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ModerationCapabilityKey, [{ flagged: false }])).toHaveProperty("moderation");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageGenerationCapabilityKey, [{ id: "i" }])).toHaveProperty("images");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageAnalysisCapabilityKey, [{ id: "a" }])).toHaveProperty("analysis");

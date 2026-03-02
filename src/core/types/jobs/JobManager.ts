@@ -54,6 +54,8 @@ export interface JobManagerOptions {
     maxStoredResponseChunks?: number;
     /** Whether to store raw responses for jobs. */
     storeRawResponses?: boolean;
+    /** Whether to strip binary-heavy fields (e.g. base64) from snapshots and timeline artifacts. */
+    stripBinaryPayloadsInSnapshotsAndTimeline?: boolean;
     /** Maximum raw bytes to store per job. */
     maxRawBytesPerJob?: number;
     /** Optional hooks for job lifecycle events. */
@@ -93,6 +95,7 @@ export class JobManager {
         this.setMaxQueueSize(this.options?.maxQueueSize);
         this.setMaxStoredResponseChunks(this.options?.maxStoredResponseChunks);
         this.setStoreRawResponses(this.options?.storeRawResponses);
+        this.setStripBinaryPayloadsInSnapshotsAndTimeline(this.options?.stripBinaryPayloadsInSnapshotsAndTimeline);
         this.setMaxRawBytesPerJob(this.options?.maxRawBytesPerJob);
 
         // Restore persisted jobs on startup
@@ -183,6 +186,29 @@ export class JobManager {
     }
 
     /**
+     * Gets whether binary-heavy fields are stripped from snapshots and timeline artifacts.
+     */
+    getStripBinaryPayloadsInSnapshotsAndTimeline(): boolean | undefined {
+        return this.options?.stripBinaryPayloadsInSnapshotsAndTimeline;
+    }
+
+    /**
+     * Sets whether binary-heavy fields are stripped from snapshots and timeline artifacts.
+     *
+     * @param stripBinaryPayloadsInSnapshotsAndTimeline True to strip binary-heavy fields
+     */
+    setStripBinaryPayloadsInSnapshotsAndTimeline(stripBinaryPayloadsInSnapshotsAndTimeline: boolean | undefined) {
+        if (
+            stripBinaryPayloadsInSnapshotsAndTimeline !== undefined &&
+            typeof stripBinaryPayloadsInSnapshotsAndTimeline !== "boolean"
+        ) {
+            throw new Error("JobManager: stripBinaryPayloadsInSnapshotsAndTimeline must be a boolean");
+        }
+        this.options = this.options ?? {};
+        this.options.stripBinaryPayloadsInSnapshotsAndTimeline = stripBinaryPayloadsInSnapshotsAndTimeline;
+    }
+
+    /**
      * Gets the maximum number of raw bytes to store per job.
      */
     getMaxRawBytesPerJob(): number | undefined {
@@ -267,6 +293,8 @@ export class JobManager {
                             capability: snap.capability,
                             providerChain: snap.providerChain,
                             storeRawResponses: this.options?.storeRawResponses,
+                            stripBinaryPayloadsInSnapshotsAndTimeline:
+                                this.options?.stripBinaryPayloadsInSnapshotsAndTimeline,
                             maxRawBytesPerJob: this.options?.maxRawBytesPerJob
                         }
                     );
@@ -284,6 +312,8 @@ export class JobManager {
                         capability: snap.capability,
                         providerChain: snap.providerChain,
                         storeRawResponses: this.options?.storeRawResponses,
+                        stripBinaryPayloadsInSnapshotsAndTimeline:
+                            this.options?.stripBinaryPayloadsInSnapshotsAndTimeline,
                         maxRawBytesPerJob: this.options?.maxRawBytesPerJob
                     }
                 );
@@ -352,6 +382,10 @@ export class JobManager {
         }
         // Attach chunk callback for streaming progress
         job.onChunk = onChunk;
+        // Keep timeline storage behavior aligned with manager/runtime settings.
+        ctx.setStripBinaryPayloadsInTimeline(
+            this.options?.stripBinaryPayloadsInSnapshotsAndTimeline ?? false
+        );
 
         this.jobQueue.push({ job, ctx });
         this.processQueue();

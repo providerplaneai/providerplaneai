@@ -4,3 +4,7 @@ export * from "./GeminiEmbedCapabilityImpl.js";
 export * from "./GeminiImageAnalysisCapabilityImpl.js";
 export * from "./GeminiImageGenerationCapabilityImpl.js";
 export * from "./GeminiModerationCapabilityImpl.js";
+export * from "./GeminiVideoGenerationCapabilityImpl.js";
+export * from "./GeminiVideoAnalysisCapabilityImpl.js";
+export * from "./GeminiVideoExtendCapabilityImpl.js";
+export * from "./GeminiVideoDownloadCapabilityImpl.js";

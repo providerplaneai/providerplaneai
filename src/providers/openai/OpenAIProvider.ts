@@ -20,6 +20,9 @@ import {
     ClientImageAnalysisRequest,
     ClientImageEditRequest,
     ClientImageGenerationRequest,
+    ClientVideoDownloadRequest,
+    ClientVideoGenerationRequest,
+    ClientVideoRemixRequest,
     ClientModerationRequest,
     EmbedCapability,
     ImageAnalysisCapability,
@@ -36,6 +39,7 @@ import {
     NormalizedImage,
     NormalizedImageAnalysis,
     NormalizedModeration,
+    NormalizedVideo,
     OpenAIChatCapabilityImpl,
     OpenAIEmbedCapabilityImpl,
     OpenAIAudioCapabilityImpl,
@@ -43,8 +47,14 @@ import {
     OpenAIImageEditCapabilityImpl,
     OpenAIImageGenerationCapabilityImpl,
     OpenAIModerationCapabilityImpl,
+    OpenAIVideoDownloadCapabilityImpl,
+    OpenAIVideoGenerationCapabilityImpl,
+    OpenAIVideoRemixCapabilityImpl,
     TextToSpeechCapability,
     TextToSpeechStreamCapability,
+    VideoGenerationCapability,
+    VideoDownloadCapability,
+    VideoRemixCapability,
     ProviderConnectionConfig
 } from "#root/index.js";
 
@@ -69,6 +79,9 @@ export class OpenAIProvider
         ImageGenerationStreamCapability<ClientImageGenerationRequest>,
         ImageAnalysisCapability<ClientImageAnalysisRequest>,
         ImageAnalysisStreamCapability<ClientImageAnalysisRequest>,
+        VideoGenerationCapability<ClientVideoGenerationRequest>,
+        VideoDownloadCapability<ClientVideoDownloadRequest>,
+        VideoRemixCapability<ClientVideoRemixRequest>,
         ImageEditCapability<ClientImageEditRequest>,
         ImageEditStreamCapability<ClientImageEditRequest>,
         AudioTranscriptionCapability<ClientAudioTranscriptionRequest>,
@@ -88,6 +101,9 @@ export class OpenAIProvider
     private imageGenDelegate: OpenAIImageGenerationCapabilityImpl | null = null;
     private imageAnalysisDelegate: OpenAIImageAnalysisCapabilityImpl | null = null;
     private audioDelegate: OpenAIAudioCapabilityImpl | null = null;
+    private videoDelegate: OpenAIVideoGenerationCapabilityImpl | null = null;
+    private videoDownloadDelegate: OpenAIVideoDownloadCapabilityImpl | null = null;
+    private videoRemixDelegate: OpenAIVideoRemixCapabilityImpl | null = null;
 
     public constructor() {
         super(AIProvider.OpenAI);
@@ -120,6 +136,9 @@ export class OpenAIProvider
         this.imageGenDelegate = new OpenAIImageGenerationCapabilityImpl(this, this.client);
         this.imageAnalysisDelegate = new OpenAIImageAnalysisCapabilityImpl(this, this.client);
         this.audioDelegate = new OpenAIAudioCapabilityImpl(this, this.client);
+        this.videoDelegate = new OpenAIVideoGenerationCapabilityImpl(this, this.client);
+        this.videoDownloadDelegate = new OpenAIVideoDownloadCapabilityImpl(this, this.client);
+        this.videoRemixDelegate = new OpenAIVideoRemixCapabilityImpl(this, this.client);
 
         // Register supported capabilities
         this.registerCapability(
@@ -161,6 +180,18 @@ export class OpenAIProvider
         this.registerCapability(
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.VideoGenerationCapabilityKey,
+            this as VideoGenerationCapability<ClientVideoGenerationRequest, NormalizedVideo[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.VideoDownloadCapabilityKey,
+            this as VideoDownloadCapability<ClientVideoDownloadRequest, NormalizedVideo[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.VideoRemixCapabilityKey,
+            this as VideoRemixCapability<ClientVideoRemixRequest, NormalizedVideo[]>
         );
         this.registerCapability(
             CapabilityKeys.AudioTranscriptionCapabilityKey,
@@ -382,6 +413,63 @@ export class OpenAIProvider
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisStreamCapabilityKey);
         }
         return this.imageAnalysisDelegate.analyzeImageStream(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming video generation request.
+     *
+     * @param req Unified AI request containing prompt and optional generation params.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for cancellation.
+     * @returns AIResponse containing normalized generated video artifact(s).
+     */
+    async generateVideo(
+        req: AIRequest<ClientVideoGenerationRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedVideo[]>> {
+        if (!this.videoDelegate || typeof this.videoDelegate.generateVideo !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.VideoGenerationCapabilityKey);
+        }
+        return await this.videoDelegate.generateVideo(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming video download request.
+     *
+     * @param req Unified AI request containing video id and optional variant.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for cancellation.
+     * @returns AIResponse containing normalized downloaded video artifact(s).
+     */
+    async downloadVideo(
+        req: AIRequest<ClientVideoDownloadRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedVideo[]>> {
+        if (!this.videoDownloadDelegate || typeof this.videoDownloadDelegate.downloadVideo !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.VideoDownloadCapabilityKey);
+        }
+        return await this.videoDownloadDelegate.downloadVideo(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming video remix request.
+     *
+     * @param req Unified AI request containing source video id and remix prompt.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for cancellation.
+     * @returns AIResponse containing normalized remixed video artifact(s).
+     */
+    async remixVideo(
+        req: AIRequest<ClientVideoRemixRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedVideo[]>> {
+        if (!this.videoRemixDelegate || typeof this.videoRemixDelegate.remixVideo !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.VideoRemixCapabilityKey);
+        }
+        return await this.videoRemixDelegate.remixVideo(req, executionContext, signal);
     }
 
     /**

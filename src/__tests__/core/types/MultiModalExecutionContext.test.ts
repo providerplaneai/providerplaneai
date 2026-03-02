@@ -117,6 +117,20 @@ describe("MultiModalExecutionContext", () => {
         expect(ctx.getLatestAnalysis()).toEqual([analysis]);
     });
 
+    it("strips base64/data-url fields when timeline sanitization is enabled", () => {
+        const ctx = new MultiModalExecutionContext();
+        ctx.setStripBinaryPayloadsInTimeline(true);
+
+        ctx.attachArtifacts({
+            video: [{ id: "v1", mimeType: "video/mp4", base64: "AAAA", url: "data:video/mp4;base64,AAAA" }] as any
+        });
+
+        const video = ctx.getLatestVideo()[0] as any;
+        expect(video.id).toBe("v1");
+        expect(video.base64).toBeUndefined();
+        expect(video.url).toBeUndefined();
+    });
+
     it("reset clears timeline and latest getters return empty arrays", () => {
         const ctx = new MultiModalExecutionContext();
         ctx.beginTurn({ id: "u1", modality: "chat", input: "x" });

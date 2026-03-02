@@ -12,6 +12,11 @@ import {
     ClientImageAnalysisRequest,
     ClientImageEditRequest,
     ClientImageGenerationRequest,
+    ClientVideoAnalysisRequest,
+    ClientVideoDownloadRequest,
+    ClientVideoExtendRequest,
+    ClientVideoGenerationRequest,
+    ClientVideoRemixRequest,
     ClientModerationRequest,
     EmbedCapability,
     ImageAnalysisCapability,
@@ -23,12 +28,19 @@ import {
     ModerationCapability,
     TextToSpeechCapability,
     TextToSpeechStreamCapability,
+    VideoGenerationCapability,
+    VideoDownloadCapability,
+    VideoExtendCapability,
+    VideoAnalysisCapability,
+    VideoRemixCapability,
     NormalizedAudio,
     NormalizedChatMessage,
     NormalizedEmbedding,
     NormalizedImage,
     NormalizedImageAnalysis,
-    NormalizedModeration
+    NormalizedModeration,
+    NormalizedVideo,
+    NormalizedVideoAnalysis
 } from "#root/index.js";
 
 /**
@@ -44,6 +56,11 @@ export const CapabilityKeys = {
     AudioTranslationCapabilityKey: "audioTranslation",
     AudioTextToSpeechCapabilityKey: "audioTts",
     AudioTextToSpeechStreamCapabilityKey: "audioTtsStream",
+    VideoGenerationCapabilityKey: "videoGeneration",
+    VideoDownloadCapabilityKey: "videoDownload",
+    VideoExtendCapabilityKey: "videoExtend",
+    VideoAnalysisCapabilityKey: "videoAnalysis",
+    VideoRemixCapabilityKey: "videoRemix",
     ImageGenerationCapabilityKey: "imageGeneration",
     ImageGenerationStreamCapabilityKey: "imageGenerationStream",
     ImageEditCapabilityKey: "imageEdit",
@@ -85,6 +102,17 @@ export interface CapabilityMap {
         ClientTextToSpeechRequest,
         NormalizedAudio[]
     >;
+    [CapabilityKeys.VideoGenerationCapabilityKey]: VideoGenerationCapability<
+        ClientVideoGenerationRequest,
+        NormalizedVideo[]
+    >;
+    [CapabilityKeys.VideoDownloadCapabilityKey]: VideoDownloadCapability<ClientVideoDownloadRequest, NormalizedVideo[]>;
+    [CapabilityKeys.VideoExtendCapabilityKey]: VideoExtendCapability<ClientVideoExtendRequest, NormalizedVideo[]>;
+    [CapabilityKeys.VideoAnalysisCapabilityKey]: VideoAnalysisCapability<
+        ClientVideoAnalysisRequest,
+        NormalizedVideoAnalysis[]
+    >;
+    [CapabilityKeys.VideoRemixCapabilityKey]: VideoRemixCapability<ClientVideoRemixRequest, NormalizedVideo[]>;
     [CapabilityKeys.ImageGenerationCapabilityKey]: ImageGenerationCapability<ClientImageGenerationRequest, NormalizedImage[]>;
     [CapabilityKeys.ImageGenerationStreamCapabilityKey]: ImageGenerationStreamCapability<
         ClientImageGenerationRequest,

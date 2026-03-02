@@ -251,6 +251,39 @@ describe("GenericJob", () => {
         expect(custom[2]).toMatchObject({ id: "new", value: 3 });
     });
 
+    it("strips base64/data-url fields from snapshot output and artifacts when enabled", async () => {
+        const artifact = {
+            id: "v1",
+            mimeType: "video/mp4",
+            base64: "AAAA",
+            url: "data:video/mp4;base64,AAAA"
+        };
+
+        const job = new GenericJob(
+            { input: 1 },
+            false,
+            async () => ({
+                output: [artifact] as any,
+                multimodalArtifacts: { video: [artifact] as any }
+            }),
+            undefined,
+            10,
+            { stripBinaryPayloadsInSnapshotsAndTimeline: true }
+        );
+
+        await job.run(new MultiModalExecutionContext());
+        const snap = job.toSnapshot() as any;
+        const outVideo = snap.output?.[0];
+        const artifactVideo = snap.multimodalArtifacts?.video?.[0];
+
+        expect(outVideo.id).toBe("v1");
+        expect(outVideo.base64).toBeUndefined();
+        expect(outVideo.url).toBeUndefined();
+        expect(artifactVideo.id).toBe("v1");
+        expect(artifactVideo.base64).toBeUndefined();
+        expect(artifactVideo.url).toBeUndefined();
+    });
+
     it("handles raw byte estimation for supported and unsupported types", () => {
         const job = new GenericJob({ input: 1 }, false, async () => ({ output: "ok" }));
         const estimate = (job as any).estimateRawBytes.bind(job) as (value: unknown) => number | undefined;

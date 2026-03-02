@@ -7,6 +7,7 @@ import {
     NormalizedChatMessage,
     NormalizedImage,
     NormalizedImageAnalysis,
+    NormalizedVideoAnalysis,
     NormalizedModeration,
     NormalizedEmbedding,
     NormalizedAudio,
@@ -16,7 +17,8 @@ import {
     ImageGenerationEvent,
     ImageEditEvent,
     NormalizedUserInput,
-    AIResponse
+    AIResponse,
+    sanitizeTimelineArtifacts
 } from "#root/index.js";
 
 /**
@@ -32,6 +34,15 @@ import {
 export class MultiModalExecutionContext {
     /** Unified timeline for all events */
     protected timeline: TimelineEvent[] = [];
+    /** Whether binary-heavy artifact fields are stripped when storing timeline events. */
+    private stripBinaryPayloadsInTimeline = false;
+
+    /**
+     * Enables or disables timeline artifact payload sanitization.
+     */
+    setStripBinaryPayloadsInTimeline(enabled: boolean): void {
+        this.stripBinaryPayloadsInTimeline = enabled;
+    }
 
     /**
      * Begin a new logical turn with a canonical user input.
@@ -131,6 +142,9 @@ export class MultiModalExecutionContext {
     /** Merge two TimelineArtifacts objects safely */
     private mergeArtifacts(base: TimelineArtifacts, addition?: Partial<TimelineArtifacts>): TimelineArtifacts {
         addition = addition ?? {};
+        if (this.stripBinaryPayloadsInTimeline) {
+            addition = sanitizeTimelineArtifacts(addition) ?? {};
+        }
 
         const safeArray = <T>(v?: T[]): T[] => (Array.isArray(v) ? v : []);
 
@@ -190,8 +204,21 @@ export class MultiModalExecutionContext {
         return this.findLatest((e) => e.artifacts.masks) ?? [];
     }
 
-    getLatestAnalysis(): NormalizedImageAnalysis[] {
+    getLatestAnalysis(): (NormalizedImageAnalysis | NormalizedVideoAnalysis)[] {
         return this.findLatest((e) => e.artifacts.analysis) ?? [];
+    }
+
+    getLatestImageAnalysis(): NormalizedImageAnalysis[] {
+        return (this.getLatestAnalysis() ?? []).filter((item): item is NormalizedImageAnalysis =>
+            "description" in item || "objects" in item || "text" in item || "safety" in item || "sourceImageId" in item
+        );
+    }
+
+    getLatestVideoAnalysis(): NormalizedVideoAnalysis[] {
+        return (this.getLatestAnalysis() ?? []).filter(
+            (item): item is NormalizedVideoAnalysis =>
+                "summary" in item || "transcript" in item || "moments" in item || "sourceVideoId" in item
+        );
     }
 
     getLatestEmbeddings(): NormalizedEmbedding[] {

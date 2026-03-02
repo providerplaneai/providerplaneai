@@ -17,6 +17,9 @@ describe("providers module coverage", () => {
             import("#root/providers/openai/capabilities/OpenAIImageEditCapabilityImpl.js"),
             import("#root/providers/openai/capabilities/OpenAIImageGenerationCapabilityImpl.js"),
             import("#root/providers/openai/capabilities/OpenAIModerationCapabilityImpl.js"),
+            import("#root/providers/openai/capabilities/OpenAIVideoDownloadCapabilityImpl.js"),
+            import("#root/providers/openai/capabilities/OpenAIVideoGenerationCapabilityImpl.js"),
+            import("#root/providers/openai/capabilities/OpenAIVideoRemixCapabilityImpl.js"),
             import("#root/providers/anthropic/capabilities/index.js"),
             import("#root/providers/anthropic/capabilities/AnthropicChatCapabilityImpl.js"),
             import("#root/providers/anthropic/capabilities/AnthropicEmbedCapabilityImpl.js"),
@@ -28,10 +31,14 @@ describe("providers module coverage", () => {
             import("#root/providers/gemini/capabilities/GeminiEmbedCapabilityImpl.js"),
             import("#root/providers/gemini/capabilities/GeminiImageAnalysisCapabilityImpl.js"),
             import("#root/providers/gemini/capabilities/GeminiImageGenerationCapabilityImpl.js"),
-            import("#root/providers/gemini/capabilities/GeminiModerationCapabilityImpl.js")
+            import("#root/providers/gemini/capabilities/GeminiModerationCapabilityImpl.js"),
+            import("#root/providers/gemini/capabilities/GeminiVideoGenerationCapabilityImpl.js"),
+            import("#root/providers/gemini/capabilities/GeminiVideoAnalysisCapabilityImpl.js"),
+            import("#root/providers/gemini/capabilities/GeminiVideoExtendCapabilityImpl.js"),
+            import("#root/providers/gemini/capabilities/GeminiVideoDownloadCapabilityImpl.js")
         ]);
 
-        expect(modules).toHaveLength(20);
+        expect(modules).toHaveLength(27);
         for (const mod of modules) {
             expect(mod).toBeTruthy();
         }

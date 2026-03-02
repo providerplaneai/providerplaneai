@@ -5,3 +5,6 @@ export * from "./OpenAIImageAnalysisCapabilityImpl.js";
 export * from "./OpenAIImageGenerationCapabilityImpl.js";
 export * from "./OpenAIImageEditCapabilityImpl.js";
 export * from "./OpenAIModerationCapabilityImpl.js";
+export * from "./OpenAIVideoDownloadCapabilityImpl.js";
+export * from "./OpenAIVideoGenerationCapabilityImpl.js";
+export * from "./OpenAIVideoRemixCapabilityImpl.js";

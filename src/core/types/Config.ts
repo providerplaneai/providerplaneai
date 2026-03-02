@@ -125,6 +125,8 @@ export interface AppConfig {
         maxStoredResponseChunks?: number;
         /** Whether to retain raw provider payloads in job response/chunk diagnostics */
         storeRawResponses?: boolean;
+        /** Whether to strip binary-heavy fields (e.g. base64) from snapshots and timeline artifacts */
+        stripBinaryPayloadsInSnapshotsAndTimeline?: boolean;
         /** Maximum raw response bytes retained per job (undefined means unbounded) */
         maxRawBytesPerJob?: number;
         /** Timeout (ms) when fetching remote images by URL */

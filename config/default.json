@@ -5,6 +5,7 @@
         "maxRemoteImageBytes": 10485760,
         "maxStoredResponseChunks": 1024,
         "storeRawResponses": true,
+        "stripBinaryPayloadsInSnapshotsAndTimeline": true,
         "maxRawBytesPerJob": 1048576,
         "remoteImageFetchTimeoutMs": 16384,
         "executionPolicy": {
@@ -199,7 +200,11 @@
                     "audioTranscriptionStream": "gemini-2.5-flash",
                     "audioTranslation": "gemini-2.5-flash",
                     "audioTts": "gemini-2.5-flash-preview-tts",
-                    "audioTtsStream": "gemini-2.5-flash-preview-tts"                
+                    "audioTtsStream": "gemini-2.5-flash-preview-tts",
+                    "videoGeneration": "veo-3.1-generate-preview",
+                    "videoExtend": "veo-3.1-generate-preview",
+                    "videoDownload": "veo-3.1-generate-preview",
+                    "videoAnalysis": "gemini-2.5-pro"
                 },
                 "providerDefaults": {
                     "providerParams": {}
@@ -268,6 +273,37 @@
                                 "geminiTtsRetryJitterRatio": 0.2,
                                 "maxTtsOutputBytes": 8388608
                             }
+                        }
+                    },
+                    "veo-3.1-generate-preview": {
+                        "videoGeneration": {
+                            "modelParams": {
+                                "durationSeconds": 8,
+                                "aspectRatio": "16:9"
+                            },
+                            "providerParams": {},
+                            "generalParams": {}
+                        },
+                        "videoExtend": {
+                            "modelParams": {
+                                "durationSeconds": 8
+                            },
+                            "providerParams": {},
+                            "generalParams": {}
+                        },
+                        "videoDownload": {
+                            "modelParams": {},
+                            "providerParams": {},
+                            "generalParams": {}
+                        }
+                    },
+                    "gemini-2.5-pro": {
+                        "videoAnalysis": {
+                            "modelParams": {
+                                "temperature": 0
+                            },
+                            "providerParams": {},
+                            "generalParams": {}
                         }
                     },
                     "text-embedding-004": {

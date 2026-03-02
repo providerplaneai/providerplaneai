@@ -10,5 +10,8 @@ describe("openai capabilities index exports", () => {
         expect(typeof caps.OpenAIImageGenerationCapabilityImpl).toBe("function");
         expect(typeof caps.OpenAIImageEditCapabilityImpl).toBe("function");
         expect(typeof caps.OpenAIModerationCapabilityImpl).toBe("function");
+        expect(typeof caps.OpenAIVideoDownloadCapabilityImpl).toBe("function");
+        expect(typeof caps.OpenAIVideoGenerationCapabilityImpl).toBe("function");
+        expect(typeof caps.OpenAIVideoRemixCapabilityImpl).toBe("function");
     });
 });

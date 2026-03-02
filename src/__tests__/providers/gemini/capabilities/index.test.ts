@@ -9,5 +9,9 @@ describe("gemini capabilities index exports", () => {
         expect(typeof caps.GeminiImageAnalysisCapabilityImpl).toBe("function");
         expect(typeof caps.GeminiImageGenerationCapabilityImpl).toBe("function");
         expect(typeof caps.GeminiModerationCapabilityImpl).toBe("function");
+        expect(typeof caps.GeminiVideoGenerationCapabilityImpl).toBe("function");
+        expect(typeof caps.GeminiVideoAnalysisCapabilityImpl).toBe("function");
+        expect(typeof caps.GeminiVideoExtendCapabilityImpl).toBe("function");
+        expect(typeof caps.GeminiVideoDownloadCapabilityImpl).toBe("function");
     });
 });
