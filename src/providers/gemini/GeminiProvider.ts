@@ -25,7 +25,9 @@ import {
     ClientVideoGenerationRequest,
     ClientModerationRequest,
     EmbedCapability,
-    GeminiAudioCapabilityImpl,
+    GeminiAudioTextToSpeechCapabilityImpl,
+    GeminiAudioTranscriptionCapabilityImpl,
+    GeminiAudioTranslationCapabilityImpl,
     GeminiChatCapabilityImpl,
     GeminiEmbedCapabilityImpl,
     GeminiImageAnalysisCapabilityImpl,
@@ -108,7 +110,9 @@ export class GeminiProvider
     private videoDownloadDelegate: GeminiVideoDownloadCapabilityImpl | null = null;
     private moderationDelegate: GeminiModerationCapabilityImpl | null = null;
     private embedDelegate: GeminiEmbedCapabilityImpl | null = null;
-    private audioDelegate: GeminiAudioCapabilityImpl | null = null;
+    private audioTranscriptionDelegate: GeminiAudioTranscriptionCapabilityImpl | null = null;
+    private audioTranslationDelegate: GeminiAudioTranslationCapabilityImpl | null = null;
+    private audioTtsDelegate: GeminiAudioTextToSpeechCapabilityImpl | null = null;
 
     public constructor() {
         super(AIProvider.Gemini);
@@ -144,7 +148,9 @@ export class GeminiProvider
         this.videoGenerationDelegate = new GeminiVideoGenerationCapabilityImpl(this, this.client);
         this.videoExtendDelegate = new GeminiVideoExtendCapabilityImpl(this, this.client);
         this.videoDownloadDelegate = new GeminiVideoDownloadCapabilityImpl(this, this.client);
-        this.audioDelegate = new GeminiAudioCapabilityImpl(this, this.client);
+        this.audioTranscriptionDelegate = new GeminiAudioTranscriptionCapabilityImpl(this, this.client);
+        this.audioTranslationDelegate = new GeminiAudioTranslationCapabilityImpl(this, this.client);
+        this.audioTtsDelegate = new GeminiAudioTextToSpeechCapabilityImpl(this, this.client);
 
         // Register supported capabilities
         this.registerCapability(
@@ -446,10 +452,10 @@ export class GeminiProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.transcribeAudio !== "function") {
+        if (!this.audioTranscriptionDelegate || typeof this.audioTranscriptionDelegate.transcribeAudio !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionCapabilityKey);
         }
-        return await this.audioDelegate.transcribeAudio(req, executionContext, signal);
+        return await this.audioTranscriptionDelegate.transcribeAudio(req, executionContext, signal);
     }
 
     /**
@@ -465,10 +471,13 @@ export class GeminiProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.transcribeAudioStream !== "function") {
+        if (
+            !this.audioTranscriptionDelegate ||
+            typeof this.audioTranscriptionDelegate.transcribeAudioStream !== "function"
+        ) {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionStreamCapabilityKey);
         }
-        return this.audioDelegate.transcribeAudioStream(req, executionContext, signal);
+        return this.audioTranscriptionDelegate.transcribeAudioStream(req, executionContext, signal);
     }
 
     /**
@@ -484,10 +493,10 @@ export class GeminiProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.translateAudio !== "function") {
+        if (!this.audioTranslationDelegate || typeof this.audioTranslationDelegate.translateAudio !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranslationCapabilityKey);
         }
-        return await this.audioDelegate.translateAudio(req, executionContext, signal);
+        return await this.audioTranslationDelegate.translateAudio(req, executionContext, signal);
     }
 
     /**
@@ -503,10 +512,10 @@ export class GeminiProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.textToSpeech !== "function") {
+        if (!this.audioTtsDelegate || typeof this.audioTtsDelegate.textToSpeech !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTextToSpeechCapabilityKey);
         }
-        return await this.audioDelegate.textToSpeech(req, executionContext, signal);
+        return await this.audioTtsDelegate.textToSpeech(req, executionContext, signal);
     }
 
     /**
@@ -522,9 +531,9 @@ export class GeminiProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.textToSpeechStream !== "function") {
+        if (!this.audioTtsDelegate || typeof this.audioTtsDelegate.textToSpeechStream !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTextToSpeechStreamCapabilityKey);
         }
-        return this.audioDelegate.textToSpeechStream(req, executionContext, signal);
+        return this.audioTtsDelegate.textToSpeechStream(req, executionContext, signal);
     }
 }

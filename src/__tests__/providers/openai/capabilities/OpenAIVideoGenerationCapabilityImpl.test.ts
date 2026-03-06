@@ -74,6 +74,7 @@ describe("OpenAIVideoGenerationCapabilityImpl", () => {
     });
 
     it("polls until completed and optionally downloads base64 output", async () => {
+        vi.useFakeTimers();
         const provider = makeProvider();
         const create = vi.fn().mockResolvedValue({
             id: "vid_2",
@@ -120,20 +121,24 @@ describe("OpenAIVideoGenerationCapabilityImpl", () => {
             videos: { create, retrieve, downloadContent }
         };
 
-        const cap = new OpenAIVideoGenerationCapabilityImpl(provider, client as any);
-        vi.spyOn(cap as any, "delay").mockResolvedValue(undefined);
+        try {
+            const cap = new OpenAIVideoGenerationCapabilityImpl(provider, client as any);
+            const resPromise = cap.generateVideo({
+                input: {
+                    prompt: "ocean waves",
+                    params: { pollUntilComplete: true, includeBase64: true, downloadVariant: "video" }
+                }
+            } as any);
+            await vi.advanceTimersByTimeAsync(2_000);
+            const res = await resPromise;
 
-        const res = await cap.generateVideo({
-            input: {
-                prompt: "ocean waves",
-                params: { pollUntilComplete: true, includeBase64: true, downloadVariant: "video" }
-            }
-        } as any);
-
-        expect(retrieve).toHaveBeenCalledTimes(2);
-        expect(downloadContent).toHaveBeenCalledWith("vid_2", { variant: "video" }, expect.any(Object));
-        expect(res.output[0]?.base64).toBe("AQID");
-        expect(res.metadata?.status).toBe("completed");
+            expect(retrieve).toHaveBeenCalledTimes(2);
+            expect(downloadContent).toHaveBeenCalledWith("vid_2", { variant: "video" }, expect.any(Object));
+            expect(res.output[0]?.base64).toBe("AQID");
+            expect(res.metadata?.status).toBe("completed");
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("throws a descriptive error when video generation fails", async () => {
@@ -176,6 +181,7 @@ describe("OpenAIVideoGenerationCapabilityImpl", () => {
     });
 
     it("times out while polling when terminal status is not reached", async () => {
+        vi.useFakeTimers();
         const provider = makeProvider();
         const create = vi.fn().mockResolvedValue({
             id: "vid_4",
@@ -205,7 +211,6 @@ describe("OpenAIVideoGenerationCapabilityImpl", () => {
             videos: { create, retrieve, downloadContent: vi.fn() }
         };
         const cap = new OpenAIVideoGenerationCapabilityImpl(provider, client as any);
-        vi.spyOn(cap as any, "delay").mockResolvedValue(undefined);
 
         let now = 0;
         const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => {
@@ -213,15 +218,20 @@ describe("OpenAIVideoGenerationCapabilityImpl", () => {
             return now;
         });
 
-        await expect(
-            cap.generateVideo({
+        try {
+            const pending = cap.generateVideo({
                 input: {
                     prompt: "slow video",
                     params: { pollUntilComplete: true, pollIntervalMs: 250, maxPollMs: 1200 }
                 }
-            } as any)
-        ).rejects.toThrow("Timed out waiting for video job 'vid_4' to complete");
+            } as any);
+            const rejection = expect(pending).rejects.toThrow("Timed out waiting for video job 'vid_4' to complete");
 
-        nowSpy.mockRestore();
+            await vi.advanceTimersByTimeAsync(250);
+            await rejection;
+        } finally {
+            nowSpy.mockRestore();
+            vi.useRealTimers();
+        }
     });
 });

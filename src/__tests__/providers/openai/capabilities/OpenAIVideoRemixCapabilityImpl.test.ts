@@ -61,6 +61,7 @@ describe("OpenAIVideoRemixCapabilityImpl", () => {
     });
 
     it("polls until completed and optionally downloads base64 output", async () => {
+        vi.useFakeTimers();
         const provider = makeProvider();
         const remix = vi.fn().mockResolvedValue({
             id: "vid_remix_2",
@@ -110,21 +111,25 @@ describe("OpenAIVideoRemixCapabilityImpl", () => {
             videos: { remix, retrieve, downloadContent }
         };
 
-        const cap = new OpenAIVideoRemixCapabilityImpl(provider, client as any);
-        vi.spyOn(cap as any, "delay").mockResolvedValue(undefined);
+        try {
+            const cap = new OpenAIVideoRemixCapabilityImpl(provider, client as any);
+            const resPromise = cap.remixVideo({
+                input: {
+                    sourceVideoId: "vid_source_555",
+                    prompt: "Make it cinematic",
+                    params: { pollUntilComplete: true, includeBase64: true, downloadVariant: "video" }
+                }
+            } as any);
+            await vi.advanceTimersByTimeAsync(2_000);
+            const res = await resPromise;
 
-        const res = await cap.remixVideo({
-            input: {
-                sourceVideoId: "vid_source_555",
-                prompt: "Make it cinematic",
-                params: { pollUntilComplete: true, includeBase64: true, downloadVariant: "video" }
-            }
-        } as any);
-
-        expect(retrieve).toHaveBeenCalledTimes(2);
-        expect(downloadContent).toHaveBeenCalledWith("vid_remix_2", { variant: "video" }, expect.any(Object));
-        expect(res.output[0]?.base64).toBe("AQID");
-        expect(res.metadata?.status).toBe("completed");
+            expect(retrieve).toHaveBeenCalledTimes(2);
+            expect(downloadContent).toHaveBeenCalledWith("vid_remix_2", { variant: "video" }, expect.any(Object));
+            expect(res.output[0]?.base64).toBe("AQID");
+            expect(res.metadata?.status).toBe("completed");
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("throws a descriptive error when remix fails", async () => {

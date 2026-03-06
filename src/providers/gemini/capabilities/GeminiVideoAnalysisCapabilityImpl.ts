@@ -16,6 +16,9 @@ import {
 const DEFAULT_GEMINI_VIDEO_ANALYSIS_MODEL = "gemini-2.5-pro";
 const DEFAULT_VIDEO_ANALYSIS_PROMPT =
     "Analyze this video and provide a concise summary, key events, important entities, and any visible text.";
+const DEFAULT_VIDEO_MIME_TYPE = "video/mp4";
+const JSON_ANALYSIS_SCHEMA_HINT =
+    `{"summary"?:string,"transcript"?:string,"tags"?:string[],"moments"?:{"timestampSeconds"?:number,"text"?:string}[]}`;
 
 type GeminiVideoAnalysisPayload = {
     summary?: string;
@@ -27,6 +30,14 @@ type GeminiVideoAnalysisPayload = {
     }>;
 };
 
+type RequestedVideo = NonNullable<ClientVideoAnalysisRequest["videos"]>[number];
+
+/**
+ * Gemini implementation of provider-agnostic video analysis.
+ *
+ * Input videos can be provided directly on the request, or implicitly sourced from
+ * `MultiModalExecutionContext` when the request omits `input.videos`.
+ */
 export class GeminiVideoAnalysisCapabilityImpl
     implements VideoAnalysisCapability<ClientVideoAnalysisRequest, NormalizedVideoAnalysis[]>
 {
@@ -45,16 +56,16 @@ export class GeminiVideoAnalysisCapabilityImpl
         const merged = this.provider.getMergedOptions(CapabilityKeys.VideoAnalysisCapabilityKey, options);
         const outputFormat = input?.params?.outputFormat ?? "json";
 
+        // Prefer explicit request videos; otherwise analyze the latest timeline video artifacts.
         const requestedVideos = input?.videos ?? [];
-        const contextVideos = executionContext?.getLatestVideo() ?? [];
-        const videos: NonNullable<ClientVideoAnalysisRequest["videos"]> =
-            requestedVideos.length > 0 ? requestedVideos : this.convertContextVideos(contextVideos);
+        const videos = requestedVideos.length > 0 ? requestedVideos : this.mapContextVideos(executionContext);
         if (!videos.length) {
             throw new Error("At least one video is required for video analysis");
         }
 
         const output: NormalizedVideoAnalysis[] = [];
         const rawResponses: unknown[] = [];
+
         for (const video of videos) {
             const response = await this.client.models.generateContent({
                 model: merged.model ?? DEFAULT_GEMINI_VIDEO_ANALYSIS_MODEL,
@@ -64,6 +75,7 @@ export class GeminiVideoAnalysisCapabilityImpl
                     maxOutputTokens: input?.params?.maxOutputTokens,
                     ...(merged.modelParams ?? {})
                 },
+                // Keep provider-specific knobs passthrough for forward compatibility.
                 ...(merged.providerParams ?? {})
             });
             rawResponses.push(response);
@@ -73,7 +85,9 @@ export class GeminiVideoAnalysisCapabilityImpl
                 this.normalizeVideoAnalysis(
                     video.id,
                     text,
-                    outputFormat === "json" ? parseBestEffortJson<GeminiVideoAnalysisPayload>(text) : undefined
+                    outputFormat === "json"
+                        ? parseBestEffortJson<GeminiVideoAnalysisPayload>(text)
+                        : undefined
                 )
             );
         }
@@ -94,7 +108,13 @@ export class GeminiVideoAnalysisCapabilityImpl
         };
     }
 
-    private convertContextVideos(videos: NormalizedVideo[]): NonNullable<ClientVideoAnalysisRequest["videos"]> {
+    /**
+     * Maps timeline videos into the request shape expected by analysis input.
+     */
+    private mapContextVideos(
+        executionContext?: MultiModalExecutionContext
+    ): NonNullable<ClientVideoAnalysisRequest["videos"]> {
+        const videos = executionContext?.getLatestVideo() ?? [];
         return videos.map(v => ({
             id: v.id,
             mimeType: v.mimeType,
@@ -103,34 +123,39 @@ export class GeminiVideoAnalysisCapabilityImpl
         }));
     }
 
+    /**
+     * Builds a Gemini `generateContent` payload for one video input.
+     *
+     * In `json` mode we instruct the model to return strict JSON so downstream parsing
+     * can populate structured fields (summary/tags/moments).
+     */
     private buildContents(
-        video: NonNullable<ClientVideoAnalysisRequest["videos"]>[number],
+        video: RequestedVideo,
         prompt: string | undefined,
         outputFormat: NonNullable<ClientVideoAnalysisRequest["params"]>["outputFormat"]
     ) {
         const parts: Array<Record<string, unknown>> = [];
+        const promptText = prompt ?? DEFAULT_VIDEO_ANALYSIS_PROMPT;
+
         if (outputFormat === "json") {
             parts.push({
-                text:
-                    `${prompt ?? DEFAULT_VIDEO_ANALYSIS_PROMPT}\n\n` +
-                    "Return only valid JSON matching this interface: " +
-                    `{"summary"?:string,"transcript"?:string,"tags"?:string[],"moments"?:{"timestampSeconds"?:number,"text"?:string}[]}`
+                text: `${promptText}\n\nReturn only valid JSON matching this interface: ${JSON_ANALYSIS_SCHEMA_HINT}`
             });
         } else {
-            parts.push({ text: prompt ?? DEFAULT_VIDEO_ANALYSIS_PROMPT });
+            parts.push({ text: promptText });
         }
 
         if (video.base64) {
             parts.push({
                 inlineData: {
-                    mimeType: video.mimeType ?? "video/mp4",
+                    mimeType: video.mimeType ?? DEFAULT_VIDEO_MIME_TYPE,
                     data: video.base64
                 }
             });
         } else if (video.url) {
             parts.push({
                 fileData: {
-                    mimeType: video.mimeType ?? "video/mp4",
+                    mimeType: video.mimeType ?? DEFAULT_VIDEO_MIME_TYPE,
                     fileUri: video.url
                 }
             });
@@ -141,6 +166,12 @@ export class GeminiVideoAnalysisCapabilityImpl
         return [{ role: "user", parts }];
     }
 
+    /**
+     * Normalizes Gemini model text output into `NormalizedVideoAnalysis`.
+     *
+     * If parsed JSON is unavailable, plain text is preserved as `summary` so analysis
+     * still returns useful output in non-JSON or degraded model responses.
+     */
     private normalizeVideoAnalysis(
         sourceVideoId: string | undefined,
         text: string,

@@ -17,6 +17,8 @@ export type AudioArtifactParams = {
     raw?: unknown;
 };
 
+export type AudioResponseIdKey = "id" | "responseId";
+
 /**
  * Builds a normalized audio artifact with optional fields.
  * @param params Audio artifact parameters
@@ -39,6 +41,33 @@ export function createAudioArtifact(params: AudioArtifactParams): NormalizedAudi
         ...(params.bitrate !== undefined ? { bitrate: params.bitrate } : {}),
         ...(params.raw !== undefined ? { raw: params.raw } : {})
     };
+}
+
+/**
+ * Builds a normalized transcription artifact with inferred audio detail fields from MIME metadata.
+ * @param mimeType Input/output audio MIME type
+ * @param transcript Transcript text
+ * @param language Optional language hint
+ * @param id Optional deterministic artifact id
+ * @returns Normalized transcription artifact
+ */
+export function createTranscriptionAudioArtifact(
+    mimeType: string,
+    transcript: string,
+    language?: string,
+    id?: string
+): NormalizedAudio {
+    const details = extractAudioMimeInfo(mimeType);
+    return createAudioArtifact({
+        id: id ?? crypto.randomUUID(),
+        kind: "transcription",
+        mimeType,
+        transcript,
+        language,
+        sampleRateHz: details.sampleRateHz,
+        channels: details.channels,
+        bitrate: details.bitrate
+    });
 }
 
 /**
@@ -244,4 +273,42 @@ export function decodeBase64Audio(base64: string, source: string): Buffer {
     }
 
     return bytes;
+}
+
+/**
+ * Extracts a response id from an arbitrary provider payload using ordered key preference.
+ * @param response Arbitrary response object
+ * @param keys Ordered candidate keys to probe
+ * @returns First string id found, otherwise undefined
+ */
+export function extractResponseIdByKeys(
+    response: unknown,
+    keys: readonly AudioResponseIdKey[]
+): string | undefined {
+    if (!response || typeof response !== "object") {
+        return undefined;
+    }
+    const direct = response as Record<string, unknown>;
+    for (const key of keys) {
+        if (typeof direct[key] === "string") {
+            return direct[key] as string;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Extracts normalized audio error codes from known error shapes.
+ * @param err Unknown thrown value
+ * @returns Audio error code when present
+ */
+export function extractAudioErrorCode(err: unknown): string | undefined {
+    if (err instanceof AudioCapabilityError) {
+        return err.code;
+    }
+    if (!(err instanceof Error) || typeof err.message !== "string") {
+        return undefined;
+    }
+    const match = err.message.match(/\[(AUDIO_[A-Z_]+)\]/);
+    return match?.[1];
 }

@@ -42,7 +42,9 @@ import {
     NormalizedVideo,
     OpenAIChatCapabilityImpl,
     OpenAIEmbedCapabilityImpl,
-    OpenAIAudioCapabilityImpl,
+    OpenAIAudioTextToSpeechCapabilityImpl,
+    OpenAIAudioTranscriptionCapabilityImpl,
+    OpenAIAudioTranslationCapabilityImpl,
     OpenAIImageAnalysisCapabilityImpl,
     OpenAIImageEditCapabilityImpl,
     OpenAIImageGenerationCapabilityImpl,
@@ -100,7 +102,9 @@ export class OpenAIProvider
     private imageEditDelegate: OpenAIImageEditCapabilityImpl | null = null;
     private imageGenDelegate: OpenAIImageGenerationCapabilityImpl | null = null;
     private imageAnalysisDelegate: OpenAIImageAnalysisCapabilityImpl | null = null;
-    private audioDelegate: OpenAIAudioCapabilityImpl | null = null;
+    private audioTranscriptionDelegate: OpenAIAudioTranscriptionCapabilityImpl | null = null;
+    private audioTranslationDelegate: OpenAIAudioTranslationCapabilityImpl | null = null;
+    private audioTtsDelegate: OpenAIAudioTextToSpeechCapabilityImpl | null = null;
     private videoDelegate: OpenAIVideoGenerationCapabilityImpl | null = null;
     private videoDownloadDelegate: OpenAIVideoDownloadCapabilityImpl | null = null;
     private videoRemixDelegate: OpenAIVideoRemixCapabilityImpl | null = null;
@@ -135,7 +139,9 @@ export class OpenAIProvider
         this.imageEditDelegate = new OpenAIImageEditCapabilityImpl(this, this.client);
         this.imageGenDelegate = new OpenAIImageGenerationCapabilityImpl(this, this.client);
         this.imageAnalysisDelegate = new OpenAIImageAnalysisCapabilityImpl(this, this.client);
-        this.audioDelegate = new OpenAIAudioCapabilityImpl(this, this.client);
+        this.audioTranscriptionDelegate = new OpenAIAudioTranscriptionCapabilityImpl(this, this.client);
+        this.audioTranslationDelegate = new OpenAIAudioTranslationCapabilityImpl(this, this.client);
+        this.audioTtsDelegate = new OpenAIAudioTextToSpeechCapabilityImpl(this, this.client);
         this.videoDelegate = new OpenAIVideoGenerationCapabilityImpl(this, this.client);
         this.videoDownloadDelegate = new OpenAIVideoDownloadCapabilityImpl(this, this.client);
         this.videoRemixDelegate = new OpenAIVideoRemixCapabilityImpl(this, this.client);
@@ -485,10 +491,10 @@ export class OpenAIProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.transcribeAudio !== "function") {
+        if (!this.audioTranscriptionDelegate || typeof this.audioTranscriptionDelegate.transcribeAudio !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionCapabilityKey);
         }
-        return await this.audioDelegate.transcribeAudio(req, executionContext, signal);
+        return await this.audioTranscriptionDelegate.transcribeAudio(req, executionContext, signal);
     }
 
     /**
@@ -504,10 +510,13 @@ export class OpenAIProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.transcribeAudioStream !== "function") {
+        if (
+            !this.audioTranscriptionDelegate ||
+            typeof this.audioTranscriptionDelegate.transcribeAudioStream !== "function"
+        ) {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionStreamCapabilityKey);
         }
-        return this.audioDelegate.transcribeAudioStream(req, executionContext, signal);
+        return this.audioTranscriptionDelegate.transcribeAudioStream(req, executionContext, signal);
     }
 
     /**
@@ -523,10 +532,10 @@ export class OpenAIProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.translateAudio !== "function") {
+        if (!this.audioTranslationDelegate || typeof this.audioTranslationDelegate.translateAudio !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranslationCapabilityKey);
         }
-        return await this.audioDelegate.translateAudio(req, executionContext, signal);
+        return await this.audioTranslationDelegate.translateAudio(req, executionContext, signal);
     }
 
     /**
@@ -542,10 +551,10 @@ export class OpenAIProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.textToSpeech !== "function") {
+        if (!this.audioTtsDelegate || typeof this.audioTtsDelegate.textToSpeech !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTextToSpeechCapabilityKey);
         }
-        return await this.audioDelegate.textToSpeech(req, executionContext, signal);
+        return await this.audioTtsDelegate.textToSpeech(req, executionContext, signal);
     }
 
     /**
@@ -561,9 +570,9 @@ export class OpenAIProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
-        if (!this.audioDelegate || typeof this.audioDelegate.textToSpeechStream !== "function") {
+        if (!this.audioTtsDelegate || typeof this.audioTtsDelegate.textToSpeechStream !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTextToSpeechStreamCapabilityKey);
         }
-        return this.audioDelegate.textToSpeechStream(req, executionContext, signal);
+        return this.audioTtsDelegate.textToSpeechStream(req, executionContext, signal);
     }
 }

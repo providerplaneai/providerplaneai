@@ -43,28 +43,34 @@ describe("GeminiVideoGenerationCapabilityImpl", () => {
     });
 
     it("polls until done and can include inline base64", async () => {
-        const provider = makeProvider();
-        const generateVideos = vi.fn().mockResolvedValue({
-            done: false,
-            name: "operations/gv2"
-        });
-        const getVideosOperation = vi.fn().mockResolvedValue({
-            done: true,
-            name: "operations/gv2",
-            response: {
-                generatedVideos: [{ video: { videoBytes: "AQID", mimeType: "video/mp4" } }]
-            }
-        });
-        const client = { models: { generateVideos }, operations: { getVideosOperation } };
-        const cap = new GeminiVideoGenerationCapabilityImpl(provider, client as any);
-        vi.spyOn(cap as any, "delay").mockResolvedValue(undefined);
+        vi.useFakeTimers();
+        try {
+            const provider = makeProvider();
+            const generateVideos = vi.fn().mockResolvedValue({
+                done: false,
+                name: "operations/gv2"
+            });
+            const getVideosOperation = vi.fn().mockResolvedValue({
+                done: true,
+                name: "operations/gv2",
+                response: {
+                    generatedVideos: [{ video: { videoBytes: "AQID", mimeType: "video/mp4" } }]
+                }
+            });
+            const client = { models: { generateVideos }, operations: { getVideosOperation } };
+            const cap = new GeminiVideoGenerationCapabilityImpl(provider, client as any);
 
-        const out = await cap.generateVideo({
-            input: { prompt: "A sunset", params: { includeBase64: true } }
-        } as any);
+            const outPromise = cap.generateVideo({
+                input: { prompt: "A sunset", params: { includeBase64: true } }
+            } as any);
+            await vi.advanceTimersByTimeAsync(2_000);
+            const out = await outPromise;
 
-        expect(getVideosOperation).toHaveBeenCalledTimes(1);
-        expect(out.output[0]?.base64).toBe("AQID");
+            expect(getVideosOperation).toHaveBeenCalledTimes(1);
+            expect(out.output[0]?.base64).toBe("AQID");
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("falls back to files.download when protected URI returns 403", async () => {

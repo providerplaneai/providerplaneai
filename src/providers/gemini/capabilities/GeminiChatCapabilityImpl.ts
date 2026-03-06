@@ -16,7 +16,10 @@ import {
 
 const DEFAULT_GEMINI_CHAT_MODEL = "gemini-2.5-flash-latest";
 
-export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatRequest>, ChatStreamCapability<ClientChatRequest> {
+export class GeminiChatCapabilityImpl implements 
+    ChatCapability<ClientChatRequest>, 
+    ChatStreamCapability<ClientChatRequest> {
+        
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI

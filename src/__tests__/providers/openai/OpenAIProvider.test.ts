@@ -87,10 +87,14 @@ describe("OpenAIProvider", () => {
             analyzeImage: vi.fn().mockResolvedValue({ output: [] }),
             analyzeImageStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
         };
-        (provider as any).audioDelegate = {
+        (provider as any).audioTranscriptionDelegate = {
             transcribeAudio: vi.fn().mockResolvedValue({ output: [] }),
-            transcribeAudioStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })()),
-            translateAudio: vi.fn().mockResolvedValue({ output: [] }),
+            transcribeAudioStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
+        };
+        (provider as any).audioTranslationDelegate = {
+            translateAudio: vi.fn().mockResolvedValue({ output: [] })
+        };
+        (provider as any).audioTtsDelegate = {
             textToSpeech: vi.fn().mockResolvedValue({ output: [] }),
             textToSpeechStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
         };
