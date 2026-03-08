@@ -22,12 +22,11 @@ const GEMINI_VIDEO_MAX_DURATION_SECONDS = 8;
 /**
  * Gemini video extension capability implementation.
  */
-export class GeminiVideoExtendCapabilityImpl
-    implements VideoExtendCapability<ClientVideoExtendRequest, NormalizedVideo[]> {
+export class GeminiVideoExtendCapabilityImpl implements VideoExtendCapability<ClientVideoExtendRequest, NormalizedVideo[]> {
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
-    ) { }
+    ) {}
 
     async extendVideo(
         request: AIRequest<ClientVideoExtendRequest>,
@@ -50,8 +49,8 @@ export class GeminiVideoExtendCapabilityImpl
 
         const durationSeconds = this.resolveDurationSeconds(
             input.params?.durationSeconds ??
-            this.readFiniteNumber((merged.modelParams as Record<string, unknown> | undefined)?.durationSeconds) ??
-            this.readFiniteNumber((merged.providerParams as Record<string, unknown> | undefined)?.durationSeconds)
+                this.readFiniteNumber((merged.modelParams as Record<string, unknown> | undefined)?.durationSeconds) ??
+                this.readFiniteNumber((merged.providerParams as Record<string, unknown> | undefined)?.durationSeconds)
         );
         const config: Record<string, unknown> = {
             ...(merged.modelParams ?? {}),
@@ -87,7 +86,8 @@ export class GeminiVideoExtendCapabilityImpl
 
         if (finalOperation?.error) {
             throw new Error(
-                `Gemini video extension failed (model=${String(merged.model)}, durationSeconds=${durationSeconds ?? "unset"
+                `Gemini video extension failed (model=${String(merged.model)}, durationSeconds=${
+                    durationSeconds ?? "unset"
                 }): ${JSON.stringify(finalOperation.error)}`
             );
         }
@@ -135,12 +135,7 @@ export class GeminiVideoExtendCapabilityImpl
         };
     }
 
-    private async pollUntilTerminal(
-        operation: any,
-        pollIntervalMs: number,
-        maxPollMs: number,
-        signal?: AbortSignal
-    ) {
+    private async pollUntilTerminal(operation: any, pollIntervalMs: number, maxPollMs: number, signal?: AbortSignal) {
         const started = Date.now();
         let current = operation;
 
@@ -238,9 +233,7 @@ export class GeminiVideoExtendCapabilityImpl
             if (response.status === 401 || response.status === 403) {
                 const fileName = this.extractGeminiFileName(video.uri);
                 if (!fileName) {
-                    throw new Error(
-                        `Failed to fetch extended video from URI: ${response.status} ${response.statusText}`
-                    );
+                    throw new Error(`Failed to fetch extended video from URI: ${response.status} ${response.statusText}`);
                 }
                 const bytes = await this.downloadViaFilesApi(fileName, signal);
                 return bytes.length > 0 ? bytes.toString("base64") : undefined;

@@ -24,9 +24,10 @@ const GEMINI_VIDEO_MAX_DURATION_SECONDS = 8;
 /**
  * Gemini video generation capability implementation.
  */
-export class GeminiVideoGenerationCapabilityImpl
-    implements VideoGenerationCapability<ClientVideoGenerationRequest, NormalizedVideo[]>
-{
+export class GeminiVideoGenerationCapabilityImpl implements VideoGenerationCapability<
+    ClientVideoGenerationRequest,
+    NormalizedVideo[]
+> {
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
@@ -136,12 +137,7 @@ export class GeminiVideoGenerationCapabilityImpl
         };
     }
 
-    private async pollUntilTerminal(
-        operation: any,
-        pollIntervalMs: number,
-        maxPollMs: number,
-        signal?: AbortSignal
-    ) {
+    private async pollUntilTerminal(operation: any, pollIntervalMs: number, maxPollMs: number, signal?: AbortSignal) {
         const started = Date.now();
         let current = operation;
 
@@ -188,9 +184,7 @@ export class GeminiVideoGenerationCapabilityImpl
             if (response.status === 401 || response.status === 403) {
                 const fileName = this.extractGeminiFileName(video.uri);
                 if (!fileName) {
-                    throw new Error(
-                        `Failed to fetch generated video from URI: ${response.status} ${response.statusText}`
-                    );
+                    throw new Error(`Failed to fetch generated video from URI: ${response.status} ${response.statusText}`);
                 }
                 const bytes = await this.downloadViaFilesApi(fileName, signal);
                 return bytes.length > 0 ? bytes.toString("base64") : undefined;

@@ -91,7 +91,6 @@ export function resolveVariantMimeType(variant: OpenAIVideoVariant): string {
     return "video/mp4";
 }
 
-
 /**
  * Sleeps for the requested poll interval and exits early if the request is aborted.
  */
@@ -162,7 +161,6 @@ export async function downloadVariantBase64(
     const bytes = Buffer.from(await contentResponse.arrayBuffer());
     return bytes.length > 0 ? bytes.toString("base64") : undefined;
 }
-
 
 /**
  * Throws normalized failure message when OpenAI video operation is in failed state.

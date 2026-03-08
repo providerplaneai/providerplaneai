@@ -16,9 +16,10 @@ import {
 /**
  * Gemini video download capability implementation.
  */
-export class GeminiVideoDownloadCapabilityImpl
-    implements VideoDownloadCapability<ClientVideoDownloadRequest, NormalizedVideo[]>
-{
+export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapability<
+    ClientVideoDownloadRequest,
+    NormalizedVideo[]
+> {
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI

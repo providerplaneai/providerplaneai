@@ -121,9 +121,7 @@ export function stripBinaryPayloadFields<T>(value: T): T {
 /**
  * Sanitizes timeline artifacts by removing binary-heavy fields.
  */
-export function sanitizeTimelineArtifacts(
-    artifacts?: Partial<TimelineArtifacts>
-): Partial<TimelineArtifacts> | undefined {
+export function sanitizeTimelineArtifacts(artifacts?: Partial<TimelineArtifacts>): Partial<TimelineArtifacts> | undefined {
     if (!artifacts) {
         return artifacts;
     }

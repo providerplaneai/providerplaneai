@@ -112,8 +112,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         this.providerChain = executionMetadata?.providerChain;
         this.storeRawResponses = executionMetadata?.storeRawResponses ?? true;
         this.maxRawBytesPerJob = executionMetadata?.maxRawBytesPerJob;
-        this.stripBinaryPayloadsInSnapshotsAndTimeline =
-            executionMetadata?.stripBinaryPayloadsInSnapshotsAndTimeline ?? false;
+        this.stripBinaryPayloadsInSnapshotsAndTimeline = executionMetadata?.stripBinaryPayloadsInSnapshotsAndTimeline ?? false;
         this.completionPromise = new Promise<TOutput>((resolve, reject) => {
             this.resolveCompletion = resolve;
             this.rejectCompletion = reject;
@@ -245,9 +244,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     }
 
     toSnapshot(): JobSnapshot<TInput, TOutput> {
-        const output = this.stripBinaryPayloadsInSnapshotsAndTimeline
-            ? stripBinaryPayloadFields(this.output)
-            : this.output;
+        const output = this.stripBinaryPayloadsInSnapshotsAndTimeline ? stripBinaryPayloadFields(this.output) : this.output;
         const multimodalArtifacts = this.stripBinaryPayloadsInSnapshotsAndTimeline
             ? (sanitizeTimelineArtifacts(this.artifacts) as TimelineArtifacts)
             : ({ ...this.artifacts } as TimelineArtifacts);

@@ -293,8 +293,7 @@ export class JobManager {
                             capability: snap.capability,
                             providerChain: snap.providerChain,
                             storeRawResponses: this.options?.storeRawResponses,
-                            stripBinaryPayloadsInSnapshotsAndTimeline:
-                                this.options?.stripBinaryPayloadsInSnapshotsAndTimeline,
+                            stripBinaryPayloadsInSnapshotsAndTimeline: this.options?.stripBinaryPayloadsInSnapshotsAndTimeline,
                             maxRawBytesPerJob: this.options?.maxRawBytesPerJob
                         }
                     );
@@ -312,8 +311,7 @@ export class JobManager {
                         capability: snap.capability,
                         providerChain: snap.providerChain,
                         storeRawResponses: this.options?.storeRawResponses,
-                        stripBinaryPayloadsInSnapshotsAndTimeline:
-                            this.options?.stripBinaryPayloadsInSnapshotsAndTimeline,
+                        stripBinaryPayloadsInSnapshotsAndTimeline: this.options?.stripBinaryPayloadsInSnapshotsAndTimeline,
                         maxRawBytesPerJob: this.options?.maxRawBytesPerJob
                     }
                 );
@@ -383,9 +381,7 @@ export class JobManager {
         // Attach chunk callback for streaming progress
         job.onChunk = onChunk;
         // Keep timeline storage behavior aligned with manager/runtime settings.
-        ctx.setStripBinaryPayloadsInTimeline(
-            this.options?.stripBinaryPayloadsInSnapshotsAndTimeline ?? false
-        );
+        ctx.setStripBinaryPayloadsInTimeline(this.options?.stripBinaryPayloadsInSnapshotsAndTimeline ?? false);
 
         this.jobQueue.push({ job, ctx });
         this.processQueue();

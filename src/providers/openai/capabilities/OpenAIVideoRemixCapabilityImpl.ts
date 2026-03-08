@@ -4,7 +4,6 @@ import {
     AIRequest,
     AIResponse,
     BaseProvider,
-    CapabilityKeys,
     ClientVideoRemixRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
@@ -20,9 +19,7 @@ const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
  * Uses OpenAI Videos API (`videos.remix`, `videos.retrieve`, `videos.downloadContent`)
  * and normalizes job output into `NormalizedVideo[]`.
  */
-export class OpenAIVideoRemixCapabilityImpl
-    implements VideoRemixCapability<ClientVideoRemixRequest, NormalizedVideo[]>
-{
+export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<ClientVideoRemixRequest, NormalizedVideo[]> {
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
@@ -43,11 +40,7 @@ export class OpenAIVideoRemixCapabilityImpl
             throw new Error("Prompt is required for video remix");
         }
 
-        const created = await this.client.videos.remix(
-            input.sourceVideoId.trim(),
-            { prompt: input.prompt },
-            { signal }
-        );
+        const created = await this.client.videos.remix(input.sourceVideoId.trim(), { prompt: input.prompt }, { signal });
 
         const pollUntilComplete = input.params?.pollUntilComplete ?? true;
         const pollIntervalMs = Math.max(250, Number(input.params?.pollIntervalMs ?? DEFAULT_VIDEO_POLL_INTERVAL_MS));
@@ -55,9 +48,7 @@ export class OpenAIVideoRemixCapabilityImpl
         const includeBase64 = input.params?.includeBase64 ?? false;
         const variant = input.params?.downloadVariant ?? "video";
 
-        const video = pollUntilComplete
-            ? await this.pollUntilTerminal(created.id, pollIntervalMs, maxPollMs, signal)
-            : created;
+        const video = pollUntilComplete ? await this.pollUntilTerminal(created.id, pollIntervalMs, maxPollMs, signal) : created;
 
         if (video.status === "failed") {
             throw new Error(
@@ -69,11 +60,7 @@ export class OpenAIVideoRemixCapabilityImpl
 
         let base64: string | undefined;
         if (includeBase64 && video.status === "completed") {
-            const contentResponse = await this.client.videos.downloadContent(
-                video.id,
-                { variant: variant as any },
-                { signal }
-            );
+            const contentResponse = await this.client.videos.downloadContent(video.id, { variant: variant as any }, { signal });
             const bytes = Buffer.from(await contentResponse.arrayBuffer());
             base64 = bytes.length > 0 ? bytes.toString("base64") : undefined;
         }
@@ -116,12 +103,7 @@ export class OpenAIVideoRemixCapabilityImpl
         };
     }
 
-    private async pollUntilTerminal(
-        videoId: string,
-        pollIntervalMs: number,
-        maxPollMs: number,
-        signal?: AbortSignal
-    ) {
+    private async pollUntilTerminal(videoId: string, pollIntervalMs: number, maxPollMs: number, signal?: AbortSignal) {
         const started = Date.now();
         while (true) {
             if (signal?.aborted) {

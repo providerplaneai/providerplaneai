@@ -201,15 +201,15 @@ export class OpenAIProvider
         );
         this.registerCapability(
             CapabilityKeys.AudioTranscriptionCapabilityKey,
-            this as AudioTranscriptionCapability<ClientAudioTranscriptionRequest, NormalizedAudio[]>
+            this as AudioTranscriptionCapability<ClientAudioTranscriptionRequest, NormalizedChatMessage[]>
         );
         this.registerCapability(
             CapabilityKeys.AudioTranscriptionStreamCapabilityKey,
-            this as AudioTranscriptionStreamCapability<ClientAudioTranscriptionRequest, NormalizedAudio[]>
+            this as AudioTranscriptionStreamCapability<ClientAudioTranscriptionRequest, NormalizedChatMessage[]>
         );
         this.registerCapability(
             CapabilityKeys.AudioTranslationCapabilityKey,
-            this as AudioTranslationCapability<ClientAudioTranslationRequest, NormalizedAudio[]>
+            this as AudioTranslationCapability<ClientAudioTranslationRequest, NormalizedChatMessage[]>
         );
         this.registerCapability(
             CapabilityKeys.AudioTextToSpeechCapabilityKey,
@@ -490,7 +490,7 @@ export class OpenAIProvider
         req: AIRequest<ClientAudioTranscriptionRequest>,
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
-    ): Promise<AIResponse<NormalizedAudio[]>> {
+    ): Promise<AIResponse<NormalizedChatMessage[]>> {
         if (!this.audioTranscriptionDelegate || typeof this.audioTranscriptionDelegate.transcribeAudio !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionCapabilityKey);
         }
@@ -509,11 +509,8 @@ export class OpenAIProvider
         req: AIRequest<ClientAudioTranscriptionRequest>,
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
-    ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
-        if (
-            !this.audioTranscriptionDelegate ||
-            typeof this.audioTranscriptionDelegate.transcribeAudioStream !== "function"
-        ) {
+    ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage[]>> {
+        if (!this.audioTranscriptionDelegate || typeof this.audioTranscriptionDelegate.transcribeAudioStream !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionStreamCapabilityKey);
         }
         return this.audioTranscriptionDelegate.transcribeAudioStream(req, executionContext, signal);
@@ -531,7 +528,7 @@ export class OpenAIProvider
         req: AIRequest<ClientAudioTranslationRequest>,
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
-    ): Promise<AIResponse<NormalizedAudio[]>> {
+    ): Promise<AIResponse<NormalizedChatMessage[]>> {
         if (!this.audioTranslationDelegate || typeof this.audioTranslationDelegate.translateAudio !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranslationCapabilityKey);
         }

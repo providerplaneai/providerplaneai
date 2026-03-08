@@ -87,31 +87,25 @@ export interface CapabilityMap {
     [CapabilityKeys.ChatStreamCapabilityKey]: ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>;
     [CapabilityKeys.AudioTranscriptionCapabilityKey]: AudioTranscriptionCapability<
         ClientAudioTranscriptionRequest,
-        NormalizedAudio[]
+        NormalizedChatMessage[]
     >;
     [CapabilityKeys.AudioTranscriptionStreamCapabilityKey]: AudioTranscriptionStreamCapability<
         ClientAudioTranscriptionRequest,
-        NormalizedAudio[]
+        NormalizedChatMessage[]
     >;
     [CapabilityKeys.AudioTranslationCapabilityKey]: AudioTranslationCapability<
         ClientAudioTranslationRequest,
-        NormalizedAudio[]
+        NormalizedChatMessage[]
     >;
     [CapabilityKeys.AudioTextToSpeechCapabilityKey]: TextToSpeechCapability<ClientTextToSpeechRequest, NormalizedAudio[]>;
     [CapabilityKeys.AudioTextToSpeechStreamCapabilityKey]: TextToSpeechStreamCapability<
         ClientTextToSpeechRequest,
         NormalizedAudio[]
     >;
-    [CapabilityKeys.VideoGenerationCapabilityKey]: VideoGenerationCapability<
-        ClientVideoGenerationRequest,
-        NormalizedVideo[]
-    >;
+    [CapabilityKeys.VideoGenerationCapabilityKey]: VideoGenerationCapability<ClientVideoGenerationRequest, NormalizedVideo[]>;
     [CapabilityKeys.VideoDownloadCapabilityKey]: VideoDownloadCapability<ClientVideoDownloadRequest, NormalizedVideo[]>;
     [CapabilityKeys.VideoExtendCapabilityKey]: VideoExtendCapability<ClientVideoExtendRequest, NormalizedVideo[]>;
-    [CapabilityKeys.VideoAnalysisCapabilityKey]: VideoAnalysisCapability<
-        ClientVideoAnalysisRequest,
-        NormalizedVideoAnalysis[]
-    >;
+    [CapabilityKeys.VideoAnalysisCapabilityKey]: VideoAnalysisCapability<ClientVideoAnalysisRequest, NormalizedVideoAnalysis[]>;
     [CapabilityKeys.VideoRemixCapabilityKey]: VideoRemixCapability<ClientVideoRemixRequest, NormalizedVideo[]>;
     [CapabilityKeys.ImageGenerationCapabilityKey]: ImageGenerationCapability<ClientImageGenerationRequest, NormalizedImage[]>;
     [CapabilityKeys.ImageGenerationStreamCapabilityKey]: ImageGenerationStreamCapability<

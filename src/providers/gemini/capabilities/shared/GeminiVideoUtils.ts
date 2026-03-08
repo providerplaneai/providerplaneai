@@ -310,11 +310,7 @@ export function readFiniteNumber(value: unknown): number | undefined {
 /**
  * Validates duration bounds and returns normalized numeric seconds.
  */
-export function ensureDurationInRange(
-    value: number | undefined,
-    minSeconds: number,
-    maxSeconds: number
-): number | undefined {
+export function ensureDurationInRange(value: number | undefined, minSeconds: number, maxSeconds: number): number | undefined {
     if (value === undefined) {
         return undefined;
     }
@@ -322,9 +318,7 @@ export function ensureDurationInRange(
         throw new Error(`Gemini video durationSeconds must be a finite number (received ${String(value)})`);
     }
     if (value < minSeconds || value > maxSeconds) {
-        throw new Error(
-            `Gemini video durationSeconds must be between ${minSeconds} and ${maxSeconds} (received ${value})`
-        );
+        throw new Error(`Gemini video durationSeconds must be between ${minSeconds} and ${maxSeconds} (received ${value})`);
     }
     return value;
 }
@@ -428,9 +422,7 @@ type BuildGeminiVideoResponseMetadataArgs = {
 /**
  * Builds top-level AIResponse metadata shared by Gemini video capabilities.
  */
-export function buildGeminiVideoResponseMetadata(
-    args: BuildGeminiVideoResponseMetadataArgs
-): Record<string, unknown> {
+export function buildGeminiVideoResponseMetadata(args: BuildGeminiVideoResponseMetadataArgs): Record<string, unknown> {
     return {
         ...(args.contextMetadata ?? {}),
         provider: AIProvider.Gemini,

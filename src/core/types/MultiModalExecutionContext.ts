@@ -152,10 +152,13 @@ export class MultiModalExecutionContext {
             chat: [...safeArray(base.chat), ...safeArray(addition.chat)],
             images: [...safeArray(base.images), ...safeArray(addition.images)],
             masks: [...safeArray(base.masks), ...safeArray(addition.masks)],
-            analysis: [...safeArray(base.analysis), ...safeArray(addition.analysis)],
+            videoAnalysis: [...safeArray(base.videoAnalysis), ...safeArray(addition.videoAnalysis)],
+            imageAnalysis: [...safeArray(base.imageAnalysis), ...safeArray(addition.imageAnalysis)],
+            transcript: [...safeArray(base.transcript), ...safeArray(addition.transcript)],
+            translation: [...safeArray(base.translation), ...safeArray(addition.translation)],
             embeddings: [...safeArray(base.embeddings), ...safeArray(addition.embeddings)],
             moderation: [...safeArray(base.moderation), ...safeArray(addition.moderation)],
-            audio: [...safeArray(base.audio), ...safeArray(addition.audio)],
+            tts: [...safeArray(base.tts), ...safeArray(addition.tts)],
             video: [...safeArray(base.video), ...safeArray(addition.video)],
             files: [...safeArray(base.files), ...safeArray(addition.files)],
             custom: [...safeArray(base.custom), ...safeArray(addition.custom)]
@@ -168,10 +171,13 @@ export class MultiModalExecutionContext {
             chat: [],
             images: [],
             masks: [],
-            analysis: [],
+            imageAnalysis: [],
+            videoAnalysis: [],
+            transcript: [],
+            translation: [],
             embeddings: [],
             moderation: [],
-            audio: [],
+            tts: [],
             video: [],
             files: [],
             custom: []
@@ -204,21 +210,12 @@ export class MultiModalExecutionContext {
         return this.findLatest((e) => e.artifacts.masks) ?? [];
     }
 
-    getLatestAnalysis(): (NormalizedImageAnalysis | NormalizedVideoAnalysis)[] {
-        return this.findLatest((e) => e.artifacts.analysis) ?? [];
-    }
-
     getLatestImageAnalysis(): NormalizedImageAnalysis[] {
-        return (this.getLatestAnalysis() ?? []).filter((item): item is NormalizedImageAnalysis =>
-            "description" in item || "objects" in item || "text" in item || "safety" in item || "sourceImageId" in item
-        );
+        return this.findLatest((e) => e.artifacts.imageAnalysis) ?? [];
     }
 
     getLatestVideoAnalysis(): NormalizedVideoAnalysis[] {
-        return (this.getLatestAnalysis() ?? []).filter(
-            (item): item is NormalizedVideoAnalysis =>
-                "summary" in item || "transcript" in item || "moments" in item || "sourceVideoId" in item
-        );
+        return this.findLatest((e) => e.artifacts.videoAnalysis) ?? [];
     }
 
     getLatestEmbeddings(): NormalizedEmbedding[] {
@@ -229,8 +226,16 @@ export class MultiModalExecutionContext {
         return this.findLatest((e) => e.artifacts.moderation) ?? [];
     }
 
-    getLatestAudio(): NormalizedAudio[] {
-        return this.findLatest((e) => e.artifacts.audio) ?? [];
+    getLatestTTS(): NormalizedAudio[] {
+        return this.findLatest((e) => e.artifacts.tts) ?? [];
+    }
+
+    getLatestTranscript(): NormalizedChatMessage[] {
+        return this.findLatest((e) => e.artifacts.transcript) ?? [];
+    }
+
+    getLatestTranslation(): NormalizedChatMessage[] {
+        return this.findLatest((e) => e.artifacts.translation) ?? [];
     }
 
     getLatestVideo(): NormalizedVideo[] {

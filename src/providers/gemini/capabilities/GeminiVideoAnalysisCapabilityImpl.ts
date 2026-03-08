@@ -7,7 +7,6 @@ import {
     CapabilityKeys,
     ClientVideoAnalysisRequest,
     MultiModalExecutionContext,
-    NormalizedVideo,
     NormalizedVideoAnalysis,
     VideoAnalysisCapability,
     parseBestEffortJson
@@ -17,8 +16,7 @@ const DEFAULT_GEMINI_VIDEO_ANALYSIS_MODEL = "gemini-2.5-pro";
 const DEFAULT_VIDEO_ANALYSIS_PROMPT =
     "Analyze this video and provide a concise summary, key events, important entities, and any visible text.";
 const DEFAULT_VIDEO_MIME_TYPE = "video/mp4";
-const JSON_ANALYSIS_SCHEMA_HINT =
-    `{"summary"?:string,"transcript"?:string,"tags"?:string[],"moments"?:{"timestampSeconds"?:number,"text"?:string}[]}`;
+const JSON_ANALYSIS_SCHEMA_HINT = `{"summary"?:string,"transcript"?:string,"tags"?:string[],"moments"?:{"timestampSeconds"?:number,"text"?:string}[]}`;
 
 type GeminiVideoAnalysisPayload = {
     summary?: string;
@@ -38,9 +36,10 @@ type RequestedVideo = NonNullable<ClientVideoAnalysisRequest["videos"]>[number];
  * Input videos can be provided directly on the request, or implicitly sourced from
  * `MultiModalExecutionContext` when the request omits `input.videos`.
  */
-export class GeminiVideoAnalysisCapabilityImpl
-    implements VideoAnalysisCapability<ClientVideoAnalysisRequest, NormalizedVideoAnalysis[]>
-{
+export class GeminiVideoAnalysisCapabilityImpl implements VideoAnalysisCapability<
+    ClientVideoAnalysisRequest,
+    NormalizedVideoAnalysis[]
+> {
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
@@ -52,6 +51,11 @@ export class GeminiVideoAnalysisCapabilityImpl
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedVideoAnalysis[]>> {
         this.provider.ensureInitialized();
+
+        if (signal?.aborted) {
+            throw new Error("Video analysis aborted before API call");
+        }
+
         const { input, options, context } = request;
         const merged = this.provider.getMergedOptions(CapabilityKeys.VideoAnalysisCapabilityKey, options);
         const outputFormat = input?.params?.outputFormat ?? "json";
@@ -85,16 +89,14 @@ export class GeminiVideoAnalysisCapabilityImpl
                 this.normalizeVideoAnalysis(
                     video.id,
                     text,
-                    outputFormat === "json"
-                        ? parseBestEffortJson<GeminiVideoAnalysisPayload>(text)
-                        : undefined
+                    outputFormat === "json" ? parseBestEffortJson<GeminiVideoAnalysisPayload>(text) : undefined
                 )
             );
         }
 
         return {
             output,
-            multimodalArtifacts: { analysis: output },
+            multimodalArtifacts: { videoAnalysis: output },
             rawResponse: rawResponses,
             id: context?.requestId ?? crypto.randomUUID(),
             metadata: {
@@ -111,11 +113,9 @@ export class GeminiVideoAnalysisCapabilityImpl
     /**
      * Maps timeline videos into the request shape expected by analysis input.
      */
-    private mapContextVideos(
-        executionContext?: MultiModalExecutionContext
-    ): NonNullable<ClientVideoAnalysisRequest["videos"]> {
+    private mapContextVideos(executionContext?: MultiModalExecutionContext): NonNullable<ClientVideoAnalysisRequest["videos"]> {
         const videos = executionContext?.getLatestVideo() ?? [];
-        return videos.map(v => ({
+        return videos.map((v) => ({
             id: v.id,
             mimeType: v.mimeType,
             url: v.url,
@@ -186,8 +186,8 @@ export class GeminiVideoAnalysisCapabilityImpl
             transcript: normalized?.transcript,
             tags: normalized?.tags?.filter(Boolean),
             moments: normalized?.moments
-                ?.filter(m => Boolean(m?.text))
-                .map(m => ({
+                ?.filter((m) => Boolean(m?.text))
+                .map((m) => ({
                     timestampSeconds: m.timestampSeconds,
                     text: m.text!
                 }))

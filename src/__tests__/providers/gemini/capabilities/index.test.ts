@@ -3,7 +3,9 @@ import * as caps from "#root/providers/gemini/capabilities/index.js";
 
 describe("gemini capabilities index exports", () => {
     it("re-exports all gemini capability implementations", () => {
-        expect(typeof caps.GeminiAudioCapabilityImpl).toBe("function");
+        expect(typeof caps.GeminiAudioTranscriptionCapabilityImpl).toBe("function");
+        expect(typeof caps.GeminiAudioTranslationCapabilityImpl).toBe("function");
+        expect(typeof caps.GeminiAudioTextToSpeechCapabilityImpl).toBe("function");
         expect(typeof caps.GeminiChatCapabilityImpl).toBe("function");
         expect(typeof caps.GeminiEmbedCapabilityImpl).toBe("function");
         expect(typeof caps.GeminiImageAnalysisCapabilityImpl).toBe("function");

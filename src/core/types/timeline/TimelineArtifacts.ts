@@ -16,13 +16,16 @@ import {
  * It is designed to be flexible and extensible, allowing for different types of artifacts to be added as needed.
  */
 export interface TimelineArtifacts {
-    analysis?: (NormalizedImageAnalysis | NormalizedVideoAnalysis)[];
+    imageAnalysis?: NormalizedImageAnalysis[];
+    videoAnalysis?: NormalizedVideoAnalysis[];
     images?: NormalizedImage[];
     masks?: NormalizedMask[];
     embeddings?: NormalizedEmbedding[];
     moderation?: NormalizedModeration[];
     chat?: NormalizedChatMessage[];
-    audio?: NormalizedAudio[];
+    transcript?: NormalizedChatMessage[];
+    translation?: NormalizedChatMessage[];
+    tts?: NormalizedAudio[];
     video?: NormalizedVideo[];
     files?: NormalizedFile[];
     custom?: Record<string, unknown>[];

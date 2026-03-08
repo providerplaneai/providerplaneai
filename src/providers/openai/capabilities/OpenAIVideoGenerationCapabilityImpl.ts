@@ -23,9 +23,10 @@ const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
  * Uses OpenAI Videos API (`videos.create`, `videos.retrieve`, `videos.downloadContent`)
  * and normalizes job output into `NormalizedVideo[]`.
  */
-export class OpenAIVideoGenerationCapabilityImpl
-    implements VideoGenerationCapability<ClientVideoGenerationRequest, NormalizedVideo[]>
-{
+export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapability<
+    ClientVideoGenerationRequest,
+    NormalizedVideo[]
+> {
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
@@ -69,9 +70,7 @@ export class OpenAIVideoGenerationCapabilityImpl
         const includeBase64 = input.params?.includeBase64 ?? false;
         const variant = input.params?.downloadVariant ?? "video";
 
-        const video = pollUntilComplete
-            ? await this.pollUntilTerminal(created.id, pollIntervalMs, maxPollMs, signal)
-            : created;
+        const video = pollUntilComplete ? await this.pollUntilTerminal(created.id, pollIntervalMs, maxPollMs, signal) : created;
 
         if (video.status === "failed") {
             throw new Error(
@@ -83,11 +82,7 @@ export class OpenAIVideoGenerationCapabilityImpl
 
         let base64: string | undefined;
         if (includeBase64 && video.status === "completed") {
-            const contentResponse = await this.client.videos.downloadContent(
-                video.id,
-                { variant: variant as any },
-                { signal }
-            );
+            const contentResponse = await this.client.videos.downloadContent(video.id, { variant: variant as any }, { signal });
             const bytes = Buffer.from(await contentResponse.arrayBuffer());
             base64 = bytes.length > 0 ? bytes.toString("base64") : undefined;
         }
@@ -128,12 +123,7 @@ export class OpenAIVideoGenerationCapabilityImpl
         };
     }
 
-    private async pollUntilTerminal(
-        videoId: string,
-        pollIntervalMs: number,
-        maxPollMs: number,
-        signal?: AbortSignal
-    ) {
+    private async pollUntilTerminal(videoId: string, pollIntervalMs: number, maxPollMs: number, signal?: AbortSignal) {
         const started = Date.now();
         while (true) {
             if (signal?.aborted) {

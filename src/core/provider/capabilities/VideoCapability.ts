@@ -1,10 +1,4 @@
-import {
-    AIRequest,
-    AIResponse,
-    MultiModalExecutionContext,
-    NormalizedVideo,
-    ProviderCapability
-} from "#root/index.js";
+import { AIRequest, AIResponse, MultiModalExecutionContext, NormalizedVideo, ProviderCapability } from "#root/index.js";
 
 /**
  * Provider-agnostic video generation capability.
@@ -35,11 +29,7 @@ export interface VideoRemixCapability<TInput = unknown, TOutput = NormalizedVide
      * @param ctx Execution context
      * @param signal Optional abort signal
      */
-    remixVideo(
-        request: AIRequest<TInput>,
-        ctx: MultiModalExecutionContext,
-        signal?: AbortSignal
-    ): Promise<AIResponse<TOutput>>;
+    remixVideo(request: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<AIResponse<TOutput>>;
 }
 
 /**

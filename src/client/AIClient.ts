@@ -40,7 +40,6 @@ import {
     CapabilityExecutor,
     NonStreamingExecutor,
     StreamingExecutor,
-    AudioCapabilityError,
     AIClientLifecycleHooks,
     JobLifecycleHooks,
     readNumber,
@@ -152,9 +151,7 @@ export class AIClient {
             }
             if (jobManager.getStripBinaryPayloadsInSnapshotsAndTimeline() === undefined) {
                 // Set snapshot/timeline payload sanitization from config if not already set
-                jobManager.setStripBinaryPayloadsInSnapshotsAndTimeline(
-                    configuredStripBinaryPayloadsInSnapshotsAndTimeline
-                );
+                jobManager.setStripBinaryPayloadsInSnapshotsAndTimeline(configuredStripBinaryPayloadsInSnapshotsAndTimeline);
             }
             if (jobManager.getMaxRawBytesPerJob() === undefined) {
                 // Set max raw bytes per job from config if not already set
@@ -168,8 +165,7 @@ export class AIClient {
                 maxQueueSize: configuredMaxQueueSize,
                 maxStoredResponseChunks: configuredMaxStoredResponseChunks,
                 storeRawResponses: configuredStoreRawResponses,
-                stripBinaryPayloadsInSnapshotsAndTimeline:
-                    configuredStripBinaryPayloadsInSnapshotsAndTimeline,
+                stripBinaryPayloadsInSnapshotsAndTimeline: configuredStripBinaryPayloadsInSnapshotsAndTimeline,
                 maxRawBytesPerJob: configuredMaxRawBytesPerJob
             });
         }
@@ -376,7 +372,7 @@ export class AIClient {
         return this._jobManager;
     }
 
-    public getConfig():AppConfig {
+    public getConfig(): AppConfig {
         return this.appConfig;
     }
 
@@ -916,10 +912,6 @@ export class AIClient {
             return undefined;
         }
 
-        if (err instanceof AudioCapabilityError) {
-            return err.code;
-        }
-
         const message = err instanceof Error ? err.message : String(err);
         const bracketCode = message.match(/^\[([A-Z0-9_]+)\]/)?.[1];
         if (bracketCode) {
@@ -1043,16 +1035,11 @@ export class AIClient {
                 return "moderation";
             case CapabilityKeys.ImageGenerationCapabilityKey:
             case CapabilityKeys.ImageGenerationStreamCapabilityKey:
-                // Image generation capabilities
-                return "imageGeneration";
             case CapabilityKeys.ImageEditCapabilityKey:
             case CapabilityKeys.ImageEditStreamCapabilityKey:
-                // Image edit capabilities
-                return "imageEdit";
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
-                // Image analysis capabilities
-                return "imageAnalysis";
+                return "image";
             default:
                 // Custom or unknown capability
                 return "custom";
@@ -1083,10 +1070,14 @@ export class AIClient {
             case CapabilityKeys.AudioTranscriptionCapabilityKey:
             case CapabilityKeys.AudioTranscriptionStreamCapabilityKey:
             case CapabilityKeys.AudioTranslationCapabilityKey:
+                context.attachArtifacts({
+                    chat: expectArrayForCapability<NormalizedChatMessage>(capability, output, "chat output")
+                });
+                break;
             case CapabilityKeys.AudioTextToSpeechCapabilityKey:
             case CapabilityKeys.AudioTextToSpeechStreamCapabilityKey:
                 context.attachArtifacts({
-                    audio: expectArrayForCapability<NormalizedAudio>(capability, output, "audio output")
+                    tts: expectArrayForCapability<NormalizedAudio>(capability, output, "audio output")
                 });
                 break;
 
@@ -1105,7 +1096,11 @@ export class AIClient {
                 break;
             case CapabilityKeys.VideoAnalysisCapabilityKey:
                 context.attachArtifacts({
-                    analysis: expectArrayForCapability<NormalizedVideoAnalysis>(capability, output, "video analysis output")
+                    videoAnalysis: expectArrayForCapability<NormalizedVideoAnalysis>(
+                        capability,
+                        output,
+                        "video analysis output"
+                    )
                 });
                 break;
 
@@ -1120,7 +1115,11 @@ export class AIClient {
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
                 context.attachArtifacts({
-                    analysis: expectArrayForCapability<NormalizedImageAnalysis>(capability, output, "image analysis output")
+                    imageAnalysis: expectArrayForCapability<NormalizedImageAnalysis>(
+                        capability,
+                        output,
+                        "image analysis output"
+                    )
                 });
                 break;
             case CapabilityKeys.ImageEditStreamCapabilityKey:
@@ -1219,9 +1218,10 @@ export class AIClient {
             case CapabilityKeys.AudioTranscriptionCapabilityKey:
             case CapabilityKeys.AudioTranscriptionStreamCapabilityKey:
             case CapabilityKeys.AudioTranslationCapabilityKey:
+                return { chat: expectArrayForCapability<NormalizedChatMessage>(capability, output, "chat output") };
             case CapabilityKeys.AudioTextToSpeechCapabilityKey:
             case CapabilityKeys.AudioTextToSpeechStreamCapabilityKey:
-                return { audio: expectArrayForCapability<NormalizedAudio>(capability, output, "audio output") };
+                return { tts: expectArrayForCapability<NormalizedAudio>(capability, output, "audio output") };
             case CapabilityKeys.VideoGenerationCapabilityKey:
             case CapabilityKeys.VideoDownloadCapabilityKey:
             case CapabilityKeys.VideoExtendCapabilityKey:
@@ -1229,7 +1229,7 @@ export class AIClient {
                 return { video: expectArrayForCapability<NormalizedVideo>(capability, output, "video output") };
             case CapabilityKeys.VideoAnalysisCapabilityKey:
                 return {
-                    analysis: expectArrayForCapability<NormalizedVideoAnalysis>(
+                    videoAnalysis: expectArrayForCapability<NormalizedVideoAnalysis>(
                         capability,
                         output,
                         "video analysis output"
@@ -1243,7 +1243,13 @@ export class AIClient {
                 return { images: expectArrayForCapability<NormalizedImage>(capability, output, "images output") };
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
-                return { analysis: expectArrayForCapability<NormalizedImageAnalysis>(capability, output, "image analysis output") };
+                return {
+                    imageAnalysis: expectArrayForCapability<NormalizedImageAnalysis>(
+                        capability,
+                        output,
+                        "image analysis output"
+                    )
+                };
             case CapabilityKeys.ImageEditStreamCapabilityKey:
                 return undefined;
             default:

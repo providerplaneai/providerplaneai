@@ -16,9 +16,10 @@ import {
  * Uses OpenAI Videos API `videos.downloadContent` to fetch the selected asset
  * and returns it as a normalized video artifact.
  */
-export class OpenAIVideoDownloadCapabilityImpl
-    implements VideoDownloadCapability<ClientVideoDownloadRequest, NormalizedVideo[]>
-{
+export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapability<
+    ClientVideoDownloadRequest,
+    NormalizedVideo[]
+> {
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI

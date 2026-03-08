@@ -1,267 +1,316 @@
 import OpenAI from "openai";
 import {
+    AIProvider,
     AIRequest,
     AIResponse,
     AIResponseChunk,
-    assertAudioBytesWithinLimit,
-    AudioCapabilityError,
     BaseProvider,
     CapabilityKeys,
     ClientTextToSpeechRequest,
-    decodeBase64Audio,
-    extractAudioErrorCode,
-    extractAudioMimeInfo,
-    extractResponseIdByKeys,
+    createAudioArtifact,
     MultiModalExecutionContext,
     NormalizedAudio,
-    resolveAudioOutputMimeType,
     TextToSpeechCapability,
     TextToSpeechStreamCapability
 } from "#root/index.js";
-import {
-    buildMetadata,
-    createSpeechArtifact,
-    extractNonDataUrl,
-} from "./shared/OpenAIAudioUtils.js";
 
-const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
-const DEFAULT_MAX_TTS_OUTPUT_BYTES = 8_388_608;
-const DEFAULT_TTS_VOICE = "alloy";
+const DEFAULT_OPENAI_TTS_MODEL = "gpt-4o-mini-tts";
+const DEFAULT_OPENAI_TTS_VOICE = "alloy";
+const DEFAULT_STREAM_BATCH_BYTES = 64 * 1024;
+
+const FORMAT_TO_MIME: Record<string, string> = {
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    flac: "audio/flac",
+    aac: "audio/aac",
+    opus: "audio/opus",
+    ogg: "audio/ogg",
+    pcm: "audio/pcm"
+};
+
+type OpenAITtsResponse = Response & { id?: string; url?: string };
 
 /**
- * OpenAI text-to-speech adapter.
+ * OpenAI text-to-speech implementation using the dedicated audio speech endpoint.
  *
- * Keeps non-streaming and streaming TTS together in one dedicated capability file.
+ * Provides:
+ * - Non-streaming synthesis (`textToSpeech`)
+ * - Streaming synthesis (`textToSpeechStream`)
  */
-export class OpenAIAudioTextToSpeechCapabilityImpl implements
-    TextToSpeechCapability<ClientTextToSpeechRequest, NormalizedAudio[]>,
-    TextToSpeechStreamCapability<ClientTextToSpeechRequest, NormalizedAudio[]>
+export class OpenAIAudioTextToSpeechCapabilityImpl
+    implements TextToSpeechCapability<ClientTextToSpeechRequest>, TextToSpeechStreamCapability<ClientTextToSpeechRequest>
 {
+    /**
+     * Creates a new OpenAI TTS capability delegate.
+     *
+     * @param provider Parent provider for lifecycle/config access
+     * @param client Initialized OpenAI SDK client
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
     ) {}
 
+    /**
+     * Synthesizes speech in a single non-streaming request.
+     *
+     * @param request Unified AI request containing TTS input/options/context
+     * @param _ctx Optional multimodal execution context (unused by this capability)
+     * @param signal Optional abort signal
+     * @returns Provider-normalized TTS audio artifact response
+     * @throws {Error} If input text is empty or request is aborted before execution
+     */
     async textToSpeech(
         request: AIRequest<ClientTextToSpeechRequest>,
-        _executionContext?: MultiModalExecutionContext,
+        _ctx?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedAudio[]>> {
+        // Ensure provider has been initialized with credentials + client
         this.provider.ensureInitialized();
 
-        const { input, options, context } = request;
-        if (!input?.text) {
-            throw new Error("Text-to-speech requires input text");
+        if (signal?.aborted) {
+            throw new Error("Text-to-speech request aborted before execution");
         }
 
-        const merged = this.provider.getMergedOptions(CapabilityKeys.AudioTextToSpeechCapabilityKey, options);
+        const { input, options, context } = request;
+        // TTS requires source text; fail fast before any provider call.
+        if (typeof input.text !== "string" || input.text.trim().length === 0) {
+            throw new Error("TTS text must be a non-empty string");
+        }
 
-        const response = await this.client.audio.speech.create(
+        // Merge capability defaults with request-level overrides once for deterministic behavior.
+        const merged = this.provider.getMergedOptions(CapabilityKeys.AudioTextToSpeechCapabilityKey, options);
+        const model = merged.model ?? DEFAULT_OPENAI_TTS_MODEL;
+        const format = input.format ?? merged.modelParams?.response_format ?? "mp3";
+
+        // Dedicated speech endpoint (not Responses API) for binary audio output.
+        const response = (await this.client.audio.speech.create(
             {
-                model: merged.model ?? DEFAULT_TTS_MODEL,
+                model,
                 input: input.text,
-                voice: input.voice ?? DEFAULT_TTS_VOICE,
-                response_format: (input.format as any) ?? "mp3",
-                stream_format: input.streamFormat as any,
-                instructions: input.instructions,
-                speed: input.speed,
-                ...(merged.modelParams ?? {}),
+                voice: input.voice ?? merged.modelParams?.voice ?? DEFAULT_OPENAI_TTS_VOICE,
+                response_format: format as any,
+                ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
+                ...(input.speed !== undefined ? { speed: input.speed } : {}),
+                ...(input.streamFormat !== undefined ? { stream_format: input.streamFormat } : {}),
                 ...(merged.providerParams ?? {})
             },
             { signal }
-        );
+        )) as OpenAITtsResponse;
 
-        const maxTtsOutputBytes = Number(merged?.generalParams?.maxTtsOutputBytes ?? DEFAULT_MAX_TTS_OUTPUT_BYTES);
-        const bytes = Buffer.from(await response.arrayBuffer());
-        if (bytes.length === 0) {
-            throw new AudioCapabilityError("AUDIO_EMPTY_RESPONSE", "OpenAI TTS response did not contain audio bytes");
-        }
-        assertAudioBytesWithinLimit(bytes.length, maxTtsOutputBytes, "openai.textToSpeech");
-        const base64 = bytes.toString("base64");
-        const mimeType = resolveAudioOutputMimeType(input.format, response.headers.get("content-type"), "mp3");
-        const outputAudioInfo = extractAudioMimeInfo(response.headers.get("content-type") ?? mimeType);
-        const outputUrl = extractNonDataUrl(response);
-        const artifactId = extractResponseIdByKeys(response, ["id"]) ?? context?.requestId ?? crypto.randomUUID();
-        const output = [
-            {
-                id: artifactId,
-                kind: "tts",
-                mimeType,
-                base64,
-                ...(outputUrl ? { url: outputUrl } : {}),
-                sampleRateHz: outputAudioInfo.sampleRateHz,
-                channels: outputAudioInfo.channels,
-                bitrate: outputAudioInfo.bitrate
-            } satisfies NormalizedAudio
-        ];
+        // Read full payload for non-streaming path, then normalize to a single artifact.
+        const bytes = new Uint8Array(await response.arrayBuffer());
+
+        const artifact = createAudioArtifact({
+            kind: "tts",
+            id: response.id ?? context?.requestId ?? crypto.randomUUID(),
+            mimeType: this.resolveAudioOutputMimeType(format, response.headers?.get("content-type")),
+            base64: Buffer.from(bytes).toString("base64"),
+            url: this.sanitizeOpenAITtsUrl(response.url)
+        });
 
         return {
-            output,
-            multimodalArtifacts: { audio: output },
+            output: [artifact],
+            multimodalArtifacts: { tts: [artifact] },
+            id: artifact.id,
             rawResponse: response,
-            id: extractResponseIdByKeys(response, ["id"]) ?? context?.requestId ?? crypto.randomUUID(),
-            metadata: buildMetadata(context, merged.model, "completed", context?.requestId, {
-                audioRetryCount: 0,
-                audioFallbackUsed: false,
-                audioSource: "openai-speech-nonstream"
-            })
+            metadata: {
+                ...(context?.metadata ?? {}),
+                provider: AIProvider.OpenAI,
+                model: merged.model,
+                status: response.status === 200 ? "completed" : "error",
+                requestId: context?.requestId
+            }
         };
     }
 
+    /**
+     * Streams synthesized speech as incremental audio chunks plus a final full artifact.
+     *
+     * @param request Unified AI request containing TTS input/options/context
+     * @param _ctx Optional multimodal execution context (unused by this capability)
+     * @param signal Optional abort signal
+     * @returns Async generator of audio chunk deltas and a final terminal chunk
+     * @throws {Error} If input text is empty or unsupported stream format is requested
+     */
     async *textToSpeechStream(
         request: AIRequest<ClientTextToSpeechRequest>,
-        _executionContext?: MultiModalExecutionContext,
+        _ctx?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
         this.provider.ensureInitialized();
 
         const { input, options, context } = request;
-        if (!input?.text) {
-            throw new Error("Text-to-speech requires input text");
+
+        // Match non-streaming validation so both code paths enforce identical input rules.
+        if (typeof input.text !== "string" || input.text.trim().length === 0) {
+            throw new Error("TTS text must be a non-empty string");
         }
 
-        const merged = this.provider.getMergedOptions(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey, options);
+        // SSE event framing is not wired yet; current stream mode emits raw audio bytes only.
+        if (input.streamFormat === "sse") {
+            throw new Error("SSE stream format is not supported yet");
+        }
 
-        const requestId = context?.requestId ?? crypto.randomUUID();
-        const artifactId = crypto.randomUUID();
-        const accumulatedChunks: Buffer[] = [];
-        let totalBytes = 0;
+        // Use stream-specific capability defaults so batching can differ from non-streaming behavior.
+        const merged = this.provider.getMergedOptions(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey, options);
+        const model = merged.model ?? DEFAULT_OPENAI_TTS_MODEL;
+        const format = input.format ?? merged.modelParams?.response_format ?? "mp3";
+        // Batch size controls chunk granularity seen by downstream subscribers/jobs.
+        const batchSize = Math.max(1, Number(merged.generalParams?.audioStreamBatchSize ?? DEFAULT_STREAM_BATCH_BYTES));
         let responseId: string | undefined;
-        const maxTtsOutputBytes = Number(merged?.generalParams?.maxTtsOutputBytes ?? DEFAULT_MAX_TTS_OUTPUT_BYTES);
 
         try {
-            const response = await this.client.audio.speech.create(
+            // Request server-side streaming bytes by forcing stream_format=audio.
+            const response = (await this.client.audio.speech.create(
                 {
-                    model: merged.model ?? DEFAULT_TTS_MODEL,
+                    model,
                     input: input.text,
-                    voice: input.voice ?? DEFAULT_TTS_VOICE,
-                    response_format: (input.format as any) ?? "mp3",
-                    stream_format: (input.streamFormat as any) ?? "audio",
-                    instructions: input.instructions,
-                    speed: input.speed,
-                    ...(merged.modelParams ?? {}),
+                    voice: input.voice ?? merged.modelParams?.voice ?? DEFAULT_OPENAI_TTS_VOICE,
+                    response_format: format as any,
+                    stream_format: "audio",
+                    ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
+                    ...(input.speed !== undefined ? { speed: input.speed } : {}),
                     ...(merged.providerParams ?? {})
                 },
                 { signal }
-            );
+            )) as OpenAITtsResponse;
 
-            responseId = (response as any)?.id ?? undefined;
-            const mimeType = resolveAudioOutputMimeType(input.format, response.headers.get("content-type"), "mp3");
-            const outputAudioInfo = extractAudioMimeInfo(response.headers.get("content-type") ?? mimeType);
-            const streamBody = (response as any).body as ReadableStream<Uint8Array> | undefined;
+            responseId = response.id ?? context?.requestId ?? crypto.randomUUID();
+            const mimeType = this.resolveAudioOutputMimeType(format, response.headers?.get("content-type"));
+            let chunkIndex = 0;
+            // Keep emitted chunks for final "done" artifact parity with image stream finalization style.
+            const chunks: Buffer[] = [];
 
-            if (!streamBody?.getReader) {
-                // Fallback path for non-stream responses: emit one completed chunk.
-                const bytes = Buffer.from(await response.arrayBuffer());
-                if (bytes.length === 0) {
-                    throw new AudioCapabilityError(
-                        "AUDIO_EMPTY_RESPONSE",
-                        "OpenAI TTS stream fallback response did not contain audio bytes"
-                    );
+            // Hard guard: this runtime must expose a readable body stream for true streaming semantics.
+            if (!response.body) {
+                throw new Error("OpenAI TTS stream response body is not readable in this runtime");
+            }
+
+            const reader = response.body.getReader();
+            try {
+                while (true) {
+                    // Cooperative cancellation for long-running streams.
+                    if (signal?.aborted) {
+                        return;
+                    }
+
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+                    if (!value || value.length === 0) {
+                        continue;
+                    }
+
+                    // Re-batch provider chunk to stable, configurable chunk sizes for consumers.
+                    const buffer = Buffer.from(value);
+                    chunks.push(buffer);
+
+                    for (let offset = 0; offset < buffer.byteLength; offset += batchSize) {
+                        const slice = buffer.subarray(offset, Math.min(offset + batchSize, buffer.byteLength));
+                        const artifact = createAudioArtifact({
+                            kind: "tts",
+                            id: `${responseId}-chunk-${chunkIndex++}`,
+                            mimeType,
+                            base64: slice.toString("base64")
+                        });
+
+                        yield {
+                            // Streaming phase: emit incremental audio bytes and keep job status incomplete.
+                            done: false,
+                            id: responseId,
+                            delta: [artifact],
+                            output: [artifact],
+                            metadata: {
+                                ...(context?.metadata ?? {}),
+                                provider: AIProvider.OpenAI,
+                                model,
+                                status: "incomplete",
+                                requestId: context?.requestId
+                            }
+                        };
+                    }
                 }
-                assertAudioBytesWithinLimit(bytes.length, maxTtsOutputBytes, "openai.textToSpeechStream.fallback");
-                const base64 = bytes.toString("base64");
-                const finalArtifact = createSpeechArtifact(artifactId, mimeType, base64, extractNonDataUrl(response));
-                finalArtifact.sampleRateHz = outputAudioInfo.sampleRateHz;
-                finalArtifact.channels = outputAudioInfo.channels;
-                finalArtifact.bitrate = outputAudioInfo.bitrate;
+            } finally {
+                reader.releaseLock();
+            }
 
-                yield {
-                    delta: [finalArtifact],
-                    output: [finalArtifact],
-                    done: true,
-                    id: responseId ?? requestId,
-                    multimodalArtifacts: { audio: [finalArtifact] },
-                    metadata: buildMetadata(context, merged.model, "completed", requestId, {
-                        audioRetryCount: 0,
-                        audioFallbackUsed: true,
-                        audioSource: "openai-speech-stream-nonstream-fallback"
-                    })
-                };
+            // Final completion chunk carries the full audio payload for single-artifact consumers.
+            const allBytes = Buffer.concat(chunks);
+            const finalArtifact = createAudioArtifact({
+                kind: "tts",
+                id: responseId,
+                mimeType,
+                base64: allBytes.toString("base64"),
+                url: this.sanitizeOpenAITtsUrl(response.url)
+            });
+
+            yield {
+                done: true,
+                id: responseId,
+                output: [finalArtifact],
+                // Preserve multimodal timeline compatibility for completed TTS outputs.
+                multimodalArtifacts: { tts: [finalArtifact] },
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.OpenAI,
+                    model,
+                    status: "completed",
+                    requestId: context?.requestId
+                }
+            };
+        } catch (err) {
+            // Abort is treated as caller-controlled cancellation, not a provider error event.
+            if (signal?.aborted) {
                 return;
             }
 
-            const reader = streamBody.getReader();
-            while (true) {
-                if (signal?.aborted) {
-                    await reader.cancel();
-                    return;
-                }
-
-                const { done, value } = await reader.read();
-                if (done) {
-                    break;
-                }
-                if (!value || value.length === 0) {
-                    continue;
-                }
-
-                const bytes = Buffer.from(value);
-                accumulatedChunks.push(bytes);
-                totalBytes += bytes.length;
-                assertAudioBytesWithinLimit(totalBytes, maxTtsOutputBytes, "openai.textToSpeechStream");
-                const deltaBase64 = bytes.toString("base64");
-                const deltaArtifact = createSpeechArtifact(
-                    artifactId,
-                    mimeType,
-                    deltaBase64,
-                    extractNonDataUrl(response)
-                );
-                deltaArtifact.sampleRateHz = outputAudioInfo.sampleRateHz;
-                deltaArtifact.channels = outputAudioInfo.channels;
-                deltaArtifact.bitrate = outputAudioInfo.bitrate;
-
-                // Delta chunk carries only incremental audio payload.
-                yield {
-                    delta: [deltaArtifact],
-                    done: false,
-                    id: responseId ?? requestId,
-                    metadata: buildMetadata(context, merged.model, "incomplete", requestId, {
-                        audioRetryCount: 0,
-                        audioFallbackUsed: false,
-                        audioSource: "openai-speech-stream"
-                    })
-                };
-            }
-
-            if (totalBytes === 0) {
-                throw new AudioCapabilityError("AUDIO_EMPTY_RESPONSE", "OpenAI TTS stream produced no audio chunks");
-            }
-            const finalBytes = Buffer.concat(accumulatedChunks);
-            const finalBase64 = finalBytes.toString("base64");
-            decodeBase64Audio(finalBase64, "openai.textToSpeechStream.final");
-            const finalArtifact = createSpeechArtifact(
-                artifactId,
-                mimeType,
-                finalBase64,
-                extractNonDataUrl(response)
-            );
-            finalArtifact.sampleRateHz = outputAudioInfo.sampleRateHz;
-            finalArtifact.channels = outputAudioInfo.channels;
-            finalArtifact.bitrate = outputAudioInfo.bitrate;
-
             yield {
-                delta: [finalArtifact],
-                output: [finalArtifact],
+                // Streaming error contract: terminal chunk with empty output + diagnostic metadata.
+                output: [],
+                delta: [],
                 done: true,
-                id: responseId ?? requestId,
-                multimodalArtifacts: { audio: [finalArtifact] },
-                metadata: buildMetadata(context, merged.model, "completed", requestId, {
-                    audioRetryCount: 0,
-                    audioFallbackUsed: false,
-                    audioSource: "openai-speech-stream"
-                })
-            };
-        } catch (err) {
-            const audioErrorCode = extractAudioErrorCode(err);
-            yield {
-                done: true,
-                error: err instanceof Error ? err.message : String(err),
-                id: responseId ?? requestId,
-                metadata: buildMetadata(context, merged.model, "error", requestId, {
-                    audioErrorCode
-                })
+                id: responseId ?? context?.requestId ?? crypto.randomUUID(),
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.OpenAI,
+                    model,
+                    status: "error",
+                    requestId: context?.requestId,
+                    error: err instanceof Error ? err.message : String(err)
+                }
             };
         }
+    }
+
+    /**
+     * Drops endpoint URLs that are not stable download links and should not be exposed as artifact URLs.
+     *
+     * @param url Potential provider URL from response payload
+     * @returns Safe artifact URL or `undefined` when URL is endpoint-only/invalid
+     */
+    private sanitizeOpenAITtsUrl(url?: string): string | undefined {
+        if (!url) {
+            return undefined;
+        }
+        try {
+            const parsed = new URL(url);
+            if (parsed.pathname === "/v1/audio/speech") {
+                return undefined;
+            }
+            return url;
+        } catch {
+            return undefined;
+        }
+    }
+
+    resolveAudioOutputMimeType(format?: string, header?: string | null): string {
+        const fromHeader = header?.split(";")[0]?.trim();
+        if (fromHeader) {
+            return fromHeader;
+        }
+        const fromFormat = format ? FORMAT_TO_MIME[format.toLowerCase()] : undefined;
+        return fromFormat ?? "audio/mpeg";
     }
 }

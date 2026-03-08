@@ -6,18 +6,28 @@ import { NormalizedChatMessage, NormalizedUserInput, TimelineArtifacts } from "#
 export type TimelineEventType =
     | "userMessage"
     | "assistantMessage"
+    | "systemEvent"
+    | "chat"
     | "embedding"
+    | "moderation"
     | "imageGeneration"
     | "imageEdit"
     | "imageAnalysis"
-    | "moderation"
-    | "audio"
-    | "video"
+    | "videoGeneration"
+    | "videoEdit"
+    | "videoAnalysis"
+    | "videoDownload"
+    | "transcript"
+    | "translation"
+    | "tts"
     | "file"
-    | "systemEvent";
+    | "custom";
 
 /**
  * Base interface for all timeline events
+ *
+ * TimelineEvent represents a single event in the execution timeline, capturing both structured data and associated artifacts.
+ * It is designed to be flexible and extensible, allowing for different types of events and artifacts to be added as needed.
  */
 export interface TimelineEventBase {
     id: string; // Unique UUID for this event
@@ -109,12 +119,32 @@ export interface ModerationEvent extends TimelineEventBase {
     type: "moderation";
 }
 
-export interface AudioEvent extends TimelineEventBase {
-    type: "audio";
+export interface TTSEvent extends TimelineEventBase {
+    type: "tts";
 }
 
-export interface VideoEvent extends TimelineEventBase {
-    type: "video";
+export interface TranscriptEvent extends TimelineEventBase {
+    type: "transcript";
+}
+
+export interface TranslationEvent extends TimelineEventBase {
+    type: "translation";
+}
+
+export interface VideoEditEvent extends TimelineEventBase {
+    type: "videoEdit";
+}
+
+export interface VideoDownloadEvent extends TimelineEventBase {
+    type: "videoDownload";
+}
+
+export interface VideoGenerationEvent extends TimelineEventBase {
+    type: "videoGeneration";
+}
+
+export interface VideoAnalysisEvent extends TimelineEventBase {
+    type: "videoAnalysis";
 }
 
 export interface FileEvent extends TimelineEventBase {
@@ -133,6 +163,13 @@ export type TimelineEvent =
     | ImageGenerationEvent
     | ImageAnalysisEvent
     | ModerationEvent
-    | AudioEvent
-    | VideoEvent
-    | FileEvent;
+    | TTSEvent
+    | TranscriptEvent
+    | TranslationEvent
+    | VideoEditEvent
+    | VideoDownloadEvent
+    | VideoGenerationEvent
+    | VideoAnalysisEvent
+    | FileEvent
+    | TranscriptEvent
+    | TranslationEvent;

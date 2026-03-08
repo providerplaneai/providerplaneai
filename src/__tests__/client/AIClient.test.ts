@@ -426,9 +426,10 @@ describe("AIClient private policy execution", () => {
             { providerType: root.AIProvider.OpenAI, connectionName: "fallback" }
         ];
 
+        const audioErr = Object.assign(new Error("no audio"), { code: "AUDIO_EMPTY_RESPONSE" });
         const executeFn = vi
             .fn()
-            .mockRejectedValueOnce(new root.AudioCapabilityError("AUDIO_EMPTY_RESPONSE", "no audio"))
+            .mockRejectedValueOnce(audioErr)
             .mockResolvedValueOnce({ output: "ok", metadata: {} });
         const result = await (client as any).executeWithPolicy(capability, { input: {} }, ctx, executeFn, chain);
         const attempts = result.metadata?.providerAttempts as Array<Record<string, unknown>>;
@@ -703,9 +704,9 @@ describe("AIClient private helpers", () => {
         expect(client.modalityForCapability(root.CapabilityKeys.VideoExtendCapabilityKey)).toBe("video");
         expect(client.modalityForCapability(root.CapabilityKeys.VideoRemixCapabilityKey)).toBe("video");
         expect(client.modalityForCapability(root.CapabilityKeys.ModerationCapabilityKey)).toBe("moderation");
-        expect(client.modalityForCapability(root.CapabilityKeys.ImageGenerationCapabilityKey)).toBe("imageGeneration");
-        expect(client.modalityForCapability(root.CapabilityKeys.ImageEditCapabilityKey)).toBe("imageEdit");
-        expect(client.modalityForCapability(root.CapabilityKeys.ImageAnalysisCapabilityKey)).toBe("imageAnalysis");
+        expect(client.modalityForCapability(root.CapabilityKeys.ImageGenerationCapabilityKey)).toBe("image");
+        expect(client.modalityForCapability(root.CapabilityKeys.ImageEditCapabilityKey)).toBe("image");
+        expect(client.modalityForCapability(root.CapabilityKeys.ImageAnalysisCapabilityKey)).toBe("image");
         expect(client.modalityForCapability("custom:abc")).toBe("custom");
 
         expect(client.extractRawUsage(null)).toEqual({});
@@ -755,7 +756,7 @@ describe("AIClient private helpers", () => {
             client.buildArtifactsFromOutput(root.CapabilityKeys.AudioTextToSpeechCapabilityKey, [
                 { kind: "tts", mimeType: "audio/mpeg", base64: "AQID" }
             ])
-        ).toHaveProperty("audio");
+        ).toHaveProperty("tts");
         expect(
             client.buildArtifactsFromOutput(root.CapabilityKeys.VideoGenerationCapabilityKey, [
                 { id: "v", mimeType: "video/mp4" }
@@ -765,7 +766,7 @@ describe("AIClient private helpers", () => {
             client.buildArtifactsFromOutput(root.CapabilityKeys.VideoAnalysisCapabilityKey, [
                 { id: "va", summary: "scene" }
             ])
-        ).toHaveProperty("analysis");
+        ).toHaveProperty("videoAnalysis");
         expect(
             client.buildArtifactsFromOutput(root.CapabilityKeys.VideoDownloadCapabilityKey, [
                 { id: "vd", mimeType: "video/mp4" }
@@ -783,7 +784,7 @@ describe("AIClient private helpers", () => {
         ).toHaveProperty("video");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ModerationCapabilityKey, [{ flagged: false }])).toHaveProperty("moderation");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageGenerationCapabilityKey, [{ id: "i" }])).toHaveProperty("images");
-        expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageAnalysisCapabilityKey, [{ id: "a" }])).toHaveProperty("analysis");
+        expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageAnalysisCapabilityKey, [{ id: "a" }])).toHaveProperty("imageAnalysis");
         expect(client.buildArtifactsFromOutput(root.CapabilityKeys.ImageEditStreamCapabilityKey, [{ id: "i" }])).toBeUndefined();
         expect(client.buildArtifactsFromOutput("custom:unknown", { a: 1 })).toBeUndefined();
 
@@ -796,7 +797,7 @@ describe("AIClient private helpers", () => {
         expect(target.images).toHaveLength(2);
         expect(target.embeddings).toHaveLength(1);
 
-        const coded = client.extractAttemptErrorCode(new root.AudioCapabilityError("AUDIO_EMPTY_RESPONSE", "no audio"));
+        const coded = client.extractAttemptErrorCode(Object.assign(new Error("no audio"), { code: "AUDIO_EMPTY_RESPONSE" }));
         const parsed = client.extractAttemptErrorCode(new Error("[AUDIO_OUTPUT_TOO_LARGE] too big"));
         expect(coded).toBe("AUDIO_EMPTY_RESPONSE");
         expect(parsed).toBe("AUDIO_OUTPUT_TOO_LARGE");

@@ -115,7 +115,6 @@
                             },
                             "providerParams": {},
                             "generalParams": {
-                                "maxTtsOutputBytes": 8388608
                             }
                         },
                         "audioTtsStream": {
@@ -125,7 +124,7 @@
                             },
                             "providerParams": {},
                             "generalParams": {
-                                "maxTtsOutputBytes": 8388608
+                                "audioStreamBatchSize": 4096
                             }
                         }
                     },
@@ -256,22 +255,13 @@
                             "modelParams": {},
                             "providerParams": {},
                             "generalParams": {
-                                "geminiTtsMaxAttempts": 3,
-                                "geminiTtsRetryBaseMs": 100,
-                                "geminiTtsRetryMaxMs": 1000,
-                                "geminiTtsRetryJitterRatio": 0.2,
-                                "maxTtsOutputBytes": 8388608
                             }
                         },
                         "audioTtsStream": {
                             "modelParams": {},
                             "providerParams": {},
                             "generalParams": {
-                                "geminiTtsMaxAttempts": 3,
-                                "geminiTtsRetryBaseMs": 100,
-                                "geminiTtsRetryMaxMs": 1000,
-                                "geminiTtsRetryJitterRatio": 0.2,
-                                "maxTtsOutputBytes": 8388608
+                                "audioStreamBatchSize": 4096
                             }
                         }
                     },
