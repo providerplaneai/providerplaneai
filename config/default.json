@@ -13,7 +13,7 @@
                 {
                     "providerType": "openai",
                     "connectionName": "default"
-                },                
+                },
                 {
                     "providerType": "gemini",
                     "connectionName": "default"
@@ -34,27 +34,25 @@
                 "defaultModels": {
                     "chat": "gpt-5",
                     "embed": "text-embedding-3-large",
+                    "imageGeneration": "gpt-4.1",
+                    "imageGenerationStream": "gpt-4.1",
+                    "imageEdit": "gpt-4.1",
+                    "imageEditStream": "gpt-4.1",
+                    "imageAnalysis": "gpt-4.1",
+                    "imageAnalyzeStream": "gpt-4.1",
                     "audioTranscription": "gpt-4o-transcribe",
                     "audioTranscriptionStream": "gpt-4o-transcribe",
                     "audioTranslation": "whisper-1",
                     "audioTts": "gpt-4o-mini-tts",
                     "audioTtsStream": "gpt-4o-mini-tts",
-                    "video": "sora-2",
+                    "videoGeneration": "sora-2",
+                    "videoDownload": "sora-2",
+                    "videoRemix": "sora-2",
                     "moderation": "omni-moderation-latest"
-                },
-                "providerDefaults": {
-                    "providerParams": {}
                 },
                 "models": {
                     "gpt-5": {
-                        "chat": {
-                            "generalParams": {},
-                            "modelParams": {},
-                            "providerParams": {}
-                        },
                         "chatStream": {
-                            "modelParams": {},
-                            "providerParams": {},
                             "generalParams": {
                                 "chatStreamBatchSize": 64
                             }
@@ -65,17 +63,7 @@
                             "modelParams": {
                                 "encodingFormat": "float",
                                 "dimensions": 3072
-                            },
-                            "providerParams": {},
-                            "generalParams": {}
-                        }
-                    },
-                    "gpt-3.5-turbo-instruct": {
-                        "completion": {
-                            "modelParams": {
-                                "max_tokens": 512
-                            },
-                            "providerParams": {}
+                            }
                         }
                     },
                     "gpt-4o-transcribe": {
@@ -83,7 +71,6 @@
                             "modelParams": {
                                 "language": "en"
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 64
                             }
@@ -92,7 +79,6 @@
                             "modelParams": {
                                 "language": "en"
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 64
                             }
@@ -102,52 +88,52 @@
                         "audioTranslation": {
                             "modelParams": {
                                 "response_format": "json"
-                            },
-                            "providerParams": {},
-                            "generalParams": {}
+                            }
                         }
                     },
                     "gpt-4o-mini-tts": {
                         "audioTts": {
                             "modelParams": {
-                                "language": "en",
                                 "voice": "alloy"
-                            },
-                            "providerParams": {},
-                            "generalParams": {
                             }
                         },
                         "audioTtsStream": {
                             "modelParams": {
-                                "language": "en",
                                 "voice": "alloy"
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 4096
                             }
                         }
                     },
                     "sora-2": {
-                        "video": {
+                        "videoGeneration": {
                             "modelParams": {
                                 "seconds": "8",
                                 "size": "1280x720"
                             },
-                            "providerParams": {}
-                        }
-                    },
-                    "omni-moderation-latest": {
-                        "moderation": {
-                            "modelParams": {},
-                            "providerParams": {}
+                            "generalParams": {
+                                "pollIntervalMs": 2000,
+                                "maxPollMs": 300000
+                            }
+                        },
+                        "videoDownload": {
+                            "generalParams": {
+                                "downloadTimeoutMs": 30000
+                            }
+                        },
+                        "videoRemix": {
+                            "generalParams": {
+                                "pollIntervalMs": 2000,
+                                "maxPollMs": 300000
+                            }
                         }
                     }
                 }
             },
             "fallback": {
                 "type": "openai",
-                "apiKeyEnvVar": "OPENAI_API_KEY_2"                
+                "apiKeyEnvVar": "OPENAI_API_KEY_2"
             }
         },
         "anthropic": {
@@ -157,28 +143,40 @@
                 "defaultModel": "claude-sonnet-4-5-20250929",
                 "defaultModels": {
                     "chat": "claude-sonnet-4-5-20250929",
-                    "embed": "voyage-3"
-                },
-                "providerDefaults": {
-                    "providerParams": {}
+                    "embed": "voyage-3",
+                    "moderation": "claude-sonnet-4-5-20250929",
+                    "imageAnalysis": "claude-sonnet-4-5-20250929",
+                    "imageAnalyzeStream": "claude-sonnet-4-5-20250929"
                 },
                 "models": {
                     "claude-sonnet-4-5-20250929": {
                         "chat": {
-                            "generalParams": {
-                            },
                             "modelParams": {
                                 "max_tokens": 1024
-                            },
-                            "providerParams": {}
+                            }
                         },
                         "chatStream": {
                             "modelParams": {
                                 "max_tokens": 1024
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "chatStreamBatchSize": 64
+                            }
+                        },
+                        "imageAnalysis": {
+                            "modelParams": {
+                                "max_tokens": 1024
+                            },
+                            "generalParams": {
+                                "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
+                            }
+                        },
+                        "imageAnalyzeStream": {
+                            "modelParams": {
+                                "max_tokens": 1024
+                            },
+                            "generalParams": {
+                                "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
                             }
                         }
                     }
@@ -193,8 +191,11 @@
                 "defaultModels": {
                     "chat": "gemini-2.5-flash-lite",
                     "embed": "gemini-embedding-001",
+                    "moderation": "gemini-2.5-flash-lite",
                     "imageGeneration": "imagen-4.0-generate-001",
-                    "imageGenerateStream": "imagen-4.0-generate-001",
+                    "imageGenerationStream": "imagen-4.0-generate-001",
+                    "imageAnalysis": "gemini-2.5-pro",
+                    "imageAnalyzeStream": "gemini-2.5-pro",
                     "audioTranscription": "gemini-2.5-flash",
                     "audioTranscriptionStream": "gemini-2.5-flash",
                     "audioTranslation": "gemini-2.5-flash",
@@ -205,25 +206,17 @@
                     "videoDownload": "veo-3.1-generate-preview",
                     "videoAnalysis": "gemini-2.5-pro"
                 },
-                "providerDefaults": {
-                    "providerParams": {}
-                },
                 "models": {
-                    "imagen-4.0-generate-001": {},
                     "gemini-2.5-flash-lite": {
                         "chat": {
-                            "generalParams": {
-                            },
                             "modelParams": {
                                 "max_tokens": 1024
-                            },
-                            "providerParams": {}
+                            }
                         },
                         "chatStream": {
                             "modelParams": {
                                 "max_tokens": 1024
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "chatStreamBatchSize": 64
                             }
@@ -231,35 +224,18 @@
                     },
                     "gemini-2.5-flash": {
                         "audioTranscription": {
-                            "modelParams": {},
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 64
                             }
                         },
                         "audioTranscriptionStream": {
-                            "modelParams": {},
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 64
                             }
-                        },
-                        "audioTranslation": {
-                            "modelParams": {},
-                            "providerParams": {},
-                            "generalParams": {}
                         }
                     },
                     "gemini-2.5-flash-preview-tts": {
-                        "audioTts": {
-                            "modelParams": {},
-                            "providerParams": {},
-                            "generalParams": {
-                            }
-                        },
                         "audioTtsStream": {
-                            "modelParams": {},
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 4096
                             }
@@ -271,20 +247,24 @@
                                 "durationSeconds": 8,
                                 "aspectRatio": "16:9"
                             },
-                            "providerParams": {},
-                            "generalParams": {}
+                            "generalParams": {
+                                "pollIntervalMs": 2000,
+                                "maxPollMs": 300000
+                            }
                         },
                         "videoExtend": {
                             "modelParams": {
                                 "durationSeconds": 8
                             },
-                            "providerParams": {},
-                            "generalParams": {}
+                            "generalParams": {
+                                "pollIntervalMs": 2000,
+                                "maxPollMs": 300000
+                            }
                         },
                         "videoDownload": {
-                            "modelParams": {},
-                            "providerParams": {},
-                            "generalParams": {}
+                            "generalParams": {
+                                "downloadTimeoutMs": 30000
+                            }
                         }
                     },
                     "gemini-2.5-pro": {
@@ -292,18 +272,10 @@
                             "modelParams": {
                                 "temperature": 0
                             },
-                            "providerParams": {},
-                            "generalParams": {}
-                        }
-                    },
-                    "text-embedding-004": {
-                        "embed": {
-                            "modelParams": {
-                                "taskType": "RETRIEVAL_QUERY",
-                                "dimensions": 768
-                            },
-                            "providerParams": {},
-                            "generalParams": {}
+                            "generalParams": {
+                                "defaultPrompt": "Analyze this video and provide a concise summary, key events, important entities, and any visible text.",
+                                "defaultVideoMimeType": "video/mp4"
+                            }
                         }
                     }
                 }

@@ -7,11 +7,14 @@ import {
     AIRequest,
     AIResponse,
     BaseProvider,
+    CapabilityKeys,
     ClientVideoDownloadRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
     VideoDownloadCapability
 } from "#root/index.js";
+
+const DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /**
  * Gemini video download capability implementation.
@@ -31,14 +34,18 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedVideo[]>> {
         this.provider.ensureInitialized();
-        const { input, context } = request;
+        const { input, options, context } = request;
 
         const source = input?.videoUri ?? input?.videoId;
         if (!source) {
             throw new Error("videoUri or videoId is required for Gemini video download");
         }
 
-        const bytes = await this.resolveDownloadBytes(source, signal);
+        const merged = this.provider.getMergedOptions(CapabilityKeys.VideoDownloadCapabilityKey, options);
+        const timeoutMs = this.resolveDownloadTimeoutMs(merged?.generalParams?.downloadTimeoutMs);
+        const effectiveSignal = this.composeSignalWithTimeout(signal, timeoutMs);
+
+        const bytes = await this.resolveDownloadBytes(source, effectiveSignal);
         const base64 = bytes.length > 0 ? bytes.toString("base64") : undefined;
         const id = `gemini-download-${crypto.randomUUID()}`;
         const mimeType = this.resolveMimeType(source);
@@ -66,6 +73,7 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
                 ...(context?.metadata ?? {}),
                 provider: AIProvider.Gemini,
                 source,
+                downloadTimeoutMs: timeoutMs,
                 bytes: bytes.length,
                 requestId: context?.requestId
             }
@@ -189,5 +197,28 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
         } finally {
             await unlink(downloadPath).catch(() => undefined);
         }
+    }
+
+    private resolveDownloadTimeoutMs(value: unknown): number {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS;
+        }
+        return Math.floor(parsed);
+    }
+
+    private composeSignalWithTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
+        if (!signal) {
+            return timeoutSignal;
+        }
+        if (signal.aborted) {
+            return signal;
+        }
+        const abortController = new AbortController();
+        const abort = () => abortController.abort();
+        signal.addEventListener("abort", abort, { once: true });
+        timeoutSignal.addEventListener("abort", abort, { once: true });
+        return abortController.signal;
     }
 }

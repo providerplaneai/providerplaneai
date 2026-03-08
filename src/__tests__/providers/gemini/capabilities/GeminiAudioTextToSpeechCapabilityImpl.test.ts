@@ -25,6 +25,51 @@ async function collect<T>(iter: AsyncGenerator<T>): Promise<T[]> {
 }
 
 describe("GeminiAudioTextToSpeechCapabilityImpl", () => {
+    it("textToSpeech uses response.data fallback and context requestId", async () => {
+        const provider = makeProvider();
+        provider.getMergedOptions = vi.fn().mockReturnValue({
+            model: "models/custom-tts",
+            modelParams: { voice: "preset-voice" },
+            providerParams: {},
+            generalParams: {}
+        });
+
+        const generateContent = vi.fn().mockResolvedValue({
+            data: "AQID"
+        });
+        const cap = new GeminiAudioTextToSpeechCapabilityImpl(provider, { models: { generateContent } } as any);
+        const res = await cap.textToSpeech(
+            {
+                input: { text: "hello", instructions: "Speak warmly" },
+                context: { requestId: "ctx-tts-1" }
+            } as any,
+            {} as any
+        );
+
+        expect(res.id).toBe("ctx-tts-1");
+        const bytes = Buffer.from(res.output[0]?.base64 ?? "", "base64");
+        expect(bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+        expect(bytes.subarray(8, 12).toString("ascii")).toBe("WAVE");
+        expect(generateContent).toHaveBeenCalledWith(
+            expect.objectContaining({
+                model: "custom-tts",
+                config: expect.objectContaining({
+                    speechConfig: "preset-voice",
+                    systemInstruction: "Speak warmly"
+                })
+            })
+        );
+    });
+
+    it("textToSpeech rejects when aborted before execution", async () => {
+        const cap = new GeminiAudioTextToSpeechCapabilityImpl(makeProvider(), {} as any);
+        const ac = new AbortController();
+        ac.abort();
+        await expect(cap.textToSpeech({ input: { text: "hello" } } as any, {} as any, ac.signal)).rejects.toThrow(
+            "Text-to-speech request aborted before execution"
+        );
+    });
+
     it("textToSpeech validates non-empty text", async () => {
         const cap = new GeminiAudioTextToSpeechCapabilityImpl(makeProvider(), {} as any);
         await expect(cap.textToSpeech({ input: { text: "" } } as any, {} as any)).rejects.toThrow(
@@ -123,5 +168,64 @@ describe("GeminiAudioTextToSpeechCapabilityImpl", () => {
         expect(final?.done).toBe(true);
         expect(final?.output).toEqual([]);
         expect(final?.metadata?.status).toBe("error");
+    });
+
+    it("textToSpeechStream exits silently when aborted mid-stream", async () => {
+        const controller = new AbortController();
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                yield {
+                    responseId: "g-tts-stream-abort",
+                    candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/wav", data: "AQID" } }] } }]
+                };
+                controller.abort();
+                yield {
+                    responseId: "g-tts-stream-abort",
+                    candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/wav", data: "BAUG" } }] } }]
+                };
+            }
+        };
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(stream)
+            }
+        } as any;
+        const cap = new GeminiAudioTextToSpeechCapabilityImpl(makeProvider(), client);
+        const chunks = await collect(cap.textToSpeechStream({ input: { text: "hello" } } as any, {} as any, controller.signal));
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]?.done).toBe(false);
+    });
+
+    it("textToSpeechStream emits error chunk when stream setup throws non-Error", async () => {
+        const cap = new GeminiAudioTextToSpeechCapabilityImpl(makeProvider(), {
+            models: { generateContentStream: vi.fn().mockRejectedValue("upstream string failure") }
+        } as any);
+        const chunks = await collect(cap.textToSpeechStream({ input: { text: "hello" } } as any, {} as any));
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]?.done).toBe(true);
+        expect(chunks[0]?.metadata?.status).toBe("error");
+        expect(chunks[0]?.metadata?.error).toBe("upstream string failure");
+    });
+
+    it("helper methods cover mime normalization and pcm wrapping branches", () => {
+        const cap = new GeminiAudioTextToSpeechCapabilityImpl(makeProvider(), {} as any);
+
+        expect((cap as any).normalizeGeminiAudioMimeType(undefined)).toBeUndefined();
+        expect((cap as any).normalizeGeminiAudioMimeType("")).toBeUndefined();
+        expect((cap as any).normalizeGeminiAudioMimeType("audio/L16;rate=24000")).toBe("audio/pcm");
+        expect((cap as any).normalizeGeminiAudioMimeType("audio/linear16")).toBe("audio/pcm");
+        expect((cap as any).normalizeGeminiAudioMimeType("audio/x-wav")).toBe("audio/wav");
+        expect((cap as any).normalizeGeminiAudioMimeType("audio/ogg")).toBe("audio/ogg");
+
+        const concatenated = (cap as any).concatBase64Chunks(["AQID", "BAUG"]);
+        expect(concatenated.equals(Buffer.from([1, 2, 3, 4, 5, 6]))).toBe(true);
+
+        const playablePcm = (cap as any).toPlayableAudio(Buffer.from([1, 2, 3, 4]), "audio/pcm");
+        expect(playablePcm.mimeType).toBe("audio/wav");
+        expect(playablePcm.bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+
+        const playableOther = (cap as any).toPlayableAudio(Buffer.from([7, 8]), "audio/ogg");
+        expect(playableOther.mimeType).toBe("audio/ogg");
+        expect(playableOther.bytes.equals(Buffer.from([7, 8]))).toBe(true);
     });
 });

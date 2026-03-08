@@ -4,7 +4,12 @@ import { GeminiVideoDownloadCapabilityImpl } from "#root/providers/gemini/capabi
 
 function makeProvider() {
     return {
-        ensureInitialized: vi.fn()
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn().mockReturnValue({
+            generalParams: {
+                downloadTimeoutMs: 30000
+            }
+        })
     } as any;
 }
 
@@ -64,6 +69,44 @@ describe("GeminiVideoDownloadCapabilityImpl", () => {
         }
     });
 
+    it("downloads directly from fetchable URL and keeps source URL on artifact", async () => {
+        const provider = makeProvider();
+        const cap = new GeminiVideoDownloadCapabilityImpl(provider, { files: {} } as any);
+        vi.stubGlobal(
+            "fetch",
+            vi.fn().mockResolvedValue({
+                ok: true,
+                arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([9, 8, 7]).buffer)
+            } as Partial<Response>)
+        );
+
+        try {
+            const out = await cap.downloadVideo({
+                input: { videoUri: "https://example.com/video.mp4" }
+            } as any);
+            expect(out.output[0]?.url).toBe("https://example.com/video.mp4");
+            expect(out.output[0]?.base64).toBe("CQgH");
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("throws on non-auth fetch failure status", async () => {
+        const provider = makeProvider();
+        const cap = new GeminiVideoDownloadCapabilityImpl(provider, { files: {} } as any);
+        vi.stubGlobal(
+            "fetch",
+            vi.fn().mockResolvedValue({ ok: false, status: 500, statusText: "Server Error" } as Partial<Response>)
+        );
+        try {
+            await expect(cap.downloadVideo({ input: { videoUri: "https://example.com/video.mp4" } } as any)).rejects.toThrow(
+                "Failed to fetch video URI: 500 Server Error"
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it("throws when protected URL cannot be mapped to a Gemini file name", async () => {
         const provider = makeProvider();
         const cap = new GeminiVideoDownloadCapabilityImpl(provider, { files: {} } as any);
@@ -78,5 +121,47 @@ describe("GeminiVideoDownloadCapabilityImpl", () => {
         } finally {
             vi.unstubAllGlobals();
         }
+    });
+
+    it("helper methods cover mime resolution, timeout defaults, and signal composition", () => {
+        const cap = new GeminiVideoDownloadCapabilityImpl(makeProvider(), { files: {} } as any);
+
+        expect((cap as any).resolveMimeType("data:image/png;base64,AA==")).toBe("image/jpeg");
+        expect((cap as any).resolveMimeType("https://example.com/image.jpg")).toBe("image/jpeg");
+        expect((cap as any).resolveMimeType("https://example.com/video.mp4")).toBe("video/mp4");
+
+        expect((cap as any).resolveDownloadTimeoutMs(undefined)).toBe(30000);
+        expect((cap as any).resolveDownloadTimeoutMs("2500")).toBe(2500);
+        expect((cap as any).resolveDownloadTimeoutMs("-1")).toBe(30000);
+
+        const composed = (cap as any).composeSignalWithTimeout(undefined, 1000);
+        expect(composed).toBeInstanceOf(AbortSignal);
+
+        const ac = new AbortController();
+        ac.abort();
+        const passthrough = (cap as any).composeSignalWithTimeout(ac.signal, 1000);
+        expect(passthrough).toBe(ac.signal);
+
+        const active = new AbortController();
+        const composedActive = (cap as any).composeSignalWithTimeout(active.signal, 1000);
+        expect(composedActive.aborted).toBe(false);
+        active.abort();
+        expect(composedActive.aborted).toBe(true);
+    });
+
+    it("downloadViaFilesApi surfaces generic error when all attempts fail with non-Error values", async () => {
+        const provider = makeProvider();
+        const cap = new GeminiVideoDownloadCapabilityImpl(
+            provider,
+            {
+                files: {
+                    download: vi.fn().mockRejectedValue("non-error rejection")
+                }
+            } as any
+        );
+
+        await expect((cap as any).downloadViaFilesApi("files/abc123")).rejects.toThrow(
+            "Gemini files.download failed for all attempted file reference formats"
+        );
     });
 });

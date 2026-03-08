@@ -234,4 +234,29 @@ describe("OpenAIVideoGenerationCapabilityImpl", () => {
             vi.useRealTimers();
         }
     });
+
+    it("helper methods cover parsing, mime mapping, delay, and input reference branches", async () => {
+        const cap = new OpenAIVideoGenerationCapabilityImpl(makeProvider(), { videos: {} } as any);
+
+        expect((cap as any).parseVideoSize("1280x720")).toEqual({ width: 1280, height: 720 });
+        expect((cap as any).parseVideoSize("bad")).toEqual({ width: undefined, height: undefined });
+
+        expect((cap as any).resolveMimeTypeForVariant("video")).toBe("video/mp4");
+        expect((cap as any).resolveMimeTypeForVariant("thumbnail")).toBe("image/jpeg");
+        expect((cap as any).resolveMimeTypeForVariant("spritesheet")).toBe("image/jpeg");
+
+        await expect((cap as any).delay(0)).resolves.toBeUndefined();
+        const ac = new AbortController();
+        ac.abort();
+        await expect((cap as any).delay(10, ac.signal)).rejects.toThrow("Video generation polling aborted");
+
+        await expect((cap as any).buildInputReference(undefined)).resolves.toBeUndefined();
+        await expect((cap as any).buildInputReference({ id: "x", sourceType: "base64", base64: "AQID" })).resolves.toBeTruthy();
+        await expect((cap as any).buildInputReference({ id: "x", sourceType: "url", url: "https://example.com/x.png" })).rejects.toThrow(
+            "OpenAI video input_reference requires uploaded image content"
+        );
+        await expect((cap as any).buildInputReference({ id: "x", sourceType: "base64" })).rejects.toThrow(
+            "referenceImage must include either base64 data or be omitted"
+        );
+    });
 });

@@ -4,11 +4,14 @@ import {
     AIRequest,
     AIResponse,
     BaseProvider,
+    CapabilityKeys,
     ClientVideoDownloadRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
     VideoDownloadCapability
 } from "#root/index.js";
+
+const DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /**
  * OpenAI video download capability implementation.
@@ -31,15 +34,25 @@ export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedVideo[]>> {
         this.provider.ensureInitialized();
-        const { input, context } = request;
+        const { input, options, context } = request;
 
         const videoId = input?.videoId?.trim();
         if (!videoId) {
             throw new Error("videoId is required for video download");
         }
 
+        const merged = this.provider.getMergedOptions(CapabilityKeys.VideoDownloadCapabilityKey, options);
+        const timeoutMs = this.resolveDownloadTimeoutMs(merged?.generalParams?.downloadTimeoutMs);
+        const effectiveSignal = this.composeSignalWithTimeout(signal, timeoutMs);
+
         const variant = input.variant ?? "video";
-        const response = await this.client.videos.downloadContent(videoId, { variant: variant as any }, { signal });
+        const response = await this.client.videos.downloadContent(
+            videoId,
+            { variant: variant as any },
+            {
+                signal: effectiveSignal
+            }
+        );
         const bytes = Buffer.from(await response.arrayBuffer());
         const base64 = bytes.length > 0 ? bytes.toString("base64") : undefined;
         const artifactId = `${videoId}:${variant}`;
@@ -72,6 +85,7 @@ export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
                 provider: AIProvider.OpenAI,
                 sourceVideoId: videoId,
                 variant,
+                downloadTimeoutMs: timeoutMs,
                 bytes: bytes.length,
                 requestId: context?.requestId
             }
@@ -83,5 +97,28 @@ export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
             return "image/jpeg";
         }
         return "video/mp4";
+    }
+
+    private resolveDownloadTimeoutMs(value: unknown): number {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS;
+        }
+        return Math.floor(parsed);
+    }
+
+    private composeSignalWithTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
+        if (!signal) {
+            return timeoutSignal;
+        }
+        if (signal.aborted) {
+            return signal;
+        }
+        const abortController = new AbortController();
+        const abort = () => abortController.abort();
+        signal.addEventListener("abort", abort, { once: true });
+        timeoutSignal.addEventListener("abort", abort, { once: true });
+        return abortController.signal;
     }
 }

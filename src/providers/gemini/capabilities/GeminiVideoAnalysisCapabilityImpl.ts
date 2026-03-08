@@ -59,6 +59,15 @@ export class GeminiVideoAnalysisCapabilityImpl implements VideoAnalysisCapabilit
         const { input, options, context } = request;
         const merged = this.provider.getMergedOptions(CapabilityKeys.VideoAnalysisCapabilityKey, options);
         const outputFormat = input?.params?.outputFormat ?? "json";
+        const defaultPrompt =
+            typeof merged.generalParams?.defaultPrompt === "string" && merged.generalParams.defaultPrompt.trim().length > 0
+                ? merged.generalParams.defaultPrompt
+                : DEFAULT_VIDEO_ANALYSIS_PROMPT;
+        const defaultMimeType =
+            typeof merged.generalParams?.defaultVideoMimeType === "string" &&
+            merged.generalParams.defaultVideoMimeType.trim().length > 0
+                ? merged.generalParams.defaultVideoMimeType
+                : DEFAULT_VIDEO_MIME_TYPE;
 
         // Prefer explicit request videos; otherwise analyze the latest timeline video artifacts.
         const requestedVideos = input?.videos ?? [];
@@ -73,7 +82,7 @@ export class GeminiVideoAnalysisCapabilityImpl implements VideoAnalysisCapabilit
         for (const video of videos) {
             const response = await this.client.models.generateContent({
                 model: merged.model ?? DEFAULT_GEMINI_VIDEO_ANALYSIS_MODEL,
-                contents: this.buildContents(video, input?.prompt, outputFormat),
+                contents: this.buildContents(video, input?.prompt, outputFormat, defaultPrompt, defaultMimeType),
                 config: {
                     temperature: input?.params?.temperature ?? 0,
                     maxOutputTokens: input?.params?.maxOutputTokens,
@@ -132,10 +141,12 @@ export class GeminiVideoAnalysisCapabilityImpl implements VideoAnalysisCapabilit
     private buildContents(
         video: RequestedVideo,
         prompt: string | undefined,
-        outputFormat: NonNullable<ClientVideoAnalysisRequest["params"]>["outputFormat"]
+        outputFormat: NonNullable<ClientVideoAnalysisRequest["params"]>["outputFormat"],
+        defaultPrompt: string,
+        defaultMimeType: string
     ) {
         const parts: Array<Record<string, unknown>> = [];
-        const promptText = prompt ?? DEFAULT_VIDEO_ANALYSIS_PROMPT;
+        const promptText = prompt ?? defaultPrompt;
 
         if (outputFormat === "json") {
             parts.push({
@@ -148,14 +159,14 @@ export class GeminiVideoAnalysisCapabilityImpl implements VideoAnalysisCapabilit
         if (video.base64) {
             parts.push({
                 inlineData: {
-                    mimeType: video.mimeType ?? DEFAULT_VIDEO_MIME_TYPE,
+                    mimeType: video.mimeType ?? defaultMimeType,
                     data: video.base64
                 }
             });
         } else if (video.url) {
             parts.push({
                 fileData: {
-                    mimeType: video.mimeType ?? DEFAULT_VIDEO_MIME_TYPE,
+                    mimeType: video.mimeType ?? defaultMimeType,
                     fileUri: video.url
                 }
             });

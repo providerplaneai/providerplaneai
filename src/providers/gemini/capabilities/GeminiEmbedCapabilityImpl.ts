@@ -11,7 +11,7 @@ import {
     NormalizedEmbedding
 } from "#root/index.js";
 
-const DEFAULT_GEMINI_EMBED_MODEL = "text-embedding-004";
+const DEFAULT_GEMINI_EMBED_MODEL = "gemini-embedding-001";
 const DEFAULT_GEMINI_EMBED_TASK_TYPE = "RETRIEVAL_QUERY";
 
 /**

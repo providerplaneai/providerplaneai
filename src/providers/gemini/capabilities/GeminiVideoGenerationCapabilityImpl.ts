@@ -82,8 +82,14 @@ export class GeminiVideoGenerationCapabilityImpl implements VideoGenerationCapab
         });
 
         const pollUntilComplete = input.params?.pollUntilComplete ?? true;
-        const pollIntervalMs = Math.max(250, Number(input.params?.pollIntervalMs ?? DEFAULT_VIDEO_POLL_INTERVAL_MS));
-        const maxPollMs = Math.max(pollIntervalMs, Number(input.params?.maxPollMs ?? DEFAULT_VIDEO_MAX_POLL_MS));
+        const pollIntervalMs = Math.max(
+            250,
+            Number(input.params?.pollIntervalMs ?? merged.generalParams?.pollIntervalMs ?? DEFAULT_VIDEO_POLL_INTERVAL_MS)
+        );
+        const maxPollMs = Math.max(
+            pollIntervalMs,
+            Number(input.params?.maxPollMs ?? merged.generalParams?.maxPollMs ?? DEFAULT_VIDEO_MAX_POLL_MS)
+        );
         const includeBase64 = input.params?.includeBase64 ?? false;
 
         const finalOperation = pollUntilComplete

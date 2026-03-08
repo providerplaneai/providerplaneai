@@ -3,7 +3,12 @@ import { OpenAIVideoDownloadCapabilityImpl } from "#root/providers/openai/capabi
 
 function makeProvider() {
     return {
-        ensureInitialized: vi.fn()
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn().mockReturnValue({
+            generalParams: {
+                downloadTimeoutMs: 30000
+            }
+        })
     } as any;
 }
 
@@ -52,5 +57,32 @@ describe("OpenAIVideoDownloadCapabilityImpl", () => {
 
         expect(thumb.output[0]?.mimeType).toBe("image/jpeg");
         expect(sheet.output[0]?.mimeType).toBe("image/jpeg");
+    });
+
+    it("helper methods cover timeout parsing, mime resolution, and signal composition", () => {
+        const cap = new OpenAIVideoDownloadCapabilityImpl(makeProvider(), { videos: { downloadContent: vi.fn() } } as any);
+
+        expect((cap as any).resolveDownloadTimeoutMs(undefined)).toBe(30000);
+        expect((cap as any).resolveDownloadTimeoutMs(0)).toBe(30000);
+        expect((cap as any).resolveDownloadTimeoutMs("1234.8")).toBe(1234);
+        expect((cap as any).resolveDownloadTimeoutMs("bad")).toBe(30000);
+
+        expect((cap as any).resolveMimeTypeForVariant("video")).toBe("video/mp4");
+        expect((cap as any).resolveMimeTypeForVariant("thumbnail")).toBe("image/jpeg");
+        expect((cap as any).resolveMimeTypeForVariant("spritesheet")).toBe("image/jpeg");
+
+        const aborted = new AbortController();
+        aborted.abort();
+        const fromAborted = (cap as any).composeSignalWithTimeout(aborted.signal, 1000);
+        expect(fromAborted).toBe(aborted.signal);
+
+        const plain = (cap as any).composeSignalWithTimeout(undefined, 1000);
+        expect(plain).toBeInstanceOf(AbortSignal);
+
+        const active = new AbortController();
+        const composed = (cap as any).composeSignalWithTimeout(active.signal, 1000);
+        expect(composed.aborted).toBe(false);
+        active.abort();
+        expect(composed.aborted).toBe(true);
     });
 });

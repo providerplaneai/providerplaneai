@@ -3,7 +3,8 @@ import { OpenAIVideoRemixCapabilityImpl } from "#root/providers/openai/capabilit
 
 function makeProvider() {
     return {
-        ensureInitialized: vi.fn()
+        ensureInitialized: vi.fn(),
+        getMergedOptions: vi.fn().mockReturnValue({})
     } as any;
 }
 
@@ -173,5 +174,21 @@ describe("OpenAIVideoRemixCapabilityImpl", () => {
                 input: { sourceVideoId: "vid_source_777", prompt: "forbidden content" }
             } as any)
         ).rejects.toThrow("Video remix failed [policy]: blocked");
+    });
+
+    it("helper methods cover size parsing, mime mapping, and abort-aware delay", async () => {
+        const cap = new OpenAIVideoRemixCapabilityImpl(makeProvider(), { videos: {} } as any);
+
+        expect((cap as any).parseVideoSize("720x1280")).toEqual({ width: 720, height: 1280 });
+        expect((cap as any).parseVideoSize("bad")).toEqual({ width: undefined, height: undefined });
+
+        expect((cap as any).resolveMimeTypeForVariant("video")).toBe("video/mp4");
+        expect((cap as any).resolveMimeTypeForVariant("thumbnail")).toBe("image/jpeg");
+        expect((cap as any).resolveMimeTypeForVariant("spritesheet")).toBe("image/jpeg");
+
+        await expect((cap as any).delay(0)).resolves.toBeUndefined();
+        const ac = new AbortController();
+        ac.abort();
+        await expect((cap as any).delay(25, ac.signal)).rejects.toThrow("Video remix polling aborted");
     });
 });
