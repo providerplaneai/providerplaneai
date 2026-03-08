@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { GeminiAudioTranscriptionCapabilityImpl } from "#root/providers/gemini/capabilities/GeminiAudioTranscriptionCapabilityImpl.js";
 
 function makeProvider(batchSize: number = 4) {
@@ -347,7 +349,7 @@ describe("GeminiAudioTranscriptionCapabilityImpl", () => {
         const readBuf = await (cap as any).readNodeStreamToBuffer(Readable.from([Buffer.from([1, 2]), "3"]));
         expect(readBuf).toEqual(Buffer.from([1, 2, 51]));
 
-        const filePath = `test_data/gemini-transcription-${Date.now()}.wav`;
+        const filePath = path.join(tmpdir(), `gemini-transcription-${Date.now()}.wav`);
         await writeFile(filePath, Buffer.from([1, 2, 3]));
         const payloadFromPath = await (cap as any).resolveAudioPayload(filePath, undefined);
         expect(payloadFromPath.mimeType).toBe("audio/wav");

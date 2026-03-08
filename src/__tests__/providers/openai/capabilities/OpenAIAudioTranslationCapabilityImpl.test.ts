@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { OpenAIAudioTranslationCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIAudioTranslationCapabilityImpl.js";
 
 function makeProvider() {
@@ -104,7 +106,7 @@ describe("OpenAIAudioTranslationCapabilityImpl", () => {
         } as any;
 
         const cap = new OpenAIAudioTranslationCapabilityImpl(makeProvider(), client);
-        const localPath = `test_data/openai-translation-${Date.now()}.wav`;
+        const localPath = path.join(tmpdir(), `openai-translation-${Date.now()}.wav`);
         await writeFile(localPath, Buffer.from([1, 2, 3]));
 
         const res = await cap.translateAudio(

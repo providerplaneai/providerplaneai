@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { GeminiAudioTranslationCapabilityImpl } from "#root/providers/gemini/capabilities/GeminiAudioTranslationCapabilityImpl.js";
 
 function makeProvider() {
@@ -173,7 +175,7 @@ describe("GeminiAudioTranslationCapabilityImpl", () => {
         const client = { models: { generateContent } } as any;
         const cap = new GeminiAudioTranslationCapabilityImpl(makeProvider(), client);
 
-        const wavPath = `test_data/gemini-translation-${Date.now()}.wav`;
+        const wavPath = path.join(tmpdir(), `gemini-translation-${Date.now()}.wav`);
         await writeFile(wavPath, Buffer.from([1, 2, 3]));
 
         await cap.translateAudio({ input: { file: wavPath, targetLanguage: "en" } } as any, {} as any);

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { OpenAIAudioTranscriptionCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIAudioTranscriptionCapabilityImpl.js";
 
 function makeProvider() {
@@ -317,7 +319,7 @@ describe("OpenAIAudioTranscriptionCapabilityImpl", () => {
         expect((cap as any).isAsyncIterable({ [Symbol.asyncIterator]: async function* () { yield 1; } })).toBe(true);
         expect((cap as any).isAsyncIterable({})).toBe(false);
 
-        const localPath = `test_data/openai-transcription-${Date.now()}.wav`;
+        const localPath = path.join(tmpdir(), `openai-transcription-${Date.now()}.wav`);
         await writeFile(localPath, Buffer.from([1, 2, 3]));
         expect((cap as any).toUploadableAudioFile).toBeTypeOf("function");
 
