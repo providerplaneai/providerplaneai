@@ -41,6 +41,7 @@ export function loadAppConfig(): AppConfig {
     validateNonNegativeInteger(appConfig.remoteImageFetchTimeoutMs, "remoteImageFetchTimeoutMs");
     validateNonNegativeInteger(appConfig.maxRemoteImageBytes, "maxRemoteImageBytes");
     validateBoolean(appConfig.storeRawResponses, "storeRawResponses");
+    validateBoolean(appConfig.stripBinaryPayloadsInSnapshotsAndTimeline, "stripBinaryPayloadsInSnapshotsAndTimeline");
     const resolvedProviders: Record<string, Record<string, ProviderConnectionConfig>> = {};
 
     // For each provider type in config

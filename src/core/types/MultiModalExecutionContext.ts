@@ -7,6 +7,7 @@ import {
     NormalizedChatMessage,
     NormalizedImage,
     NormalizedImageAnalysis,
+    NormalizedVideoAnalysis,
     NormalizedModeration,
     NormalizedEmbedding,
     NormalizedAudio,
@@ -16,7 +17,8 @@ import {
     ImageGenerationEvent,
     ImageEditEvent,
     NormalizedUserInput,
-    AIResponse
+    AIResponse,
+    sanitizeTimelineArtifacts
 } from "#root/index.js";
 
 /**
@@ -32,6 +34,15 @@ import {
 export class MultiModalExecutionContext {
     /** Unified timeline for all events */
     protected timeline: TimelineEvent[] = [];
+    /** Whether binary-heavy artifact fields are stripped when storing timeline events. */
+    private stripBinaryPayloadsInTimeline = false;
+
+    /**
+     * Enables or disables timeline artifact payload sanitization.
+     */
+    setStripBinaryPayloadsInTimeline(enabled: boolean): void {
+        this.stripBinaryPayloadsInTimeline = enabled;
+    }
 
     /**
      * Begin a new logical turn with a canonical user input.
@@ -131,6 +142,9 @@ export class MultiModalExecutionContext {
     /** Merge two TimelineArtifacts objects safely */
     private mergeArtifacts(base: TimelineArtifacts, addition?: Partial<TimelineArtifacts>): TimelineArtifacts {
         addition = addition ?? {};
+        if (this.stripBinaryPayloadsInTimeline) {
+            addition = sanitizeTimelineArtifacts(addition) ?? {};
+        }
 
         const safeArray = <T>(v?: T[]): T[] => (Array.isArray(v) ? v : []);
 
@@ -138,10 +152,13 @@ export class MultiModalExecutionContext {
             chat: [...safeArray(base.chat), ...safeArray(addition.chat)],
             images: [...safeArray(base.images), ...safeArray(addition.images)],
             masks: [...safeArray(base.masks), ...safeArray(addition.masks)],
-            analysis: [...safeArray(base.analysis), ...safeArray(addition.analysis)],
+            videoAnalysis: [...safeArray(base.videoAnalysis), ...safeArray(addition.videoAnalysis)],
+            imageAnalysis: [...safeArray(base.imageAnalysis), ...safeArray(addition.imageAnalysis)],
+            transcript: [...safeArray(base.transcript), ...safeArray(addition.transcript)],
+            translation: [...safeArray(base.translation), ...safeArray(addition.translation)],
             embeddings: [...safeArray(base.embeddings), ...safeArray(addition.embeddings)],
             moderation: [...safeArray(base.moderation), ...safeArray(addition.moderation)],
-            audio: [...safeArray(base.audio), ...safeArray(addition.audio)],
+            tts: [...safeArray(base.tts), ...safeArray(addition.tts)],
             video: [...safeArray(base.video), ...safeArray(addition.video)],
             files: [...safeArray(base.files), ...safeArray(addition.files)],
             custom: [...safeArray(base.custom), ...safeArray(addition.custom)]
@@ -154,10 +171,13 @@ export class MultiModalExecutionContext {
             chat: [],
             images: [],
             masks: [],
-            analysis: [],
+            imageAnalysis: [],
+            videoAnalysis: [],
+            transcript: [],
+            translation: [],
             embeddings: [],
             moderation: [],
-            audio: [],
+            tts: [],
             video: [],
             files: [],
             custom: []
@@ -190,8 +210,12 @@ export class MultiModalExecutionContext {
         return this.findLatest((e) => e.artifacts.masks) ?? [];
     }
 
-    getLatestAnalysis(): NormalizedImageAnalysis[] {
-        return this.findLatest((e) => e.artifacts.analysis) ?? [];
+    getLatestImageAnalysis(): NormalizedImageAnalysis[] {
+        return this.findLatest((e) => e.artifacts.imageAnalysis) ?? [];
+    }
+
+    getLatestVideoAnalysis(): NormalizedVideoAnalysis[] {
+        return this.findLatest((e) => e.artifacts.videoAnalysis) ?? [];
     }
 
     getLatestEmbeddings(): NormalizedEmbedding[] {
@@ -202,8 +226,16 @@ export class MultiModalExecutionContext {
         return this.findLatest((e) => e.artifacts.moderation) ?? [];
     }
 
-    getLatestAudio(): NormalizedAudio[] {
-        return this.findLatest((e) => e.artifacts.audio) ?? [];
+    getLatestTTS(): NormalizedAudio[] {
+        return this.findLatest((e) => e.artifacts.tts) ?? [];
+    }
+
+    getLatestTranscript(): NormalizedChatMessage[] {
+        return this.findLatest((e) => e.artifacts.transcript) ?? [];
+    }
+
+    getLatestTranslation(): NormalizedChatMessage[] {
+        return this.findLatest((e) => e.artifacts.translation) ?? [];
     }
 
     getLatestVideo(): NormalizedVideo[] {

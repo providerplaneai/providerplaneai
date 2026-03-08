@@ -1,7 +1,7 @@
 import config from "config";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
-import { CapabilityKeyType, ClientReferenceImage, JobSnapshot } from "#root/index.js";
+import { CapabilityKeyType, ClientReferenceImage, JobSnapshot, TimelineArtifacts } from "#root/index.js";
 
 /**
  * Default timeout (ms) for remote image fetches. Infinity disables timeout.
@@ -75,6 +75,57 @@ export function validateBoolean(value: unknown, fieldName: string) {
     if (typeof value !== "boolean") {
         throw new Error(`Invalid field ${fieldName}: expected a boolean`);
     }
+}
+
+/**
+ * Recursively removes binary-heavy payload fields from objects.
+ *
+ * Current behavior:
+ * - Removes `base64` fields
+ * - Removes `url` fields only when they are `data:` URLs
+ *
+ * This is intentionally generic so snapshots/timelines can sanitize artifacts
+ * without provider-specific branching.
+ */
+export function stripBinaryPayloadFields<T>(value: T): T {
+    if (value === null || value === undefined) {
+        return value;
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => stripBinaryPayloadFields(item)) as T;
+    }
+
+    if (typeof value !== "object") {
+        return value;
+    }
+
+    const source = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+
+    for (const [key, raw] of Object.entries(source)) {
+        if (key === "base64") {
+            continue;
+        }
+
+        if (key === "url" && typeof raw === "string" && raw.startsWith("data:")) {
+            continue;
+        }
+
+        out[key] = stripBinaryPayloadFields(raw);
+    }
+
+    return out as T;
+}
+
+/**
+ * Sanitizes timeline artifacts by removing binary-heavy fields.
+ */
+export function sanitizeTimelineArtifacts(artifacts?: Partial<TimelineArtifacts>): Partial<TimelineArtifacts> | undefined {
+    if (!artifacts) {
+        return artifacts;
+    }
+    return stripBinaryPayloadFields(artifacts);
 }
 
 /**

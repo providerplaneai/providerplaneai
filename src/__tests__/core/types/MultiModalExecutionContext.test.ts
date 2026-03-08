@@ -62,10 +62,10 @@ describe("MultiModalExecutionContext", () => {
         expect(emptyArtifacts.chat).toEqual([]);
         expect(emptyArtifacts.custom).toEqual([]);
 
-        ctx.attachArtifacts({ images: "invalid" as any, audio: [{ id: "aud1", url: "a" }] as any });
+        ctx.attachArtifacts({ images: "invalid" as any, tts: [{ id: "aud1", url: "a" }] as any });
         expect(ctx.getTimeline()).toHaveLength(2);
         expect(ctx.getLatestImages()).toEqual([]);
-        expect(ctx.getLatestAudio()).toEqual([{ id: "aud1", url: "a" }]);
+        expect(ctx.getLatestTTS()).toEqual([{ id: "aud1", url: "a" }]);
     });
 
     it("attachArtifactsFromResponse merges response artifacts and extra artifacts with metadata", () => {
@@ -110,11 +110,25 @@ describe("MultiModalExecutionContext", () => {
         expect(ctx.getTimeline()).toHaveLength(0);
 
         const analysis = { id: "a1", description: "desc" };
-        ctx.yieldArtifacts({ analysis: [analysis] as any });
+        ctx.yieldArtifacts({ imageAnalysis: [analysis] as any });
 
         expect(ctx.getTimeline()).toHaveLength(1);
         expect((ctx.getTimeline()[0] as any).action).toBe("streamChunk");
-        expect(ctx.getLatestAnalysis()).toEqual([analysis]);
+        expect(ctx.getLatestImageAnalysis()).toEqual([analysis]);
+    });
+
+    it("strips base64/data-url fields when timeline sanitization is enabled", () => {
+        const ctx = new MultiModalExecutionContext();
+        ctx.setStripBinaryPayloadsInTimeline(true);
+
+        ctx.attachArtifacts({
+            video: [{ id: "v1", mimeType: "video/mp4", base64: "AAAA", url: "data:video/mp4;base64,AAAA" }] as any
+        });
+
+        const video = ctx.getLatestVideo()[0] as any;
+        expect(video.id).toBe("v1");
+        expect(video.base64).toBeUndefined();
+        expect(video.url).toBeUndefined();
     });
 
     it("reset clears timeline and latest getters return empty arrays", () => {
@@ -129,10 +143,10 @@ describe("MultiModalExecutionContext", () => {
         expect(ctx.getLatestChat()).toEqual([]);
         expect(ctx.getLatestImages()).toEqual([]);
         expect(ctx.getLatestMasks()).toEqual([]);
-        expect(ctx.getLatestAnalysis()).toEqual([]);
+        expect(ctx.getLatestImageAnalysis()).toEqual([]);
         expect(ctx.getLatestEmbeddings()).toEqual([]);
         expect(ctx.getLatestModeration()).toEqual([]);
-        expect(ctx.getLatestAudio()).toEqual([]);
+        expect(ctx.getLatestTTS()).toEqual([]);
         expect(ctx.getLatestVideo()).toEqual([]);
         expect(ctx.getLatestFile()).toEqual([]);
     });

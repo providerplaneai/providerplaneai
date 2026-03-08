@@ -66,6 +66,11 @@ describe("CapabilityExecutorRegistry", () => {
         expect(registry.get(CapabilityKeys.AudioTranslationCapabilityKey).streaming).toBe(false);
         expect(registry.get(CapabilityKeys.AudioTextToSpeechCapabilityKey).streaming).toBe(false);
         expect(registry.get(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey).streaming).toBe(true);
+        expect(registry.get(CapabilityKeys.VideoGenerationCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.VideoAnalysisCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.VideoDownloadCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.VideoExtendCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.VideoRemixCapabilityKey).streaming).toBe(false);
         expect(registry.get(CapabilityKeys.ImageGenerationCapabilityKey).streaming).toBe(false);
         expect(registry.get(CapabilityKeys.ImageGenerationStreamCapabilityKey).streaming).toBe(true);
         expect(registry.get(CapabilityKeys.ImageAnalysisCapabilityKey).streaming).toBe(false);
@@ -88,6 +93,11 @@ describe("CapabilityExecutorRegistry", () => {
         const transcribeAudio = vi.fn(async () => ({ output: "transcribe-ok" }));
         const translateAudio = vi.fn(async () => ({ output: "translate-ok" }));
         const textToSpeech = vi.fn(async () => ({ output: "tts-ok" }));
+        const generateVideo = vi.fn(async () => ({ output: "video-ok" }));
+        const analyzeVideo = vi.fn(async () => ({ output: "video-analysis-ok" }));
+        const downloadVideo = vi.fn(async () => ({ output: "video-download-ok" }));
+        const extendVideo = vi.fn(async () => ({ output: "video-extend-ok" }));
+        const remixVideo = vi.fn(async () => ({ output: "video-remix-ok" }));
         const embed = vi.fn(async () => ({ output: "embed-ok" }));
         const moderation = vi.fn(async () => ({ output: "moderation-ok" }));
 
@@ -101,6 +111,11 @@ describe("CapabilityExecutorRegistry", () => {
         await registry
             .get(CapabilityKeys.AudioTextToSpeechCapabilityKey)
             .invoke({ textToSpeech } as any, input, ctx);
+        await registry.get(CapabilityKeys.VideoGenerationCapabilityKey).invoke({ generateVideo } as any, input, ctx);
+        await registry.get(CapabilityKeys.VideoAnalysisCapabilityKey).invoke({ analyzeVideo } as any, input, ctx);
+        await registry.get(CapabilityKeys.VideoDownloadCapabilityKey).invoke({ downloadVideo } as any, input, ctx);
+        await registry.get(CapabilityKeys.VideoExtendCapabilityKey).invoke({ extendVideo } as any, input, ctx);
+        await registry.get(CapabilityKeys.VideoRemixCapabilityKey).invoke({ remixVideo } as any, input, ctx);
         await registry.get(CapabilityKeys.ImageGenerationCapabilityKey).invoke({ generateImage: image } as any, input, ctx);
         await registry.get(CapabilityKeys.ImageAnalysisCapabilityKey).invoke({ analyzeImage: analysis } as any, input, ctx);
         await registry.get(CapabilityKeys.ImageEditCapabilityKey).invoke({ editImage: edit } as any, input, ctx);
@@ -111,6 +126,11 @@ describe("CapabilityExecutorRegistry", () => {
         expect(transcribeAudio).toHaveBeenCalledTimes(1);
         expect(translateAudio).toHaveBeenCalledTimes(1);
         expect(textToSpeech).toHaveBeenCalledTimes(1);
+        expect(generateVideo).toHaveBeenCalledTimes(1);
+        expect(analyzeVideo).toHaveBeenCalledTimes(1);
+        expect(downloadVideo).toHaveBeenCalledTimes(1);
+        expect(extendVideo).toHaveBeenCalledTimes(1);
+        expect(remixVideo).toHaveBeenCalledTimes(1);
         expect(image).toHaveBeenCalledTimes(1);
         expect(analysis).toHaveBeenCalledTimes(1);
         expect(edit).toHaveBeenCalledTimes(1);

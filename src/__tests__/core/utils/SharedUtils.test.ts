@@ -25,7 +25,9 @@ import {
     parseBestEffortJson,
     readNumber,
     resolveImageToBytes,
+    sanitizeTimelineArtifacts,
     summarizeSnapshot,
+    stripBinaryPayloadFields,
     toDataUrl,
     validateBoolean,
     validateNonNegativeInteger
@@ -96,6 +98,36 @@ describe("SharedUtils", () => {
         expect(() => validateBoolean(true, "x")).not.toThrow();
         expect(() => validateBoolean(false, "x")).not.toThrow();
         expect(() => validateBoolean("true", "x")).toThrow("Invalid field x: expected a boolean");
+    });
+
+    it("stripBinaryPayloadFields removes base64 and data URLs recursively", () => {
+        const input = {
+            base64: "AAAA",
+            url: "data:video/mp4;base64,AAAA",
+            nested: {
+                keep: true,
+                base64: "BBBB",
+                remoteUrl: "https://example.com/video.mp4"
+            },
+            arr: [{ base64: "CCCC", mimeType: "video/mp4" }]
+        };
+
+        const out = stripBinaryPayloadFields(input) as any;
+        expect(out.base64).toBeUndefined();
+        expect(out.url).toBeUndefined();
+        expect(out.nested.base64).toBeUndefined();
+        expect(out.nested.remoteUrl).toBe("https://example.com/video.mp4");
+        expect(out.arr[0].base64).toBeUndefined();
+        expect(out.arr[0].mimeType).toBe("video/mp4");
+    });
+
+    it("sanitizeTimelineArtifacts strips binary-heavy artifact payloads", () => {
+        const out = sanitizeTimelineArtifacts({
+            video: [{ id: "v1", mimeType: "video/mp4", base64: "AAAA" } as any]
+        }) as any;
+
+        expect(out.video[0].id).toBe("v1");
+        expect(out.video[0].base64).toBeUndefined();
     });
 
     it("ensureDataUri returns existing data URI and prepends when needed", () => {

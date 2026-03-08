@@ -38,11 +38,15 @@ describe("GeminiProvider", () => {
         expect(provider.hasCapability(CapabilityKeys.ImageGenerationStreamCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.ImageAnalysisCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.ImageAnalysisStreamCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.VideoAnalysisCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.AudioTranscriptionCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.AudioTranscriptionStreamCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.AudioTranslationCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.AudioTextToSpeechCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.VideoGenerationCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.VideoExtendCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.VideoDownloadCapabilityKey)).toBe(true);
     });
 
     it("forwards to delegates and throws when chat delegate missing", async () => {
@@ -63,12 +67,28 @@ describe("GeminiProvider", () => {
             analyzeImage: vi.fn().mockResolvedValue({ output: [] }),
             analyzeImageStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
         };
-        (provider as any).audioDelegate = {
+        (provider as any).audioTranscriptionDelegate = {
             transcribeAudio: vi.fn().mockResolvedValue({ output: [] }),
-            transcribeAudioStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })()),
-            translateAudio: vi.fn().mockResolvedValue({ output: [] }),
+            transcribeAudioStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
+        };
+        (provider as any).audioTranslationDelegate = {
+            translateAudio: vi.fn().mockResolvedValue({ output: [] })
+        };
+        (provider as any).audioTtsDelegate = {
             textToSpeech: vi.fn().mockResolvedValue({ output: [] }),
             textToSpeechStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
+        };
+        (provider as any).videoGenerationDelegate = {
+            generateVideo: vi.fn().mockResolvedValue({ output: [] })
+        };
+        (provider as any).videoAnalysisDelegate = {
+            analyzeVideo: vi.fn().mockResolvedValue({ output: [] })
+        };
+        (provider as any).videoExtendDelegate = {
+            extendVideo: vi.fn().mockResolvedValue({ output: [] })
+        };
+        (provider as any).videoDownloadDelegate = {
+            downloadVideo: vi.fn().mockResolvedValue({ output: [] })
         };
 
         await expect(provider.chat({ input: { messages: [{ role: "user", content: [{ type: "text", text: "x" }] }] } } as any, ctx)).resolves.toHaveProperty(
@@ -81,6 +101,14 @@ describe("GeminiProvider", () => {
         await expect(provider.transcribeAudio({ input: { file: {} } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.translateAudio({ input: { file: {} } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.textToSpeech({ input: { text: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
+        await expect(provider.generateVideo({ input: { prompt: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
+        await expect(
+            provider.analyzeVideo({ input: { videos: [{ id: "v1", base64: "AQID", mimeType: "video/mp4" }] } } as any, ctx)
+        ).resolves.toMatchObject({ output: [] });
+        await expect(
+            provider.extendVideo({ input: { sourceVideoUri: "gs://bucket/video.mp4", prompt: "x" } } as any, ctx)
+        ).resolves.toMatchObject({ output: [] });
+        await expect(provider.downloadVideo({ input: { videoUri: "https://example.com/video.mp4" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.generateImageStream({ input: { prompt: "x" } } as any, ctx).next()).resolves.toMatchObject({ done: false });
         await expect(provider.analyzeImageStream({ input: { images: [{ base64: "QQ==" }] } } as any, ctx).next()).resolves.toMatchObject({ done: false });
         await expect(provider.transcribeAudioStream({ input: { file: {} } } as any, ctx).next()).resolves.toMatchObject({ done: false });
@@ -113,5 +141,15 @@ describe("GeminiProvider", () => {
         await expect(provider.translateAudio({ input: { file: {} } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
         await expect(provider.textToSpeech({ input: { text: "x" } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
         expect(() => provider.textToSpeechStream({ input: { text: "x" } } as any, ctx)).toThrow(CapabilityUnsupportedError);
+        await expect(provider.generateVideo({ input: { prompt: "x" } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
+        await expect(
+            provider.analyzeVideo({ input: { videos: [{ id: "v1", base64: "AQID", mimeType: "video/mp4" }] } } as any, ctx)
+        ).rejects.toBeInstanceOf(CapabilityUnsupportedError);
+        await expect(
+            provider.extendVideo({ input: { sourceVideoUri: "gs://bucket/video.mp4", prompt: "x" } } as any, ctx)
+        ).rejects.toBeInstanceOf(CapabilityUnsupportedError);
+        await expect(provider.downloadVideo({ input: { videoUri: "https://example.com/video.mp4" } } as any, ctx)).rejects.toBeInstanceOf(
+            CapabilityUnsupportedError
+        );
     });
 });

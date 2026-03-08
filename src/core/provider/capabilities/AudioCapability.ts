@@ -4,6 +4,7 @@ import {
     AIResponseChunk,
     MultiModalExecutionContext,
     NormalizedAudio,
+    NormalizedChatMessage,
     ProviderCapability
 } from "#root/index.js";
 
@@ -12,14 +13,14 @@ import {
  *
  * Converts speech audio to text/transcript artifacts.
  */
-export interface AudioTranscriptionCapability<TInput = unknown, TOutput = NormalizedAudio[]> extends ProviderCapability {
+export interface AudioTranscriptionCapability<TInput = unknown, TOutput = NormalizedChatMessage[]> extends ProviderCapability {
     /**
      * Transcribe input audio into text.
      *
      * @param request Unified AI request containing transcription input
      * @param ctx Execution context
      * @param signal Optional abort signal
-     * @returns AIResponse containing normalized audio artifacts with transcript data
+     * @returns AIResponse containing normalized chat message artifacts with transcript data
      */
     transcribeAudio(
         request: AIRequest<TInput>,
@@ -33,7 +34,10 @@ export interface AudioTranscriptionCapability<TInput = unknown, TOutput = Normal
  *
  * Streams incremental transcription deltas and emits a final transcript output.
  */
-export interface AudioTranscriptionStreamCapability<TInput = unknown, TOutput = NormalizedAudio[]> extends ProviderCapability {
+export interface AudioTranscriptionStreamCapability<
+    TInput = unknown,
+    TOutput = NormalizedChatMessage[]
+> extends ProviderCapability {
     /**
      * Stream transcription deltas for input audio.
      *
@@ -54,14 +58,14 @@ export interface AudioTranscriptionStreamCapability<TInput = unknown, TOutput = 
  *
  * Translates spoken audio to a target language (provider-dependent support).
  */
-export interface AudioTranslationCapability<TInput = unknown, TOutput = NormalizedAudio[]> extends ProviderCapability {
+export interface AudioTranslationCapability<TInput = unknown, TOutput = NormalizedChatMessage[]> extends ProviderCapability {
     /**
      * Translate input audio and return transcript artifacts.
      *
      * @param request Unified AI request containing translation input
      * @param ctx Execution context
      * @param signal Optional abort signal
-     * @returns AIResponse containing normalized audio artifacts with translated transcript data
+     * @returns AIResponse containing normalized chat message artifacts with translated transcript data
      */
     translateAudio(
         request: AIRequest<TInput>,

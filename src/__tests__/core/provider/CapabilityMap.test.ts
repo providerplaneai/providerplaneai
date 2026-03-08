@@ -10,6 +10,11 @@ describe("CapabilityMap module", () => {
         expect(CapabilityKeys.AudioTranslationCapabilityKey).toBe("audioTranslation");
         expect(CapabilityKeys.AudioTextToSpeechCapabilityKey).toBe("audioTts");
         expect(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey).toBe("audioTtsStream");
+        expect(CapabilityKeys.VideoGenerationCapabilityKey).toBe("videoGeneration");
+        expect(CapabilityKeys.VideoAnalysisCapabilityKey).toBe("videoAnalysis");
+        expect(CapabilityKeys.VideoDownloadCapabilityKey).toBe("videoDownload");
+        expect(CapabilityKeys.VideoExtendCapabilityKey).toBe("videoExtend");
+        expect(CapabilityKeys.VideoRemixCapabilityKey).toBe("videoRemix");
         expect(CapabilityKeys.ImageGenerationCapabilityKey).toBe("imageGeneration");
         expect(CapabilityKeys.ImageGenerationStreamCapabilityKey).toBe("imageGenerationStream");
         expect(CapabilityKeys.ImageEditCapabilityKey).toBe("imageEdit");

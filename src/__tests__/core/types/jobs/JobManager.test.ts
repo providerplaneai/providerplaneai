@@ -17,18 +17,23 @@ describe("JobManager", () => {
         expect(() => manager.setMaxQueueSize(-1 as any)).toThrow("maxQueueSize must be a non-negative integer");
         expect(() => manager.setMaxStoredResponseChunks(-1 as any)).toThrow("maxStoredResponseChunks must be a non-negative integer");
         expect(() => manager.setStoreRawResponses("x" as any)).toThrow("storeRawResponses must be a boolean");
+        expect(() => manager.setStripBinaryPayloadsInSnapshotsAndTimeline("x" as any)).toThrow(
+            "stripBinaryPayloadsInSnapshotsAndTimeline must be a boolean"
+        );
         expect(() => manager.setMaxRawBytesPerJob(-1 as any)).toThrow("maxRawBytesPerJob must be a non-negative integer");
 
         manager.setMaxConcurrency(2);
         manager.setMaxQueueSize(3);
         manager.setMaxStoredResponseChunks(4);
         manager.setStoreRawResponses(true);
+        manager.setStripBinaryPayloadsInSnapshotsAndTimeline(true);
         manager.setMaxRawBytesPerJob(5);
 
         expect(manager.getMaxConcurrency()).toBe(2);
         expect(manager.getMaxQueueSize()).toBe(3);
         expect(manager.getMaxStoredResponseChunks()).toBe(4);
         expect(manager.getStoreRawResponses()).toBe(true);
+        expect(manager.getStripBinaryPayloadsInSnapshotsAndTimeline()).toBe(true);
         expect(manager.getMaxRawBytesPerJob()).toBe(5);
     });
 
@@ -50,6 +55,19 @@ describe("JobManager", () => {
         const jobB = makeJob("jB");
         full.addJob(jobB);
         expect(() => full.runJob("jB", new MultiModalExecutionContext())).toThrow("queue is full");
+    });
+
+    it("runJob applies timeline sanitization flag to execution context", async () => {
+        const manager = new JobManager({ stripBinaryPayloadsInSnapshotsAndTimeline: true });
+        const job = makeJob("j-sanitize");
+        manager.addJob(job);
+
+        const ctx = new MultiModalExecutionContext();
+        const spy = vi.spyOn(ctx, "setStripBinaryPayloadsInTimeline");
+        manager.runJob("j-sanitize", ctx);
+
+        await expect(job.getCompletionPromise()).resolves.toBe("ok");
+        expect(spy).toHaveBeenCalledWith(true);
     });
 
     it("runJob validates not-found, already-running, and already-queued cases", async () => {

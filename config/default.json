@@ -5,6 +5,7 @@
         "maxRemoteImageBytes": 10485760,
         "maxStoredResponseChunks": 1024,
         "storeRawResponses": true,
+        "stripBinaryPayloadsInSnapshotsAndTimeline": true,
         "maxRawBytesPerJob": 1048576,
         "remoteImageFetchTimeoutMs": 16384,
         "executionPolicy": {
@@ -12,7 +13,7 @@
                 {
                     "providerType": "openai",
                     "connectionName": "default"
-                },                
+                },
                 {
                     "providerType": "gemini",
                     "connectionName": "default"
@@ -33,27 +34,25 @@
                 "defaultModels": {
                     "chat": "gpt-5",
                     "embed": "text-embedding-3-large",
+                    "imageGeneration": "gpt-4.1",
+                    "imageGenerationStream": "gpt-4.1",
+                    "imageEdit": "gpt-4.1",
+                    "imageEditStream": "gpt-4.1",
+                    "imageAnalysis": "gpt-4.1",
+                    "imageAnalyzeStream": "gpt-4.1",
                     "audioTranscription": "gpt-4o-transcribe",
                     "audioTranscriptionStream": "gpt-4o-transcribe",
                     "audioTranslation": "whisper-1",
                     "audioTts": "gpt-4o-mini-tts",
                     "audioTtsStream": "gpt-4o-mini-tts",
-                    "video": "sora-2",
+                    "videoGeneration": "sora-2",
+                    "videoDownload": "sora-2",
+                    "videoRemix": "sora-2",
                     "moderation": "omni-moderation-latest"
-                },
-                "providerDefaults": {
-                    "providerParams": {}
                 },
                 "models": {
                     "gpt-5": {
-                        "chat": {
-                            "generalParams": {},
-                            "modelParams": {},
-                            "providerParams": {}
-                        },
                         "chatStream": {
-                            "modelParams": {},
-                            "providerParams": {},
                             "generalParams": {
                                 "chatStreamBatchSize": 64
                             }
@@ -64,17 +63,7 @@
                             "modelParams": {
                                 "encodingFormat": "float",
                                 "dimensions": 3072
-                            },
-                            "providerParams": {},
-                            "generalParams": {}
-                        }
-                    },
-                    "gpt-3.5-turbo-instruct": {
-                        "completion": {
-                            "modelParams": {
-                                "max_tokens": 512
-                            },
-                            "providerParams": {}
+                            }
                         }
                     },
                     "gpt-4o-transcribe": {
@@ -82,7 +71,6 @@
                             "modelParams": {
                                 "language": "en"
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 64
                             }
@@ -91,7 +79,6 @@
                             "modelParams": {
                                 "language": "en"
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 64
                             }
@@ -101,53 +88,52 @@
                         "audioTranslation": {
                             "modelParams": {
                                 "response_format": "json"
-                            },
-                            "providerParams": {},
-                            "generalParams": {}
+                            }
                         }
                     },
                     "gpt-4o-mini-tts": {
                         "audioTts": {
                             "modelParams": {
-                                "language": "en",
                                 "voice": "alloy"
-                            },
-                            "providerParams": {},
-                            "generalParams": {
-                                "maxTtsOutputBytes": 8388608
                             }
                         },
                         "audioTtsStream": {
                             "modelParams": {
-                                "language": "en",
                                 "voice": "alloy"
                             },
-                            "providerParams": {},
                             "generalParams": {
-                                "maxTtsOutputBytes": 8388608
+                                "audioStreamBatchSize": 4096
                             }
                         }
                     },
                     "sora-2": {
-                        "video": {
+                        "videoGeneration": {
                             "modelParams": {
                                 "seconds": "8",
                                 "size": "1280x720"
                             },
-                            "providerParams": {}
-                        }
-                    },
-                    "omni-moderation-latest": {
-                        "moderation": {
-                            "modelParams": {},
-                            "providerParams": {}
+                            "generalParams": {
+                                "pollIntervalMs": 2000,
+                                "maxPollMs": 300000
+                            }
+                        },
+                        "videoDownload": {
+                            "generalParams": {
+                                "downloadTimeoutMs": 30000
+                            }
+                        },
+                        "videoRemix": {
+                            "generalParams": {
+                                "pollIntervalMs": 2000,
+                                "maxPollMs": 300000
+                            }
                         }
                     }
                 }
             },
             "fallback": {
                 "type": "openai",
-                "apiKeyEnvVar": "OPENAI_API_KEY_2"                
+                "apiKeyEnvVar": "OPENAI_API_KEY_2"
             }
         },
         "anthropic": {
@@ -157,28 +143,40 @@
                 "defaultModel": "claude-sonnet-4-5-20250929",
                 "defaultModels": {
                     "chat": "claude-sonnet-4-5-20250929",
-                    "embed": "voyage-3"
-                },
-                "providerDefaults": {
-                    "providerParams": {}
+                    "embed": "voyage-3",
+                    "moderation": "claude-sonnet-4-5-20250929",
+                    "imageAnalysis": "claude-sonnet-4-5-20250929",
+                    "imageAnalyzeStream": "claude-sonnet-4-5-20250929"
                 },
                 "models": {
                     "claude-sonnet-4-5-20250929": {
                         "chat": {
-                            "generalParams": {
-                            },
                             "modelParams": {
                                 "max_tokens": 1024
-                            },
-                            "providerParams": {}
+                            }
                         },
                         "chatStream": {
                             "modelParams": {
                                 "max_tokens": 1024
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "chatStreamBatchSize": 64
+                            }
+                        },
+                        "imageAnalysis": {
+                            "modelParams": {
+                                "max_tokens": 1024
+                            },
+                            "generalParams": {
+                                "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
+                            }
+                        },
+                        "imageAnalyzeStream": {
+                            "modelParams": {
+                                "max_tokens": 1024
+                            },
+                            "generalParams": {
+                                "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
                             }
                         }
                     }
@@ -193,33 +191,32 @@
                 "defaultModels": {
                     "chat": "gemini-2.5-flash-lite",
                     "embed": "gemini-embedding-001",
+                    "moderation": "gemini-2.5-flash-lite",
                     "imageGeneration": "imagen-4.0-generate-001",
-                    "imageGenerateStream": "imagen-4.0-generate-001",
+                    "imageGenerationStream": "imagen-4.0-generate-001",
+                    "imageAnalysis": "gemini-2.5-pro",
+                    "imageAnalyzeStream": "gemini-2.5-pro",
                     "audioTranscription": "gemini-2.5-flash",
                     "audioTranscriptionStream": "gemini-2.5-flash",
                     "audioTranslation": "gemini-2.5-flash",
                     "audioTts": "gemini-2.5-flash-preview-tts",
-                    "audioTtsStream": "gemini-2.5-flash-preview-tts"                
-                },
-                "providerDefaults": {
-                    "providerParams": {}
+                    "audioTtsStream": "gemini-2.5-flash-preview-tts",
+                    "videoGeneration": "veo-3.1-generate-preview",
+                    "videoExtend": "veo-3.1-generate-preview",
+                    "videoDownload": "veo-3.1-generate-preview",
+                    "videoAnalysis": "gemini-2.5-pro"
                 },
                 "models": {
-                    "imagen-4.0-generate-001": {},
                     "gemini-2.5-flash-lite": {
                         "chat": {
-                            "generalParams": {
-                            },
                             "modelParams": {
                                 "max_tokens": 1024
-                            },
-                            "providerParams": {}
+                            }
                         },
                         "chatStream": {
                             "modelParams": {
                                 "max_tokens": 1024
                             },
-                            "providerParams": {},
                             "generalParams": {
                                 "chatStreamBatchSize": 64
                             }
@@ -227,57 +224,58 @@
                     },
                     "gemini-2.5-flash": {
                         "audioTranscription": {
-                            "modelParams": {},
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 64
                             }
                         },
                         "audioTranscriptionStream": {
-                            "modelParams": {},
-                            "providerParams": {},
                             "generalParams": {
                                 "audioStreamBatchSize": 64
                             }
-                        },
-                        "audioTranslation": {
-                            "modelParams": {},
-                            "providerParams": {},
-                            "generalParams": {}
                         }
                     },
                     "gemini-2.5-flash-preview-tts": {
-                        "audioTts": {
-                            "modelParams": {},
-                            "providerParams": {},
-                            "generalParams": {
-                                "geminiTtsMaxAttempts": 3,
-                                "geminiTtsRetryBaseMs": 100,
-                                "geminiTtsRetryMaxMs": 1000,
-                                "geminiTtsRetryJitterRatio": 0.2,
-                                "maxTtsOutputBytes": 8388608
-                            }
-                        },
                         "audioTtsStream": {
-                            "modelParams": {},
-                            "providerParams": {},
                             "generalParams": {
-                                "geminiTtsMaxAttempts": 3,
-                                "geminiTtsRetryBaseMs": 100,
-                                "geminiTtsRetryMaxMs": 1000,
-                                "geminiTtsRetryJitterRatio": 0.2,
-                                "maxTtsOutputBytes": 8388608
+                                "audioStreamBatchSize": 4096
                             }
                         }
                     },
-                    "text-embedding-004": {
-                        "embed": {
+                    "veo-3.1-generate-preview": {
+                        "videoGeneration": {
                             "modelParams": {
-                                "taskType": "RETRIEVAL_QUERY",
-                                "dimensions": 768
+                                "durationSeconds": 8,
+                                "aspectRatio": "16:9"
                             },
-                            "providerParams": {},
-                            "generalParams": {}
+                            "generalParams": {
+                                "pollIntervalMs": 2000,
+                                "maxPollMs": 300000
+                            }
+                        },
+                        "videoExtend": {
+                            "modelParams": {
+                                "durationSeconds": 8
+                            },
+                            "generalParams": {
+                                "pollIntervalMs": 2000,
+                                "maxPollMs": 300000
+                            }
+                        },
+                        "videoDownload": {
+                            "generalParams": {
+                                "downloadTimeoutMs": 30000
+                            }
+                        }
+                    },
+                    "gemini-2.5-pro": {
+                        "videoAnalysis": {
+                            "modelParams": {
+                                "temperature": 0
+                            },
+                            "generalParams": {
+                                "defaultPrompt": "Analyze this video and provide a concise summary, key events, important entities, and any visible text.",
+                                "defaultVideoMimeType": "video/mp4"
+                            }
                         }
                     }
                 }
