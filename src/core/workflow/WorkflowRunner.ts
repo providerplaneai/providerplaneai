@@ -42,6 +42,8 @@ export interface WorkflowRunnerHooks {
 
 /**
  * Optional persistence hooks for workflow execution snapshots.
+ *
+ * @public
  */
 export interface WorkflowRunnerPersistence {
     /** Persist the current workflow snapshot (called incrementally during execution). */
@@ -54,6 +56,8 @@ export interface WorkflowRunnerPersistence {
 
 /**
  * Constructor options for {@link WorkflowRunner}.
+ *
+ * @public
  */
 export interface WorkflowRunnerOptions {
     /** Job manager used to schedule workflow node jobs. */
@@ -68,6 +72,8 @@ export interface WorkflowRunnerOptions {
 
 /**
  * DAG workflow execution engine built on top of JobManager/GenericJob.
+ *
+ * @public
  */
 export class WorkflowRunner {
     private readonly jobManager: JobManager;
@@ -79,6 +85,7 @@ export class WorkflowRunner {
      * @param jobManager Job scheduler used to run child jobs
      * @param client AIClient instance passed into workflow nodes
      * @param hooks Optional workflow lifecycle hooks
+     * @param persistence Optional workflow persistence adapters
      */
     constructor(options: WorkflowRunnerOptions);
     constructor(jobManager: JobManager, client: AIClient, hooks?: WorkflowRunnerHooks, persistence?: WorkflowRunnerPersistence);
@@ -110,6 +117,7 @@ export class WorkflowRunner {
      * @param workflow Child workflow definition
      * @param initialState Optional initial child workflow state
      * @returns Generic job whose final output is the child workflow aggregated output
+     * @public
      */
     createWorkflowJob<TOutput>(workflow: Workflow<TOutput>, initialState?: WorkflowState): GenericJob<void, TOutput> {
         const job = new GenericJob<void, TOutput>(undefined, false, async (_input, ctx, signal) => {
@@ -152,8 +160,10 @@ export class WorkflowRunner {
      * @param workflow Workflow definition
      * @param ctx Shared multimodal execution context
      * @param initialState Optional initial state seed
+     * @param signal Optional abort signal for cooperative workflow cancellation
      * @returns Final workflow execution result
-     * @throws {Error} On validation failures, deadlocks, or node failures
+     * @throws {WorkflowError | Error} On validation failures, deadlocks, or node failures
+     * @public
      */
     async run<TOutput>(
         workflow: Workflow<TOutput>,
@@ -171,6 +181,9 @@ export class WorkflowRunner {
      * @param workflow Workflow definition
      * @param ctx Shared multimodal execution context
      * @param signal Optional abort signal
+     * @returns Resumed execution result
+     * @throws {WorkflowError} When persistence hooks are missing or snapshot is unavailable/incompatible
+     * @public
      */
     async resume<TOutput>(
         workflow: Workflow<TOutput>,
@@ -187,6 +200,19 @@ export class WorkflowRunner {
         return this.execute(workflow, ctx, snapshot as WorkflowExecutionSnapshot<TOutput>, undefined, signal);
     }
 
+    /**
+     * Internal workflow execution implementation used by both `run` and `resume`.
+     *
+     * @typeParam TOutput Final aggregate output type
+     * @param workflow Workflow definition
+     * @param ctx Shared multimodal execution context
+     * @param resumeSnapshot Optional snapshot for resume
+     * @param initialState Optional initial state seed (ignored when snapshot is present)
+     * @param signal Optional abort signal
+     * @returns Workflow execution result
+     * @throws {WorkflowError | Error} On validation, scheduling, or node execution failures
+     * @private
+     */
     private async execute<TOutput>(
         workflow: Workflow<TOutput>,
         ctx: MultiModalExecutionContext,
@@ -197,6 +223,7 @@ export class WorkflowRunner {
         this.validateWorkflow(workflow);
         this.validateResumeSnapshot(workflow, resumeSnapshot);
 
+        // Reuse persisted mutable state on resume; otherwise seed from initial state.
         const state: WorkflowState = resumeSnapshot?.state ?? initialState ?? { values: {} };
         const startedAt = resumeSnapshot?.startedAt ?? Date.now();
 
@@ -212,12 +239,14 @@ export class WorkflowRunner {
 
         const completed = new Set<string>(resumeSnapshot?.completedNodeIds ?? []);
         const running = new Set<string>();
+        // Hydrate previous outputs so aggregate and dependent nodes can resolve correctly after resume.
         const resultsByNode = new Map<string, unknown>(
             (resumeSnapshot?.results ?? [])
                 .filter((r) => r.outputs.length > 0)
                 .map((r) => [r.stepId, r.outputs[0] as unknown] as const)
         );
         const nodeMap = new Map(workflow.nodes.map((node) => [node.id, node] as const));
+        // Deterministic ready-node ordering improves repeatability in tests and logs.
         const orderedNodes = Array.from(nodeMap.values()).sort((a, b) => a.id.localeCompare(b.id));
         const activeJobIds = new Set<string>();
         const inFlightNodes = new Map<
@@ -383,6 +412,17 @@ export class WorkflowRunner {
         }
     }
 
+    /**
+     * Persists current execution state when persistence hooks are configured.
+     *
+     * @typeParam TOutput Final aggregate output type
+     * @param execution Current workflow execution object
+     * @param completed Set of completed node ids
+     * @param startedAt Workflow start timestamp
+     * @param workflowVersion Optional workflow version for compatibility checks
+     * @returns Promise resolved after persistence completes
+     * @private
+     */
     private async persistExecutionSnapshot<TOutput>(
         execution: WorkflowExecution<TOutput>,
         completed: Set<string>,
@@ -392,6 +432,8 @@ export class WorkflowRunner {
         if (!this.persistence?.persistWorkflowExecution) {
             return;
         }
+        // Snapshot shape is intentionally self-contained so it can be used as
+        // the sole source of truth during resume.
         const snapshot: WorkflowExecutionSnapshot<TOutput> = {
             schemaVersion: WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION,
             workflowId: execution.workflowId,
@@ -409,6 +451,15 @@ export class WorkflowRunner {
         await this.persistence.persistWorkflowExecution(snapshot);
     }
 
+    /**
+     * Validates resume snapshot compatibility against the current workflow definition.
+     *
+     * @typeParam TOutput Workflow output type
+     * @param workflow Current workflow definition
+     * @param snapshot Persisted snapshot (if any)
+     * @throws {WorkflowError} On schema, id, version, node, or dependency mismatches
+     * @private
+     */
     private validateResumeSnapshot<TOutput>(workflow: Workflow<TOutput>, snapshot?: WorkflowExecutionSnapshot<TOutput>) {
         if (!snapshot) {
             return;
@@ -489,6 +540,7 @@ export class WorkflowRunner {
     ): Promise<WorkflowStepResult> {
         const retry = node.retry ?? workflowDefaults?.retry;
         const timeoutMs = node.timeoutMs ?? workflowDefaults?.timeoutMs;
+        // attempts includes the first run; minimum one attempt.
         const maxAttempts = Math.max(retry?.attempts ?? 1, 1);
         const backoffMs = Math.max(retry?.backoffMs ?? 0, 0);
         const attemptMetrics: WorkflowStepAttemptMetric[] = [];
@@ -587,6 +639,7 @@ export class WorkflowRunner {
                 }
 
                 if (attempt >= maxAttempts) {
+                    // Exhausted retry budget for this node.
                     this.hooks?.onNodeError?.(workflowId, node.id, lastError, attempt, maxAttempts);
                     throw lastError;
                 }
@@ -594,6 +647,7 @@ export class WorkflowRunner {
                 this.hooks?.onNodeRetry?.(workflowId, node.id, lastError, attempt, maxAttempts);
 
                 if (backoffMs > 0) {
+                    // Fixed backoff delay between attempts. (No jitter by design.)
                     await this.delay(backoffMs);
                 }
             } finally {
@@ -687,16 +741,36 @@ export class WorkflowRunner {
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
+    /**
+     * Checks whether the error is the internal workflow timeout sentinel.
+     *
+     * @param error Error to inspect
+     * @returns True when timeout sentinel error
+     * @private
+     */
     private isTimeoutError(error: Error): boolean {
         return error.name === "WorkflowNodeTimeoutError";
     }
 
+    /**
+     * Creates a standardized workflow abort error.
+     *
+     * @returns Abort error with canonical name/message
+     * @private
+     */
     private makeAbortError(): WorkflowError {
         const abortError = new WorkflowError("Workflow aborted");
         abortError.name = "AbortError";
         return abortError;
     }
 
+    /**
+     * Checks whether the error is the workflow abort sentinel.
+     *
+     * @param error Error to inspect
+     * @returns True when abort sentinel error
+     * @private
+     */
     private isAbortError(error: Error): boolean {
         return error.name === "AbortError";
     }

@@ -21,6 +21,11 @@ type WorkflowNodeFn = (
     state: WorkflowState
 ) => GenericJob<any, any>;
 
+/**
+ * Builder-time options for an individual workflow node.
+ *
+ * @internal
+ */
 interface WorkflowNodeOptions {
     dependsOn?: string[];
     condition?: (state: WorkflowState) => boolean;
@@ -28,11 +33,22 @@ interface WorkflowNodeOptions {
     timeoutMs?: number;
 }
 
+/**
+ * Builder-time options for capability-backed node helpers.
+ *
+ * @internal
+ */
 type WorkflowCapabilityNodeOptions = WorkflowNodeOptions & {
     providerChain?: ProviderRef[];
     addToManager?: boolean;
 };
 
+/**
+ * Static request payload or lazy request factory used by capability helpers.
+ *
+ * @typeParam TInput Capability request input type
+ * @internal
+ */
 type WorkflowCapabilityRequestFactory<TInput> =
     | AIRequest<TInput>
     | ((ctx: MultiModalExecutionContext, state: WorkflowState) => AIRequest<TInput>);
@@ -43,9 +59,13 @@ type WorkflowCapabilityRequestFactory<TInput> =
  * @typeParam TOutput Final aggregate output type
  */
 export class WorkflowBuilder<TOutput = unknown> {
+    /** Optional version stamp used for resume compatibility checks. */
     private workflowVersion?: string | number;
+    /** Node definitions collected in insertion order. */
     private nodes: WorkflowNode[] = [];
+    /** Workflow-level default execution policies. */
     private defaultPolicies: WorkflowDefaults = {};
+    /** Optional workflow aggregate projection. */
     private aggregator?: (results: Record<string, unknown>, state: WorkflowState) => TOutput;
 
     /**
@@ -60,7 +80,7 @@ export class WorkflowBuilder<TOutput = unknown> {
      * @param fn Node execution factory
      * @param options Optional node execution options
      * @returns Builder instance for chaining
-     * @throws {Error} When node id is duplicated
+     * @throws {WorkflowError} When node id is duplicated
      */
     node(id: string, fn: WorkflowNodeFn, options?: WorkflowNodeOptions): this {
         if (this.nodes.some((n) => n.id === id)) {
@@ -88,6 +108,7 @@ export class WorkflowBuilder<TOutput = unknown> {
      * @param fn Node execution factory
      * @param options Additional node options (excluding dependsOn)
      * @returns Builder instance for chaining
+     * @throws {WorkflowError} When node id is duplicated
      */
     after(
         dependencies: string | string[],
@@ -151,6 +172,7 @@ export class WorkflowBuilder<TOutput = unknown> {
      * @param requestOrFactory Static request or state-aware request factory
      * @param options Optional node + capability-job options
      * @returns Builder instance for chaining
+     * @throws {WorkflowError} When node id is duplicated
      */
     capabilityNode<C extends CapabilityKeyType, TInput, TOutput>(
         id: string,
@@ -189,6 +211,7 @@ export class WorkflowBuilder<TOutput = unknown> {
      * @param requestOrFactory Static request or state-aware request factory
      * @param options Optional node + capability-job options
      * @returns Builder instance for chaining
+     * @throws {WorkflowError} When node id is duplicated
      */
     capabilityAfter<C extends CapabilityKeyType, TInput, TOutput>(
         dependencies: string | string[],
@@ -210,6 +233,8 @@ export class WorkflowBuilder<TOutput = unknown> {
      * @returns Workflow definition
      */
     build(): Workflow<TOutput> {
+        // Return cloned collections so subsequent builder mutations do not alter
+        // already-built workflow definitions.
         return {
             id: this.id,
             ...(this.workflowVersion !== undefined ? { version: this.workflowVersion } : {}),

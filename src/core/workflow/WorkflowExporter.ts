@@ -4,6 +4,8 @@ import { WorkflowError, type Workflow } from "#root/index.js";
 
 /**
  * JSON-exported workflow node shape.
+ *
+ * @public
  */
 export interface WorkflowJsonNode {
     id: string;
@@ -12,6 +14,8 @@ export interface WorkflowJsonNode {
 
 /**
  * JSON-exported directed edge shape.
+ *
+ * @public
  */
 export interface WorkflowJsonEdge {
     from: string;
@@ -31,6 +35,8 @@ export interface WorkflowJsonExport {
 
 /**
  * D3-compatible workflow export payload.
+ *
+ * @public
  */
 export interface WorkflowD3Export {
     nodes: { id: string }[];
@@ -39,6 +45,8 @@ export interface WorkflowD3Export {
 
 /**
  * Unified return type for {@link WorkflowExporter.export}.
+ *
+ * @public
  */
 export type WorkflowExportResult = string | WorkflowJsonExport | WorkflowD3Export;
 
@@ -46,6 +54,8 @@ export type WorkflowExportResult = string | WorkflowJsonExport | WorkflowD3Expor
  * Exports a Workflow definition to a Mermaid diagram, JSON-serializable format, DOT graph, or a D3-compatible format.
  * This can be used for visualization and diagnostic of workflow structures.
  * Note that exported workflows only include node ids and dependencies, not execution logic or metadata.
+ *
+ * @public
  */
 export class WorkflowExporter {
     /**
@@ -53,6 +63,7 @@ export class WorkflowExporter {
      *
      * @param workflow Workflow to inspect
      * @returns Ordered unique node id list
+     * @private
      */
     private static listAllNodeIdsInOrder(workflow: Workflow<unknown>): string[] {
         const idsInOrder: string[] = [];
@@ -79,6 +90,7 @@ export class WorkflowExporter {
      *
      * @param workflow Workflow to map
      * @returns Map from original id to Mermaid-safe id
+     * @private
      */
     private static buildMermaidNodeIdMap(workflow: Workflow<unknown>): Map<string, string> {
         const idsInOrder = this.listAllNodeIdsInOrder(workflow);
@@ -93,6 +105,7 @@ export class WorkflowExporter {
      *
      * @param label Raw label text
      * @returns Escaped Mermaid-safe label
+     * @private
      */
     private static escapeMermaidLabel(label: string): string {
         // Mermaid labels are sensitive to control chars and some bracket/quote combinations.
@@ -112,6 +125,7 @@ export class WorkflowExporter {
      *
      * @param value Raw DOT identifier/label
      * @returns Quoted DOT string
+     * @private
      */
     private static quoteDot(value: string): string {
         return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -122,6 +136,7 @@ export class WorkflowExporter {
      *
      * @param workflow Workflow to inspect
      * @returns Unique directed edges
+     * @private
      */
     private static listUniqueEdges(workflow: Workflow<unknown>): WorkflowJsonEdge[] {
         const edges: WorkflowJsonEdge[] = [];
@@ -147,6 +162,7 @@ export class WorkflowExporter {
      *
      * @param workflow Workflow to export
      * @returns Mermaid graph source
+     * @public
      */
     static workflowAsMermaid(workflow: Workflow<unknown>): string {
         const lines: string[] = ["graph TD"];
@@ -173,6 +189,7 @@ export class WorkflowExporter {
      *
      * @param workflow Workflow to export
      * @returns DOT graph source
+     * @public
      */
     static workflowAsDOT(workflow: Workflow<unknown>): string {
         const lines: string[] = ["digraph Workflow {"];
@@ -198,6 +215,7 @@ export class WorkflowExporter {
      *
      * @param workflow Workflow to export
      * @returns D3 nodes/edges payload
+     * @public
      */
     static workflowAsD3(workflow: Workflow<unknown>): WorkflowD3Export {
         const nodes = this.listAllNodeIdsInOrder(workflow).map((id) => ({ id }));
@@ -211,6 +229,7 @@ export class WorkflowExporter {
      *
      * @param workflow Workflow to export
      * @returns JSON export payload
+     * @public
      */
     static workflowAsJSON(workflow: Workflow<unknown>): WorkflowJsonExport {
         const allIds = this.listAllNodeIdsInOrder(workflow);
@@ -233,7 +252,8 @@ export class WorkflowExporter {
      * @param workflow Workflow to export
      * @param format Target export format
      * @returns Export payload as string (mermaid/dot) or structured object (json/d3)
-     * @throws {Error} When format is unsupported
+     * @throws {WorkflowError} When format is unsupported
+     * @public
      */
     static export(workflow: Workflow<unknown>, format: "mermaid" | "json" | "dot" | "d3"): WorkflowExportResult {
         switch (format) {
@@ -258,6 +278,8 @@ export class WorkflowExporter {
      * @param filePath Destination file path
      * @param autoCreateDir Whether to automatically create the parent directory if it doesn't exist (default: true)
      * @returns Promise resolved when file write completes
+     * @throws {Error} When directory creation or file write fails
+     * @public
      */
     static async exportToFile(
         workflow: Workflow<unknown>,
@@ -265,6 +287,7 @@ export class WorkflowExporter {
         filePath: string,
         autoCreateDir = true
     ): Promise<void> {
+        // Keep directory creation optional so callers can enforce strict path expectations.
         if (autoCreateDir) {
             await mkdir(dirname(filePath), { recursive: true });
         }

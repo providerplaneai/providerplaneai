@@ -2,10 +2,25 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { WorkflowError, type AIClient, type AIRequest, type AIResponse, type NonStreamingExecutor } from "#root/index.js";
 
+/**
+ * Default capability key used when registering the save-file capability.
+ *
+ * @public
+ */
 export const DEFAULT_SAVE_FILE_CAPABILITY_KEY = "saveFile";
 
+/**
+ * Supported write payload formats.
+ *
+ * @public
+ */
 export type SaveFileContentType = "text" | "base64" | "json";
 
+/**
+ * Input shape for save-file requests.
+ *
+ * @public
+ */
 export interface SaveFileRequestInput {
     path: string;
     contentType?: SaveFileContentType;
@@ -15,14 +30,29 @@ export interface SaveFileRequestInput {
     encoding?: BufferEncoding;
 }
 
+/**
+ * Typed request alias for save-file operations.
+ *
+ * @public
+ */
 export type SaveFileRequest = AIRequest<SaveFileRequestInput>;
 
+/**
+ * Save-file operation output.
+ *
+ * @public
+ */
 export interface SaveFileOutput {
     path: string;
     bytesWritten: number;
     contentType: SaveFileContentType;
 }
 
+/**
+ * Registration and runtime constraints for save-file capability.
+ *
+ * @public
+ */
 export interface RegisterSaveFileCapabilityOptions {
     capabilityKey?: string;
     baseDir?: string;
@@ -30,6 +60,15 @@ export interface RegisterSaveFileCapabilityOptions {
     autoCreateDir?: boolean;
 }
 
+/**
+ * Resolves the requested output path and enforces path constraints.
+ *
+ * @param requestedPath Caller-provided relative or absolute path
+ * @param options Registration options controlling path behavior
+ * @returns Resolved filesystem path to write
+ * @throws {WorkflowError} When path is invalid, absolute path is disallowed, or path escapes baseDir
+ * @private
+ */
 function resolveAndValidateOutputPath(requestedPath: string, options: RegisterSaveFileCapabilityOptions): string {
     if (!requestedPath || typeof requestedPath !== "string") {
         throw new WorkflowError("SaveFileCapability: input.path is required.");
@@ -44,12 +83,21 @@ function resolveAndValidateOutputPath(requestedPath: string, options: RegisterSa
 
     const resolved = baseDir ? path.resolve(baseDir, requestedPath) : path.resolve(requestedPath);
     if (baseDir && !resolved.startsWith(baseDir + path.sep) && resolved !== baseDir) {
+        // Prevent path traversal outside constrained base directory.
         throw new WorkflowError(`SaveFileCapability: path escapes baseDir. path='${requestedPath}'`);
     }
 
     return resolved;
 }
 
+/**
+ * Converts request input into a writeable payload.
+ *
+ * @param input Save-file request input
+ * @returns Normalized content type and data payload
+ * @throws {WorkflowError} When required fields for selected content type are missing
+ * @private
+ */
 function normalizeContent(input: SaveFileRequestInput): { contentType: SaveFileContentType; data: string | Buffer } {
     const contentType = input.contentType ?? "text";
 
@@ -68,6 +116,14 @@ function normalizeContent(input: SaveFileRequestInput): { contentType: SaveFileC
     return { contentType: "text", data: String(input.text ?? "") };
 }
 
+/**
+ * Registers a reusable save-file custom capability on AIClient.
+ *
+ * @param client AI client where executor will be registered
+ * @param options Optional registration/runtime constraints
+ * @returns Registered capability key
+ * @public
+ */
 export function registerSaveFileCapability(
     client: AIClient,
     options: RegisterSaveFileCapabilityOptions = {}
@@ -77,6 +133,14 @@ export function registerSaveFileCapability(
     return { capabilityKey };
 }
 
+/**
+ * Creates a non-streaming save-file executor.
+ *
+ * @param options Registration and runtime constraints
+ * @param capabilityKey Capability key used in executor metadata/id
+ * @returns Non-streaming save-file executor
+ * @public
+ */
 export function createSaveFileExecutor(
     options: RegisterSaveFileCapabilityOptions = {},
     capabilityKey: string = DEFAULT_SAVE_FILE_CAPABILITY_KEY
@@ -98,6 +162,7 @@ export function createSaveFileExecutor(
                 await mkdir(path.dirname(outputPath), { recursive: true });
             }
 
+            // Only text/json writes use an encoding option. Binary writes pass raw Buffer.
             const encoding = contentType === "text" || contentType === "json" ? (input.encoding ?? "utf8") : undefined;
             await writeFile(outputPath, data as any, encoding ? { encoding } : undefined);
 

@@ -29,6 +29,7 @@ export interface WorkflowRetryPolicy {
  * @public
  */
 export interface WorkflowState {
+    /** Shared mutable value bag keyed by node id or custom state keys. */
     values: Record<string, unknown>;
 }
 
