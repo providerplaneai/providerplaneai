@@ -5,6 +5,7 @@ test_data
 job1.ts
 job2.ts
 playground.ts
+workflow1.ts
 
 # Logs
 logs
