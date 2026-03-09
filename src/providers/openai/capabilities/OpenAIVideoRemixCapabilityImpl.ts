@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIVideoRemixCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -10,10 +14,13 @@ import {
     NormalizedVideo,
     VideoRemixCapability
 } from "#root/index.js";
-
-/** Default polling cadence when no request/config override is provided. */
+/**
+ * Default polling cadence when no request/config override is provided.
+ */
 const DEFAULT_VIDEO_POLL_INTERVAL_MS = 2_000;
-/** Default polling timeout (5 minutes) when no request/config override is provided. */
+/**
+ * Default polling timeout (5 minutes) when no request/config override is provided.
+ */
 const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
 
 /**
@@ -21,6 +28,10 @@ const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
  *
  * Uses OpenAI Videos API (`videos.remix`, `videos.retrieve`, `videos.downloadContent`)
  * and normalizes job output into `NormalizedVideo[]`.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIVideoRemixCapabilityImpl.
  */
 export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<ClientVideoRemixRequest, NormalizedVideo[]> {
     /**

@@ -1,3 +1,7 @@
+/**
+ * @module client/AIClient.ts
+ * @description High-level client orchestrator for provider registration, capability routing, and job creation.
+ */
 import {
     AIProvider,
     AIProviderType,

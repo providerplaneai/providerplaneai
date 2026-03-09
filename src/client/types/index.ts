@@ -1,3 +1,7 @@
+/**
+ * @module client/types/index.ts
+ * @description ProviderPlaneAI source module.
+ */
 // Re-export all client-side type modules for unified import.
 export * from "./audio/index.js"; // Audio request/response types
 export * from "./chat/index.js"; // Chat message/request types

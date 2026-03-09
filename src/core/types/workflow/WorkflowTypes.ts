@@ -1,7 +1,16 @@
+/**
+ * @module core/types/workflow/WorkflowTypes.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import { AIClient, GenericJob, MultiModalExecutionContext, ProviderRef } from "#root/index.js";
 import type { WorkflowRunner } from "#root/index.js";
-
-/** Current persisted schema version for workflow execution snapshots. */
+/**
+ * Current persisted schema version for workflow execution snapshots.
+ */
+/**
+ * @public
+ * @description Runtime constant for WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION.
+ */
 export const WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 
 /**
@@ -17,9 +26,13 @@ export type WorkflowStatus = "pending" | "running" | "completed" | "error" | "ab
  * @public
  */
 export interface WorkflowRetryPolicy {
-    /** Maximum number of attempts (including the first attempt). */
+    /**
+     * Maximum number of attempts (including the first attempt).
+     */
     attempts: number;
-    /** Optional fixed backoff delay between attempts, in milliseconds. */
+    /**
+     * Optional fixed backoff delay between attempts, in milliseconds.
+     */
     backoffMs?: number;
 }
 
@@ -29,7 +42,9 @@ export interface WorkflowRetryPolicy {
  * @public
  */
 export interface WorkflowState {
-    /** Shared mutable value bag keyed by node id or custom state keys. */
+    /**
+     * Shared mutable value bag keyed by node id or custom state keys.
+     */
     values: Record<string, unknown>;
 }
 
@@ -40,13 +55,21 @@ export interface WorkflowState {
  * @public
  */
 export interface WorkflowDefaults {
-    /** Default retry policy applied when a node does not define `retry`. */
+    /**
+     * Default retry policy applied when a node does not define `retry`.
+     */
     retry?: WorkflowRetryPolicy;
-    /** Default node timeout applied when a node does not define `timeoutMs`. */
+    /**
+     * Default node timeout applied when a node does not define `timeoutMs`.
+     */
     timeoutMs?: number;
-    /** Default provider chain for capability-backed builder helpers. */
+    /**
+     * Default provider chain for capability-backed builder helpers.
+     */
     providerChain?: ProviderRef[];
-    /** Default `addToManager` behavior for capability-backed builder helpers. */
+    /**
+     * Default `addToManager` behavior for capability-backed builder helpers.
+     */
     addToManager?: boolean;
 }
 
@@ -56,7 +79,9 @@ export interface WorkflowDefaults {
  * @public
  */
 export interface WorkflowNode {
-    /** Unique node identifier within a workflow. */
+    /**
+     * Unique node identifier within a workflow.
+     */
     id: string;
 
     /**
@@ -79,12 +104,17 @@ export interface WorkflowNode {
      * Return `false` to mark the node as skipped.
      */
     condition?: (state: WorkflowState) => boolean;
-
-    /** List of node IDs that must complete before this node becomes runnable. */
+    /**
+     * List of node IDs that must complete before this node becomes runnable.
+     */
     dependsOn?: string[];
-    /** Optional retry policy for node failures. */
+    /**
+     * Optional retry policy for node failures.
+     */
     retry?: WorkflowRetryPolicy;
-    /** Optional timeout for the node execution, in milliseconds. */
+    /**
+     * Optional timeout for the node execution, in milliseconds.
+     */
     timeoutMs?: number;
 }
 
@@ -95,15 +125,25 @@ export interface WorkflowNode {
  * @public
  */
 export interface Workflow<TOutput = unknown> {
-    /** Unique workflow identifier. */
+    /**
+     * Unique workflow identifier.
+     */
     id: string;
-    /** Optional user-defined workflow version used for resume compatibility checks. */
+    /**
+     * Optional user-defined workflow version used for resume compatibility checks.
+     */
     version?: string | number;
-    /** DAG nodes to execute. */
+    /**
+     * DAG nodes to execute.
+     */
     nodes: WorkflowNode[];
-    /** Optional default policies used by runner/builder helpers. */
+    /**
+     * Optional default policies used by runner/builder helpers.
+     */
     defaults?: WorkflowDefaults;
-    /** Optional function used to produce a final workflow output. */
+    /**
+     * Optional function used to produce a final workflow output.
+     */
     aggregate?: (results: Record<string, unknown>, state: WorkflowState) => TOutput;
 }
 
@@ -113,27 +153,49 @@ export interface Workflow<TOutput = unknown> {
  * @public
  */
 export interface WorkflowStepResult {
-    /** Node identifier. */
+    /**
+     * Node identifier.
+     */
     stepId: string;
-    /** Job IDs created by this step (empty when skipped). */
+    /**
+     * Job IDs created by this step (empty when skipped).
+     */
     jobIds: string[];
-    /** Raw outputs returned by the node job(s). */
+    /**
+     * Raw outputs returned by the node job(s).
+     */
     outputs: unknown[];
-    /** Whether the node was skipped due to its condition evaluating to false. */
+    /**
+     * Whether the node was skipped due to its condition evaluating to false.
+     */
     skipped?: boolean;
-    /** Start timestamp (epoch ms). */
+    /**
+     * Start timestamp (epoch ms).
+     */
     startedAt?: number;
-    /** End timestamp (epoch ms). */
+    /**
+     * End timestamp (epoch ms).
+     */
     endedAt?: number;
-    /** Total duration in milliseconds. */
+    /**
+     * Total duration in milliseconds.
+     */
     durationMs?: number;
-    /** Number of execution attempts made for this node. */
+    /**
+     * Number of execution attempts made for this node.
+     */
     attemptCount?: number;
-    /** Per-attempt metrics in execution order (attempt 1..N). */
+    /**
+     * Per-attempt metrics in execution order (attempt 1..N).
+     */
     attempts?: WorkflowStepAttemptMetric[];
-    /** Number of retries performed (attemptCount - 1). */
+    /**
+     * Number of retries performed (attemptCount - 1).
+     */
     retryCount?: number;
-    /** Sum of all attempt durations in milliseconds. */
+    /**
+     * Sum of all attempt durations in milliseconds.
+     */
     totalAttemptDurationMs?: number;
 }
 
@@ -143,21 +205,37 @@ export interface WorkflowStepResult {
  * @public
  */
 export interface WorkflowStepAttemptMetric {
-    /** 1-based attempt index. */
+    /**
+     * 1-based attempt index.
+     */
     attempt: number;
-    /** Optional job id created for this attempt. */
+    /**
+     * Optional job id created for this attempt.
+     */
     jobId?: string;
-    /** Attempt start timestamp (epoch ms). */
+    /**
+     * Attempt start timestamp (epoch ms).
+     */
     startedAt: number;
-    /** Attempt end timestamp (epoch ms). */
+    /**
+     * Attempt end timestamp (epoch ms).
+     */
     endedAt: number;
-    /** Attempt duration in milliseconds. */
+    /**
+     * Attempt duration in milliseconds.
+     */
     durationMs: number;
-    /** Attempt terminal status. */
+    /**
+     * Attempt terminal status.
+     */
     status: "completed" | "error" | "timeout" | "aborted";
-    /** Error name when attempt did not complete successfully. */
+    /**
+     * Error name when attempt did not complete successfully.
+     */
     errorName?: string;
-    /** Error message when attempt did not complete successfully. */
+    /**
+     * Error message when attempt did not complete successfully.
+     */
     errorMessage?: string;
 }
 
@@ -168,21 +246,37 @@ export interface WorkflowStepAttemptMetric {
  * @public
  */
 export interface WorkflowExecution<TOutput = unknown> {
-    /** Workflow identifier. */
+    /**
+     * Workflow identifier.
+     */
     workflowId: string;
-    /** Final workflow status. */
+    /**
+     * Final workflow status.
+     */
     status: WorkflowStatus;
-    /** Per-node execution results. */
+    /**
+     * Per-node execution results.
+     */
     results: WorkflowStepResult[];
-    /** Optional aggregated output. */
+    /**
+     * Optional aggregated output.
+     */
     output?: TOutput;
-    /** Final shared workflow state snapshot. */
+    /**
+     * Final shared workflow state snapshot.
+     */
     state: WorkflowState;
-    /** Workflow start timestamp (epoch ms). */
+    /**
+     * Workflow start timestamp (epoch ms).
+     */
     startedAt?: number;
-    /** Workflow end timestamp (epoch ms). */
+    /**
+     * Workflow end timestamp (epoch ms).
+     */
     endedAt?: number;
-    /** Total workflow duration in milliseconds. */
+    /**
+     * Total workflow duration in milliseconds.
+     */
     durationMs?: number;
 }
 
@@ -193,28 +287,52 @@ export interface WorkflowExecution<TOutput = unknown> {
  * @public
  */
 export interface WorkflowExecutionSnapshot<TOutput = unknown> {
-    /** Snapshot schema version. */
+    /**
+     * Snapshot schema version.
+     */
     schemaVersion: number;
-    /** Workflow identifier. */
+    /**
+     * Workflow identifier.
+     */
     workflowId: string;
-    /** Optional workflow version captured at snapshot time. */
+    /**
+     * Optional workflow version captured at snapshot time.
+     */
     workflowVersion?: string | number;
-    /** Current workflow status. */
+    /**
+     * Current workflow status.
+     */
     status: WorkflowStatus;
-    /** IDs of nodes already completed (including skipped nodes). */
+    /**
+     * IDs of nodes already completed (including skipped nodes).
+     */
     completedNodeIds: string[];
-    /** Per-node execution results accumulated so far. */
+    /**
+     * Per-node execution results accumulated so far.
+     */
     results: WorkflowStepResult[];
-    /** Optional aggregated output when workflow reached terminal completion. */
+    /**
+     * Optional aggregated output when workflow reached terminal completion.
+     */
     output?: TOutput;
-    /** Current shared workflow state. */
+    /**
+     * Current shared workflow state.
+     */
     state: WorkflowState;
-    /** First start timestamp (epoch ms). */
+    /**
+     * First start timestamp (epoch ms).
+     */
     startedAt: number;
-    /** Last persisted timestamp (epoch ms). */
+    /**
+     * Last persisted timestamp (epoch ms).
+     */
     updatedAt: number;
-    /** Workflow end timestamp (epoch ms) when terminal. */
+    /**
+     * Workflow end timestamp (epoch ms) when terminal.
+     */
     endedAt?: number;
-    /** Total workflow duration in milliseconds when terminal. */
+    /**
+     * Total workflow duration in milliseconds when terminal.
+     */
     durationMs?: number;
 }

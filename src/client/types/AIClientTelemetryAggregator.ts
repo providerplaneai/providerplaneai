@@ -1,8 +1,16 @@
+/**
+ * @module client/types/AIClientTelemetryAggregator.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { AIClientLifecycleHooks, CapabilityKeyType, ProviderAttemptResult } from "#root/index.js";
 
 /**
  * Aggregates telemetry statistics for AIClient attempts.
  * Includes counts, token usage, duration, and estimated cost.
+ */
+/**
+ * @public
+ * @description Interface contract for TelemetryTotals.
  */
 export interface TelemetryTotals {
     attempts: number;
@@ -17,6 +25,10 @@ export interface TelemetryTotals {
 
 /**
  * Summary of telemetry statistics, grouped overall, by provider, and by capability.
+ */
+/**
+ * @public
+ * @description Interface contract for TelemetrySummary.
  */
 export interface TelemetrySummary {
     overall: TelemetryTotals;
@@ -44,12 +56,17 @@ function emptyTotals(): TelemetryTotals {
  * Aggregates and summarizes telemetry data for AIClient executions.
  * Provides hooks for recording attempt results and methods for resetting and summarizing data.
  */
+/**
+ * @public
+ * @description Implementation class for AIClientTelemetryAggregator.
+ */
 export class AIClientTelemetryAggregator {
     private overall: TelemetryTotals = emptyTotals();
     private byProvider = new Map<string, TelemetryTotals>();
     private byCapability = new Map<string, TelemetryTotals>();
-
-    /** Lifecycle hooks that can be passed directly into AIClient config. */
+    /**
+     * Lifecycle hooks that can be passed directly into AIClient config.
+     */
     createHooks(): AIClientLifecycleHooks {
         return {
             onAttemptSuccess: (result) => this.recordAttempt(result),

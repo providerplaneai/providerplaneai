@@ -1,3 +1,7 @@
+/**
+ * @module capabilities/SaveFileCapabilityImpl.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { WorkflowError, type AIClient, type AIRequest, type AIResponse, type NonStreamingExecutor } from "#root/index.js";

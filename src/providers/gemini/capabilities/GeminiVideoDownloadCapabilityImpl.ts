@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiVideoDownloadCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -18,6 +22,10 @@ const DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /**
  * Gemini video download capability implementation.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiVideoDownloadCapabilityImpl.
  */
 export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapability<
     ClientVideoDownloadRequest,

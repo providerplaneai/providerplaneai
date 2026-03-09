@@ -1,3 +1,7 @@
+/**
+ * @module core/types/Config.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import { AIProviderType } from "#root/index.js";
 
 /**
@@ -22,28 +26,37 @@ export interface ModelConfig<
     TVideoOptions extends Record<string, any> = Record<string, any>,
     TModerationOptions extends Record<string, any> = Record<string, any>
 > {
-    /** Chat capability configuration */
+    /**
+     * Chat capability configuration
+     */
     chat?: TChatOptions;
-
-    /** Streaming chat capability configuration */
+    /**
+     * Streaming chat capability configuration
+     */
     stream?: TStreamOptions;
-
-    /** Embedding capability configuration */
+    /**
+     * Embedding capability configuration
+     */
     embedding?: TEmbedOptions;
-
-    /** Image generation capability configuration */
+    /**
+     * Image generation capability configuration
+     */
     image?: TImageOptions;
-
-    /** Audio capability configuration (future) */
+    /**
+     * Audio capability configuration (future)
+     */
     audio?: TAudioOptions;
-
-    /** Video capability configuration (future) */
+    /**
+     * Video capability configuration (future)
+     */
     video?: TVideoOptions;
-
-    /** Moderation capability configuration */
+    /**
+     * Moderation capability configuration
+     */
     moderation?: TModerationOptions;
-
-    /** Any additional provider-specific extensions */
+    /**
+     * Any additional provider-specific extensions
+     */
     [key: string]: unknown;
 }
 
@@ -56,17 +69,26 @@ export interface ModelConfig<
  * - All model definitions
  * - Provider-specific overrides
  */
+/**
+ * @public
+ * @description Data contract for ProviderConnectionConfig.
+ */
 export interface ProviderConnectionConfig {
-    /** Type of the provider, eg. 'openai', 'anthropic', 'huggingface' */
+    /**
+     * Type of the provider, eg. 'openai', 'anthropic', 'huggingface'
+     */
     type: AIProviderType;
-
-    /** Name of the environment variable containing the API key */
+    /**
+     * Name of the environment variable containing the API key
+     */
     apiKeyEnvVar?: string;
-
-    /** API key from the environment variable */
+    /**
+     * API key from the environment variable
+     */
     apiKey?: string;
-
-    /** Overall default model for general-purpose requests */
+    /**
+     * Overall default model for general-purpose requests
+     */
     defaultModel?: string;
 
     /**
@@ -91,12 +113,20 @@ export interface ProviderConnectionConfig {
  * Represents all connections for a given provider type.
  * Keyed by connection name (e.g., 'default', 'backup', etc.)
  */
+/**
+ * @public
+ * @description Data contract for ProviderConfigMap.
+ */
 export interface ProviderConfigMap {
     [connectionName: string]: ProviderConnectionConfig;
 }
 
 /**
  * Represents a connection by provider and name
+ */
+/**
+ * @public
+ * @description Data contract for ProviderRef.
  */
 export interface ProviderRef {
     providerType: AIProviderType;
@@ -106,6 +136,10 @@ export interface ProviderRef {
 /**
  * Execution policy as defined in the appConfig section of config file
  */
+/**
+ * @public
+ * @description Data contract for ExecutionPolicyConfig.
+ */
 export interface ExecutionPolicyConfig {
     providerChain: ProviderRef[];
 }
@@ -114,43 +148,76 @@ export interface ExecutionPolicyConfig {
  * Top-level configuration for the application.
  * Holds both general app settings and all provider connections.
  */
+/**
+ * @public
+ * @description Data contract for AppConfig.
+ */
 export interface AppConfig {
-    /** General app specific configs */
+    /**
+     * General app specific configs
+     */
     appConfig?: {
-        /** Maximum number of concurrent jobs allowed */
+        /**
+         * Maximum number of concurrent jobs allowed
+         */
         maxConcurrency?: number;
-        /** Maximum number of queued jobs allowed (undefined means unbounded) */
+        /**
+         * Maximum number of queued jobs allowed (undefined means unbounded)
+         */
         maxQueueSize?: number;
-        /** Maximum number of response chunks to store */
+        /**
+         * Maximum number of response chunks to store
+         */
         maxStoredResponseChunks?: number;
-        /** Whether to retain raw provider payloads in job response/chunk diagnostics */
+        /**
+         * Whether to retain raw provider payloads in job response/chunk diagnostics
+         */
         storeRawResponses?: boolean;
-        /** Whether to strip binary-heavy fields (e.g. base64) from snapshots and timeline artifacts */
+        /**
+         * Whether to strip binary-heavy fields (e.g. base64) from snapshots and timeline artifacts
+         */
         stripBinaryPayloadsInSnapshotsAndTimeline?: boolean;
-        /** Maximum raw response bytes retained per job (undefined means unbounded) */
+        /**
+         * Maximum raw response bytes retained per job (undefined means unbounded)
+         */
         maxRawBytesPerJob?: number;
-        /** Timeout (ms) when fetching remote images by URL */
+        /**
+         * Timeout (ms) when fetching remote images by URL
+         */
         remoteImageFetchTimeoutMs?: number;
-        /** Maximum bytes allowed when decoding/fetching images */
+        /**
+         * Maximum bytes allowed when decoding/fetching images
+         */
         maxRemoteImageBytes?: number;
-        /** Execution policy configuration */
+        /**
+         * Execution policy configuration
+         */
         executionPolicy: ExecutionPolicyConfig;
     };
-
-    /** Mapping of provider types to their connections */
+    /**
+     * Mapping of provider types to their connections
+     */
     providers: Record<AIProviderType, ProviderConfigMap>;
 }
 
 /**
  * Encapsulates provider and model specific capability parameters.
  */
+/**
+ * @public
+ * @description Data contract for CapabilityConfig.
+ */
 export interface CapabilityConfig {
-    /** Parameters specific to the model */
+    /**
+     * Parameters specific to the model
+     */
     modelParams?: Record<string, any>;
-
-    /** Parameters specific to the provider */
+    /**
+     * Parameters specific to the provider
+     */
     providerParams?: Record<string, any>;
-
-    /** General parameters that may affect multiple capabilities */
+    /**
+     * General parameters that may affect multiple capabilities
+     */
     generalParams?: Record<string, any>;
 }

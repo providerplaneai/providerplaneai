@@ -9,6 +9,7 @@
     "scripts": {
         "prepare": "husky install",
         "clean": "rimraf dist",
+        "docs": "typedoc --out docs src",
         "playground": "node dist/playground.js",
         "build": "npm run clean && tsc -p tsconfig.build.json",
         "dev": "nodemon --watch src --ext ts --exec \"npm run build && npm run playground\"",
@@ -72,6 +73,7 @@
         "prettier": "^3.8.1",
         "rimraf": "^6.1.0",
         "ts-node": "^10.9.2",
+        "typedoc": "^0.28.17",
         "typescript": "^5.9.3",
         "vitest": "^4.0.8"
     }

@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiImageAnalysisCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -71,6 +75,10 @@ type GeminiImageAnalysisPayload = {
  * - Gemini does not support native JSON schema tools like OpenAI.
  * - JSON structure is enforced via prompting only
  * - Bounding boxes and confidence scores are optional / best-effort
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiImageAnalysisCapabilityImpl.
  */
 export class GeminiImageAnalysisCapabilityImpl
     implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>

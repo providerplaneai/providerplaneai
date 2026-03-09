@@ -1,3 +1,7 @@
+/**
+ * @module capabilities/ApprovalGateCapabilityImpl.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { readFile } from "node:fs/promises";
 import { WorkflowError, type AIClient, type AIRequest, type AIResponse, type NonStreamingExecutor } from "#root/index.js";
 

@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiVideoGenerationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -23,6 +27,10 @@ const GEMINI_VIDEO_MAX_DURATION_SECONDS = 8;
 
 /**
  * Gemini video generation capability implementation.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiVideoGenerationCapabilityImpl.
  */
 export class GeminiVideoGenerationCapabilityImpl implements VideoGenerationCapability<
     ClientVideoGenerationRequest,

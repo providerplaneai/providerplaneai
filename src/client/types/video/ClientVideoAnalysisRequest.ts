@@ -1,26 +1,50 @@
+/**
+ * @module client/types/video/ClientVideoAnalysisRequest.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { ClientRequestBase } from "#root/index.js";
 
 /**
  * Video reference passed to provider video-analysis capabilities.
  */
+/**
+ * @public
+ * @description Interface contract for ClientVideoInput.
+ */
 export interface ClientVideoInput {
-    /** Optional caller-supplied id for correlating response rows. */
+    /**
+     * Optional caller-supplied id for correlating response rows.
+     */
     id?: string;
-    /** Video mime type (defaults to `video/mp4` when omitted). */
+    /**
+     * Video mime type (defaults to `video/mp4` when omitted).
+     */
     mimeType?: string;
-    /** Provider file URI / gs:// URI / downloadable URL. */
+    /**
+     * Provider file URI / gs:// URI / downloadable URL.
+     */
     url?: string;
-    /** Inline base64 bytes for the video payload. */
+    /**
+     * Inline base64 bytes for the video payload.
+     */
     base64?: string;
 }
 
 /**
  * Provider-agnostic video analysis request.
  */
+/**
+ * @public
+ * @description Interface contract for ClientVideoAnalysisRequest.
+ */
 export interface ClientVideoAnalysisRequest extends ClientRequestBase {
-    /** One or more videos to analyze. If omitted, provider may use context video artifacts. */
+    /**
+     * One or more videos to analyze. If omitted, provider may use context video artifacts.
+     */
     videos?: ClientVideoInput[];
-    /** Optional analysis instruction. */
+    /**
+     * Optional analysis instruction.
+     */
     prompt?: string;
     params?: {
         model?: string;

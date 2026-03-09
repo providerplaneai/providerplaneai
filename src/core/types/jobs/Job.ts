@@ -1,5 +1,13 @@
+/**
+ * @module core/types/jobs/Job.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import { MultiModalExecutionContext } from "#root/index.js";
 
+/**
+ * @public
+ * @description Alias type for JobStatus.
+ */
 export type JobStatus = "pending" | "running" | "completed" | "error" | "aborted" | "interrupted";
 
 /**
@@ -32,11 +40,19 @@ export type JobStatus = "pending" | "running" | "completed" | "error" | "aborted
  * - providers (OpenAI, Anthropic, etc.)
  * - modalities (text, audio, image, video)
  */
+/**
+ * @public
+ * @description Alias type for JobChunk.
+ */
 export type JobChunk<TOutput> = {
     delta?: TOutput;
     final?: TOutput;
 };
 
+/**
+ * @public
+ * @description Data contract for JobLifecycleHooks.
+ */
 export interface JobLifecycleHooks<TOutput> {
     onStart?: () => void;
     onProgress?: (info: any) => void;
@@ -44,6 +60,10 @@ export interface JobLifecycleHooks<TOutput> {
     onError?: (error: Error) => void;
 }
 
+/**
+ * @public
+ * @description Data contract for Job.
+ */
 export interface Job<TInput = any, TOutput = any> {
     readonly id: string;
     readonly input: TInput;

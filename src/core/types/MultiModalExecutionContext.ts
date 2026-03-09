@@ -1,3 +1,7 @@
+/**
+ * @module core/types/MultiModalExecutionContext.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import {
     TimelineEvent,
     UserMessageEvent,
@@ -31,10 +35,18 @@ import {
  * - Streaming chunks are ephemeral
  * - No provider logic, no retries, no orchestration
  */
+/**
+ * @public
+ * @description Implementation class for MultiModalExecutionContext.
+ */
 export class MultiModalExecutionContext {
-    /** Unified timeline for all events */
+    /**
+     * Unified timeline for all events
+     */
     protected timeline: TimelineEvent[] = [];
-    /** Whether binary-heavy artifact fields are stripped when storing timeline events. */
+    /**
+     * Whether binary-heavy artifact fields are stripped when storing timeline events.
+     */
     private stripBinaryPayloadsInTimeline = false;
 
     /**
@@ -76,8 +88,9 @@ export class MultiModalExecutionContext {
         };
         this.timeline.push(event);
     }
-
-    /** Attach multimodal artifacts without producing a chat message */
+    /**
+     * Attach multimodal artifacts without producing a chat message
+     */
     attachArtifacts(artifacts?: Partial<TimelineArtifacts>): void {
         const event: SystemEvent = {
             id: crypto.randomUUID(),
@@ -128,18 +141,21 @@ export class MultiModalExecutionContext {
 
         this.timeline.push(event);
     }
-
-    /** Reset the entire session */
+    /**
+     * Reset the entire session
+     */
     reset(): void {
         this.timeline = [];
     }
-
-    /** Read-only view of timeline */
+    /**
+     * Read-only view of timeline
+     */
     getTimeline(): readonly TimelineEvent[] {
         return this.timeline;
     }
-
-    /** Merge two TimelineArtifacts objects safely */
+    /**
+     * Merge two TimelineArtifacts objects safely
+     */
     private mergeArtifacts(base: TimelineArtifacts, addition?: Partial<TimelineArtifacts>): TimelineArtifacts {
         addition = addition ?? {};
         if (this.stripBinaryPayloadsInTimeline) {
@@ -164,8 +180,9 @@ export class MultiModalExecutionContext {
             custom: [...safeArray(base.custom), ...safeArray(addition.custom)]
         };
     }
-
-    /** Create an empty TimelineArtifacts object */
+    /**
+     * Create an empty TimelineArtifacts object
+     */
     private createEmptyArtifacts(): TimelineArtifacts {
         return {
             chat: [],
@@ -183,8 +200,9 @@ export class MultiModalExecutionContext {
             custom: []
         };
     }
-
-    /** Generic helper to find the latest artifact type in the timeline */
+    /**
+     * Generic helper to find the latest artifact type in the timeline
+     */
     private findLatest<T>(predicate: (e: TimelineEvent) => T | undefined): T | undefined {
         // Reverse scan keeps reads O(n) without storing per-modality indexes and
         // always returns the most recent event payload for that modality.
@@ -245,15 +263,17 @@ export class MultiModalExecutionContext {
     getLatestFile(): NormalizedFile[] {
         return this.findLatest((e) => e.artifacts.files) ?? [];
     }
-
-    /** Helper to get latest ImageGenerationEvent specifically */
+    /**
+     * Helper to get latest ImageGenerationEvent specifically
+     */
     getLatestImageGeneration(): ImageGenerationEvent | undefined {
         return this.findLatest((e): ImageGenerationEvent | undefined =>
             e.type === "imageGeneration" ? (e as ImageGenerationEvent) : undefined
         );
     }
-
-    /** Helper to get latest ImageEditEvent specifically */
+    /**
+     * Helper to get latest ImageEditEvent specifically
+     */
     getLatestImageEdit(): ImageEditEvent | undefined {
         return this.findLatest((e): ImageEditEvent | undefined => (e.type === "imageEdit" ? (e as ImageEditEvent) : undefined));
     }

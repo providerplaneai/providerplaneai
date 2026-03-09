@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIImageAnalysisCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,

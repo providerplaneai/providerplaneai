@@ -1,7 +1,15 @@
+/**
+ * @module core/provider/capabilities/VideoCapability.ts
+ * @description Provider-agnostic video capability interface contracts.
+ */
 import { AIRequest, AIResponse, MultiModalExecutionContext, NormalizedVideo, ProviderCapability } from "#root/index.js";
 
 /**
  * Provider-agnostic video generation capability.
+ */
+/**
+ * @public
+ * @description Capability contract for VideoGenerationCapability.
  */
 export interface VideoGenerationCapability<TInput = unknown, TOutput = NormalizedVideo[]> extends ProviderCapability {
     /**
@@ -21,6 +29,10 @@ export interface VideoGenerationCapability<TInput = unknown, TOutput = Normalize
 /**
  * Provider-agnostic video remix capability.
  */
+/**
+ * @public
+ * @description Capability contract for VideoRemixCapability.
+ */
 export interface VideoRemixCapability<TInput = unknown, TOutput = NormalizedVideo[]> extends ProviderCapability {
     /**
      * Remix an existing provider video using a new prompt.
@@ -34,6 +46,10 @@ export interface VideoRemixCapability<TInput = unknown, TOutput = NormalizedVide
 
 /**
  * Provider-agnostic video download capability.
+ */
+/**
+ * @public
+ * @description Capability contract for VideoDownloadCapability.
  */
 export interface VideoDownloadCapability<TInput = unknown, TOutput = NormalizedVideo[]> extends ProviderCapability {
     /**
@@ -53,6 +69,10 @@ export interface VideoDownloadCapability<TInput = unknown, TOutput = NormalizedV
 /**
  * Provider-agnostic video extension capability.
  */
+/**
+ * @public
+ * @description Capability contract for VideoExtendCapability.
+ */
 export interface VideoExtendCapability<TInput = unknown, TOutput = NormalizedVideo[]> extends ProviderCapability {
     /**
      * Extend an existing video clip.
@@ -70,6 +90,10 @@ export interface VideoExtendCapability<TInput = unknown, TOutput = NormalizedVid
 
 /**
  * Provider-agnostic video analysis capability.
+ */
+/**
+ * @public
+ * @description Capability contract for VideoAnalysisCapability.
  */
 export interface VideoAnalysisCapability<TInput = unknown, TOutput = unknown> extends ProviderCapability {
     /**

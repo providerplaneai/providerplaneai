@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/GeminiProvider.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -97,10 +101,13 @@ export class GeminiProvider
         TextToSpeechCapability<ClientTextToSpeechRequest>,
         TextToSpeechStreamCapability<ClientTextToSpeechRequest>
 {
-    /** Underlying Google Gemini SDK client */
+    /**
+     * Underlying Google Gemini SDK client
+     */
     private client: GoogleGenAI | null = null;
-
-    /** Capability delegate implementations */
+    /**
+     * Capability delegate implementations
+     */
     private chatDelegate: GeminiChatCapabilityImpl | null = null;
     private imageGenerationDelegate: GeminiImageGenerationCapabilityImpl | null = null;
     private imageAnalysisDelegate: GeminiImageAnalysisCapabilityImpl | null = null;

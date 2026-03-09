@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/capabilities/ChatCapability.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { AIRequest, AIResponse, AIResponseChunk, MultiModalExecutionContext, ProviderCapability } from "#root/index.js";
 
 /**

@@ -1,3 +1,7 @@
+/**
+ * @module core/workflow/WorkflowExporter.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { WorkflowError, type Workflow } from "#root/index.js";

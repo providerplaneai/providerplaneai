@@ -1,4 +1,8 @@
 /**
+ * @module core/types/AIRequest.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
+/**
  * Unified, provider-agnostic interface for any AI provider call request.
  *
  * Used to send inputs to a capability in a consistent way.
@@ -10,11 +14,13 @@ export interface AIRequest<TInput = unknown> {
      * The main input payload for the request.
      */
     input: TInput;
-
-    /** Optional timeout in milliseconds */
+    /**
+     * Optional timeout in milliseconds
+     */
     timeoutMs?: number;
-
-    /** Optional cancellation signal */
+    /**
+     * Optional cancellation signal
+     */
     signal?: AbortSignal;
 
     /**
@@ -37,10 +43,13 @@ export interface AIRequest<TInput = unknown> {
      * Not sent to the provider.
      */
     context?: {
-        /** Optional unique request ID for tracing */
+        /**
+         * Optional unique request ID for tracing
+         */
         requestId?: string;
-
-        /** Optional arbitrary metadata */
+        /**
+         * Optional arbitrary metadata
+         */
         metadata?: Record<string, unknown>;
     };
 }

@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIVideoDownloadCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -18,6 +22,10 @@ const DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS = 30_000;
  *
  * Uses OpenAI Videos API `videos.downloadContent` to fetch the selected asset
  * and returns it as a normalized video artifact.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIVideoDownloadCapabilityImpl.
  */
 export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapability<
     ClientVideoDownloadRequest,

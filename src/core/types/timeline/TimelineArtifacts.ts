@@ -1,3 +1,7 @@
+/**
+ * @module core/types/timeline/TimelineArtifacts.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import {
     NormalizedAudio,
     NormalizedChatMessage,
@@ -14,6 +18,10 @@ import {
 /**
  * TimelineArtifacts represents the various types of artifacts that can be produced during a timeline execution.
  * It is designed to be flexible and extensible, allowing for different types of artifacts to be added as needed.
+ */
+/**
+ * @public
+ * @description Data contract for TimelineArtifacts.
  */
 export interface TimelineArtifacts {
     imageAnalysis?: NormalizedImageAnalysis[];

@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIVideoGenerationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -22,6 +26,10 @@ const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
  *
  * Uses OpenAI Videos API (`videos.create`, `videos.retrieve`, `videos.downloadContent`)
  * and normalizes job output into `NormalizedVideo[]`.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIVideoGenerationCapabilityImpl.
  */
 export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapability<
     ClientVideoGenerationRequest,

@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/CapabilityExecutorRegistry.ts
+ * @description Capability executor contracts and default executor registry wiring.
+ */
 import {
     AIRequest,
     AIResponse,
@@ -14,19 +18,23 @@ import { createApprovalGateExecutor } from "../../capabilities/ApprovalGateCapab
 import { createSaveFileExecutor } from "../../capabilities/SaveFileCapabilityImpl.js";
 
 /**
- * Resolves the provider capability type for a given capability key.
- * Falls back to ProviderCapability for custom keys.
+ * Resolves the provider capability interface type for a capability key.
+ *
+ * @typeParam C Capability key
+ * @remarks For custom keys, falls back to the generic `ProviderCapability` marker.
  */
 type CapabilityFor<C extends CapabilityKeyType> = C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability;
 
 /**
- * Executor interface for streaming capabilities.
- * @template C Capability key type
- * @template TInput Input type
- * @template TOutput Output type
+ * Executor contract for streaming capabilities.
+ *
+ * @typeParam C Capability key type
+ * @typeParam TInput Request input type
+ * @typeParam TOutput Final output type
+ * @public
  */
 export interface StreamingExecutor<C extends CapabilityKeyType, TInput, TOutput> {
-    /** Indicates this executor is streaming. */
+    /** Discriminator indicating this executor yields chunks. */
     streaming: true;
     /**
      * Invokes the streaming capability.
@@ -45,13 +53,15 @@ export interface StreamingExecutor<C extends CapabilityKeyType, TInput, TOutput>
 }
 
 /**
- * Executor interface for non-streaming (single-response) capabilities.
- * @template C Capability key type
- * @template TInput Input type
- * @template TOutput Output type
+ * Executor contract for non-streaming capabilities.
+ *
+ * @typeParam C Capability key type
+ * @typeParam TInput Request input type
+ * @typeParam TOutput Response output type
+ * @public
  */
 export interface NonStreamingExecutor<C extends CapabilityKeyType, TInput, TOutput> {
-    /** Indicates this executor is non-streaming. */
+    /** Discriminator indicating this executor returns a single response. */
     streaming: false;
     /**
      * Invokes the non-streaming capability.
@@ -70,18 +80,19 @@ export interface NonStreamingExecutor<C extends CapabilityKeyType, TInput, TOutp
 }
 
 /**
- * Union type for any capability executor (streaming or non-streaming).
+ * @public
+ * @description Union of streaming and non-streaming executor contracts.
  */
 export type CapabilityExecutor<C extends CapabilityKeyType, TInput, TOutput> =
     | StreamingExecutor<C, TInput, TOutput>
     | NonStreamingExecutor<C, TInput, TOutput>;
 
 /**
- * Registry for managing capability executors.
- * Allows registration, retrieval, and management of executors for all capability keys.
+ * @public
+ * @description Mutable registry of capability executors keyed by capability id.
  */
 export class CapabilityExecutorRegistry {
-    /** Internal map of capability key to executor. */
+    /** Internal mapping from capability key to executor implementation. */
     private executors = new Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>();
 
     /**

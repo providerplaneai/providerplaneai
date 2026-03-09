@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/capabilities/ModerationCapability.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { AIRequest, AIResponse, MultiModalExecutionContext, NormalizedModeration, ProviderCapability } from "#root/index.js";
 
 /**

@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiVideoExtendCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -21,6 +25,10 @@ const GEMINI_VIDEO_MAX_DURATION_SECONDS = 8;
 
 /**
  * Gemini video extension capability implementation.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiVideoExtendCapabilityImpl.
  */
 export class GeminiVideoExtendCapabilityImpl implements VideoExtendCapability<ClientVideoExtendRequest, NormalizedVideo[]> {
     constructor(

@@ -1,10 +1,22 @@
+/**
+ * @module providers/openai/capabilities/shared/OpenAIVideoUtils.ts
+ * @description Shared helper utilities for provider video capabilities.
+ */
 import type OpenAI from "openai";
 import { AIProvider, NormalizedVideo } from "#root/index.js";
 
 const MIN_VIDEO_POLL_INTERVAL_MS = 250;
 
+/**
+ * @public
+ * @description Helper type for OpenAIVideoVariant.
+ */
 export type OpenAIVideoVariant = "video" | "thumbnail" | "spritesheet" | string;
 
+/**
+ * @public
+ * @description Helper type for OpenAIVideoPollingOptions.
+ */
 export type OpenAIVideoPollingOptions = {
     pollIntervalMs?: number;
     maxPollMs?: number;
@@ -56,6 +68,12 @@ type BuildOpenAIVideoResponseMetadataArgs = {
 /**
  * Normalizes poll interval limits so polling behavior is predictable across capabilities.
  */
+/**
+ * @public
+ * @description Helper utility for resolvePollingWindow.
+ * @param options Polling configuration input.
+ * @returns Normalized helper result.
+ */
 export function resolvePollingWindow(options: OpenAIVideoPollingOptions): {
     pollIntervalMs: number;
     maxPollMs: number;
@@ -71,6 +89,12 @@ export function resolvePollingWindow(options: OpenAIVideoPollingOptions): {
 /**
  * Converts OpenAI video size strings (for example: "1280x720") to numeric dimensions.
  */
+/**
+ * @public
+ * @description Helper utility for parseVideoSize.
+ * @param size Raw provider size value.
+ * @returns Normalized helper result.
+ */
 export function parseVideoSize(size: string): { width?: number; height?: number } {
     const [w, h] = size.split("x", 2);
     const width = Number.parseInt(w, 10);
@@ -84,6 +108,12 @@ export function parseVideoSize(size: string): { width?: number; height?: number 
 /**
  * Maps download variant to mime type for normalized artifacts.
  */
+/**
+ * @public
+ * @description Helper utility for resolveVariantMimeType.
+ * @param variant Requested provider download variant.
+ * @returns Normalized helper result.
+ */
 export function resolveVariantMimeType(variant: OpenAIVideoVariant): string {
     if (variant === "thumbnail" || variant === "spritesheet") {
         return "image/jpeg";
@@ -93,6 +123,14 @@ export function resolveVariantMimeType(variant: OpenAIVideoVariant): string {
 
 /**
  * Sleeps for the requested poll interval and exits early if the request is aborted.
+ */
+/**
+ * @public
+ * @description Helper utility for delayWithAbort.
+ * @param ms Delay duration in milliseconds.
+ * @param signal Optional abort signal.
+ * @param abortMessage Error message used when aborted.
+ * @returns Normalized helper result.
  */
 export function delayWithAbort(ms: number, signal: AbortSignal | undefined, abortMessage: string): Promise<void> {
     if (ms <= 0) {
@@ -165,6 +203,13 @@ export async function downloadVariantBase64(
 /**
  * Throws normalized failure message when OpenAI video operation is in failed state.
  */
+/**
+ * @public
+ * @description Helper utility for throwIfFailedVideoStatus.
+ * @param video Provider video payload to validate.
+ * @param operationName Operation label for error context.
+ * @returns Normalized helper result.
+ */
 export function throwIfFailedVideoStatus(video: OpenAIVideoStatusPayload, operationName: "generation" | "remix"): void {
     if (video.status !== "failed") {
         return;
@@ -179,6 +224,12 @@ export function throwIfFailedVideoStatus(video: OpenAIVideoStatusPayload, operat
 
 /**
  * Creates a normalized OpenAI video artifact with shared metadata.
+ */
+/**
+ * @public
+ * @description Helper utility for buildOpenAIVideoArtifact.
+ * @param args Structured helper arguments.
+ * @returns Normalized helper result.
  */
 export function buildOpenAIVideoArtifact(args: BuildOpenAIVideoArtifactArgs): NormalizedVideo {
     return {
@@ -200,6 +251,12 @@ export function buildOpenAIVideoArtifact(args: BuildOpenAIVideoArtifactArgs): No
 
 /**
  * Builds top-level response metadata for OpenAI video capabilities.
+ */
+/**
+ * @public
+ * @description Helper utility for buildOpenAIVideoResponseMetadata.
+ * @param args Structured helper arguments.
+ * @returns Normalized helper result.
  */
 export function buildOpenAIVideoResponseMetadata(args: BuildOpenAIVideoResponseMetadataArgs): Record<string, unknown> {
     return {

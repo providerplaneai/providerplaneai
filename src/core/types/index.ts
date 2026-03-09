@@ -1,3 +1,7 @@
+/**
+ * @module core/types/index.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 export * from "./AIRequest.js";
 export * from "./AIResponse.js";
 export * from "./Config.js";

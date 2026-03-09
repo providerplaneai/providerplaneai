@@ -1,3 +1,7 @@
+/**
+ * @module core/types/artifacts/index.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 export * from "./NormalizedArtifactBase.js";
 export * from "./NormalizedChatMessage.js";
 export * from "./NormalizedEmbedding.js";

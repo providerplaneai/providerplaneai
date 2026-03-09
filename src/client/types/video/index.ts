@@ -1,3 +1,7 @@
+/**
+ * @module client/types/video/index.ts
+ * @description ProviderPlaneAI source module.
+ */
 export * from "./ClientVideoAnalysisRequest.js";
 export * from "./ClientVideoDownloadRequest.js";
 export * from "./ClientVideoExtendRequest.js";

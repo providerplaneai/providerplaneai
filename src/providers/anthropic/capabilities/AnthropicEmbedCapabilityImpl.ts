@@ -1,3 +1,7 @@
+/**
+ * @module providers/anthropic/capabilities/AnthropicEmbedCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import {
     AIProvider,
     AIRequest,
@@ -44,9 +48,13 @@ interface VoyageEmbeddingResponse {
  * @template TEmbedOutput
  */
 export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
-    /** Voyage AI API key (required) */
+    /**
+     * Voyage AI API key (required)
+     */
     private readonly voyageApiKey: string;
-    /** Base URL for Voyage AI REST API */
+    /**
+     * Base URL for Voyage AI REST API
+     */
     private readonly voyageBaseUrl: string = "https://api.voyageai.com/v1";
 
     /**

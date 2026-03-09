@@ -1,3 +1,7 @@
+/**
+ * @module providers/anthropic/capabilities/AnthropicModerationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import Anthropic from "@anthropic-ai/sdk";
 import {
     AIProvider,
@@ -75,6 +79,10 @@ const DEFAULT_ANTHROPIC_MODERATION_MODEL = "claude-sonnet-4-20250514";
  * - Prompting Claude with a structured moderation instruction
  * - Parsing deterministic JSON output
  * - Normalizing results into a provider-agnostic ModerationResult
+ */
+/**
+ * @public
+ * @description Provider capability implementation for AnthropicModerationCapabilityImpl.
  */
 export class AnthropicModerationCapabilityImpl implements ModerationCapability<
     ClientModerationRequest,

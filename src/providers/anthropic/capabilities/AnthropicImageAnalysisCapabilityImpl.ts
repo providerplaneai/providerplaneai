@@ -1,3 +1,7 @@
+/**
+ * @module providers/anthropic/capabilities/AnthropicImageAnalysisCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import Anthropic from "@anthropic-ai/sdk";
 import {
     AIProvider,
@@ -34,6 +38,10 @@ const DEFAULT_ANTHROPIC_IMAGE_ANALYSIS_MODEL = "claude-sonnet-4-20250514";
  *
  * The provider is asked to return JSON output which is then normalized into
  * `NormalizedImageAnalysis[]`.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for AnthropicImageAnalysisCapabilityImpl.
  */
 export class AnthropicImageAnalysisCapabilityImpl
     implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>

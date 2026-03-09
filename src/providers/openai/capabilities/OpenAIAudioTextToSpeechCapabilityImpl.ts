@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIAudioTextToSpeechCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -36,6 +40,10 @@ type OpenAITtsResponse = Response & { id?: string; url?: string };
  * Provides:
  * - Non-streaming synthesis (`textToSpeech`)
  * - Streaming synthesis (`textToSpeechStream`)
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIAudioTextToSpeechCapabilityImpl.
  */
 export class OpenAIAudioTextToSpeechCapabilityImpl
     implements TextToSpeechCapability<ClientTextToSpeechRequest>, TextToSpeechStreamCapability<ClientTextToSpeechRequest>

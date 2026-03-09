@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiAudioTranscriptionCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -22,6 +26,10 @@ const DEFAULT_GEMINI_AUDIO_TRANSCRIPTION_MODEL = "gemini-2.5-flash";
  *
  * Uses Gemini `models.generateContent` / `models.generateContentStream` and normalizes
  * transcripts to `NormalizedChatMessage[]` artifacts.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiAudioTranscriptionCapabilityImpl.
  */
 export class GeminiAudioTranscriptionCapabilityImpl
     implements

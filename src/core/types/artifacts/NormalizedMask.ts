@@ -1,5 +1,13 @@
+/**
+ * @module core/types/artifacts/NormalizedMask.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import { NormalizedArtifactBase } from "#root/index.js";
 
+/**
+ * @public
+ * @description Data contract for NormalizedMask.
+ */
 export interface NormalizedMask extends NormalizedArtifactBase {
     /**
      * Mask image data

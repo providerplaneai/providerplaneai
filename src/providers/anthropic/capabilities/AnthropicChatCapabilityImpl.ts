@@ -1,3 +1,7 @@
+/**
+ * @module providers/anthropic/capabilities/AnthropicChatCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import Anthropic from "@anthropic-ai/sdk";
 import {
     AIProvider,
@@ -24,6 +28,10 @@ import {
  * Current behavior:
  * - Text-only chat parts are supported.
  * - Non-stream and stream paths both expose normalized usage metadata when available.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for AnthropicChatCapabilityImpl.
  */
 export class AnthropicChatCapabilityImpl
     implements

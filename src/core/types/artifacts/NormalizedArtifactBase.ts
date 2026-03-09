@@ -1,5 +1,13 @@
 /**
+ * @module core/types/artifacts/NormalizedArtifactBase.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
+/**
  * Base for all normalized multimodal artifacts
+ */
+/**
+ * @public
+ * @description Data contract for NormalizedArtifactBase.
  */
 export interface NormalizedArtifactBase {
     id: string;

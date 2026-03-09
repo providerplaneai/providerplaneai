@@ -1,3 +1,7 @@
+/**
+ * @module core/index.ts
+ * @description ProviderPlaneAI source module.
+ */
 // Re-export all core modules for unified import.
 export * from "./config/index.js"; // Configuration loader
 export * from "./provider/index.js"; // Provider base, registry, and capabilities

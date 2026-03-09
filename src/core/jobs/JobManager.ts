@@ -1,3 +1,7 @@
+/**
+ * @module core/jobs/JobManager.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { GenericJob, JobChunk, JobSnapshot, MultiModalExecutionContext } from "#root/index.js";
 
 /**
@@ -20,14 +24,26 @@ interface QueuedJob<TInput, TOutput> {
 /**
  * Optional hooks for job lifecycle events.
  */
+/**
+ * @public
+ * @description Interface contract for JobManagerHooks.
+ */
 export interface JobManagerHooks {
-    /** Called when a job starts running. */
+    /**
+     * Called when a job starts running.
+     */
     onStart?: (job: JobSnapshot<any, any>) => void;
-    /** Called when a job emits a progress chunk. */
+    /**
+     * Called when a job emits a progress chunk.
+     */
     onProgress?: (chunk: JobChunk<any>, job: JobSnapshot<any, any>) => void;
-    /** Called when a job completes successfully. */
+    /**
+     * Called when a job completes successfully.
+     */
     onComplete?: (job: JobSnapshot<any, any>) => void;
-    /** Called when a job errors. */
+    /**
+     * Called when a job errors.
+     */
     onError?: (error: Error, job: JobSnapshot<any, any>) => void;
 }
 
@@ -45,27 +61,47 @@ export type JobFactory<TInput, TOutput> = (snapshot: JobSnapshot<TInput, TOutput
 /**
  * Options for configuring the JobManager.
  */
+/**
+ * @public
+ * @description Interface contract for JobManagerOptions.
+ */
 export interface JobManagerOptions {
-    /** Maximum number of jobs to run concurrently. */
+    /**
+     * Maximum number of jobs to run concurrently.
+     */
     maxConcurrency?: number;
-    /** Maximum number of jobs allowed in the queue. */
+    /**
+     * Maximum number of jobs allowed in the queue.
+     */
     maxQueueSize?: number;
-    /** Maximum number of response chunks to store per job. */
+    /**
+     * Maximum number of response chunks to store per job.
+     */
     maxStoredResponseChunks?: number;
-    /** Whether to store raw responses for jobs. */
+    /**
+     * Whether to store raw responses for jobs.
+     */
     storeRawResponses?: boolean;
-    /** Whether to strip binary-heavy fields (e.g. base64) from snapshots and timeline artifacts. */
+    /**
+     * Whether to strip binary-heavy fields (e.g. base64) from snapshots and timeline artifacts.
+     */
     stripBinaryPayloadsInSnapshotsAndTimeline?: boolean;
-    /** Maximum raw bytes to store per job. */
+    /**
+     * Maximum raw bytes to store per job.
+     */
     maxRawBytesPerJob?: number;
-    /** Optional hooks for job lifecycle events. */
+    /**
+     * Optional hooks for job lifecycle events.
+     */
     hooks?: JobManagerHooks;
-
-    /** Optional persistence hooks */
+    /**
+     * Optional persistence hooks
+     */
     persistJobs?: (snapshots: JobSnapshot<any, any>[]) => void;
     loadPersistedJobs?: () => JobSnapshot<any, any>[];
-
-    /** Factory for reconstructing jobs from snapshots. */
+    /**
+     * Factory for reconstructing jobs from snapshots.
+     */
     jobFactory?: JobFactory<any, any>;
 }
 
@@ -73,16 +109,30 @@ export interface JobManagerOptions {
  * Manages the lifecycle, execution, and persistence of jobs.
  * Supports concurrency, queuing, hooks, and job restoration.
  */
+/**
+ * @public
+ * @description Implementation class for JobManager.
+ */
 export class JobManager {
-    /** All jobs managed by this instance, keyed by job ID. */
+    /**
+     * All jobs managed by this instance, keyed by job ID.
+     */
     private jobs: Map<string, GenericJob<any, any>> = new Map();
-    /** AbortControllers for running jobs, keyed by job ID. */
+    /**
+     * AbortControllers for running jobs, keyed by job ID.
+     */
     private controllers: Map<string, AbortController> = new Map();
-    /** Subscribers to job status updates, keyed by job ID. */
+    /**
+     * Subscribers to job status updates, keyed by job ID.
+     */
     private subscribers = new Map<string, Set<JobSubscriber<any, any>>>();
-    /** Queue of jobs waiting to be executed. */
+    /**
+     * Queue of jobs waiting to be executed.
+     */
     private jobQueue: QueuedJob<any, any>[] = [];
-    /** Number of jobs currently running. */
+    /**
+     * Number of jobs currently running.
+     */
     private runningCount: number = 0;
 
     /**

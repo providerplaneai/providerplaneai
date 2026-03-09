@@ -1,7 +1,15 @@
+/**
+ * @module core/types/timeline/TimelineEvents.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import { NormalizedChatMessage, NormalizedUserInput, TimelineArtifacts } from "#root/index.js";
 
 /**
  * All valid timeline event types
+ */
+/**
+ * @public
+ * @description Alias type for TimelineEventType.
  */
 export type TimelineEventType =
     | "userMessage"
@@ -29,6 +37,10 @@ export type TimelineEventType =
  * TimelineEvent represents a single event in the execution timeline, capturing both structured data and associated artifacts.
  * It is designed to be flexible and extensible, allowing for different types of events and artifacts to be added as needed.
  */
+/**
+ * @public
+ * @description Data contract for TimelineEventBase.
+ */
 export interface TimelineEventBase {
     id: string; // Unique UUID for this event
     type: TimelineEventType;
@@ -53,6 +65,10 @@ export interface TimelineEventBase {
 /**
  * User message event (input from user)
  */
+/**
+ * @public
+ * @description Data contract for UserMessageEvent.
+ */
 export interface UserMessageEvent extends TimelineEventBase {
     type: "userMessage";
     /**
@@ -65,6 +81,10 @@ export interface UserMessageEvent extends TimelineEventBase {
 /**
  * Assistant message event (model output)
  */
+/**
+ * @public
+ * @description Data contract for AssistantMessageEvent.
+ */
 export interface AssistantMessageEvent extends TimelineEventBase {
     type: "assistantMessage";
     /**
@@ -75,6 +95,10 @@ export interface AssistantMessageEvent extends TimelineEventBase {
 
 /**
  * System / internal event
+ */
+/**
+ * @public
+ * @description Data contract for SystemEvent.
  */
 export interface SystemEvent extends TimelineEventBase {
     type: "systemEvent";
@@ -99,60 +123,116 @@ export interface SystemEvent extends TimelineEventBase {
  * Artifact-only events (no dedicated structured output fields)
  * Everything lives in TimelineArtifacts now
  */
+/**
+ * @public
+ * @description Data contract for EmbeddingEvent.
+ */
 export interface EmbeddingEvent extends TimelineEventBase {
     type: "embedding";
 }
 
+/**
+ * @public
+ * @description Data contract for ImageGenerationEvent.
+ */
 export interface ImageGenerationEvent extends TimelineEventBase {
     type: "imageGeneration";
 }
 
+/**
+ * @public
+ * @description Data contract for ImageEditEvent.
+ */
 export interface ImageEditEvent extends TimelineEventBase {
     type: "imageEdit";
 }
 
+/**
+ * @public
+ * @description Data contract for ImageAnalysisEvent.
+ */
 export interface ImageAnalysisEvent extends TimelineEventBase {
     type: "imageAnalysis";
 }
 
+/**
+ * @public
+ * @description Data contract for ModerationEvent.
+ */
 export interface ModerationEvent extends TimelineEventBase {
     type: "moderation";
 }
 
+/**
+ * @public
+ * @description Data contract for TTSEvent.
+ */
 export interface TTSEvent extends TimelineEventBase {
     type: "tts";
 }
 
+/**
+ * @public
+ * @description Data contract for TranscriptEvent.
+ */
 export interface TranscriptEvent extends TimelineEventBase {
     type: "transcript";
 }
 
+/**
+ * @public
+ * @description Data contract for TranslationEvent.
+ */
 export interface TranslationEvent extends TimelineEventBase {
     type: "translation";
 }
 
+/**
+ * @public
+ * @description Data contract for VideoEditEvent.
+ */
 export interface VideoEditEvent extends TimelineEventBase {
     type: "videoEdit";
 }
 
+/**
+ * @public
+ * @description Data contract for VideoDownloadEvent.
+ */
 export interface VideoDownloadEvent extends TimelineEventBase {
     type: "videoDownload";
 }
 
+/**
+ * @public
+ * @description Data contract for VideoGenerationEvent.
+ */
 export interface VideoGenerationEvent extends TimelineEventBase {
     type: "videoGeneration";
 }
 
+/**
+ * @public
+ * @description Data contract for VideoAnalysisEvent.
+ */
 export interface VideoAnalysisEvent extends TimelineEventBase {
     type: "videoAnalysis";
 }
 
+/**
+ * @public
+ * @description Data contract for FileEvent.
+ */
 export interface FileEvent extends TimelineEventBase {
     type: "file";
 }
 
 /**
  * Union type for all timeline events
+ */
+/**
+ * @public
+ * @description Alias type for TimelineEvent.
  */
 export type TimelineEvent =
     | UserMessageEvent

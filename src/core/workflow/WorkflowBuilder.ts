@@ -1,3 +1,7 @@
+/**
+ * @module core/workflow/WorkflowBuilder.ts
+ * @description ProviderPlaneAI source module.
+ */
 import {
     AIClient,
     AIRequest,
@@ -59,13 +63,21 @@ type WorkflowCapabilityRequestFactory<TInput> =
  * @typeParam TOutput Final aggregate output type
  */
 export class WorkflowBuilder<TOutput = unknown> {
-    /** Optional version stamp used for resume compatibility checks. */
+    /**
+     * Optional version stamp used for resume compatibility checks.
+     */
     private workflowVersion?: string | number;
-    /** Node definitions collected in insertion order. */
+    /**
+     * Node definitions collected in insertion order.
+     */
     private nodes: WorkflowNode[] = [];
-    /** Workflow-level default execution policies. */
+    /**
+     * Workflow-level default execution policies.
+     */
     private defaultPolicies: WorkflowDefaults = {};
-    /** Optional workflow aggregate projection. */
+    /**
+     * Optional workflow aggregate projection.
+     */
     private aggregator?: (results: Record<string, unknown>, state: WorkflowState) => TOutput;
 
     /**

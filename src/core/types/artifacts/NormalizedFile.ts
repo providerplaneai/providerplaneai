@@ -1,3 +1,7 @@
+/**
+ * @module core/types/artifacts/NormalizedFile.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import { NormalizedArtifactBase } from "#root/index.js";
 
 /**
@@ -9,19 +13,29 @@ import { NormalizedArtifactBase } from "#root/index.js";
  * - JSON outputs
  * - Tool-generated artifacts
  */
+/**
+ * @public
+ * @description Data contract for NormalizedFile.
+ */
 export interface NormalizedFile extends NormalizedArtifactBase {
-    /** Original filename if provided */
+    /**
+     * Original filename if provided
+     */
     filename?: string;
-
-    /** MIME type (e.g. application/pdf, text/csv) */
+    /**
+     * MIME type (e.g. application/pdf, text/csv)
+     */
     mimeType: string;
-
-    /** Public or signed URL to the file */
+    /**
+     * Public or signed URL to the file
+     */
     url?: string;
-
-    /** Base64-encoded file data */
+    /**
+     * Base64-encoded file data
+     */
     base64?: string;
-
-    /** File size in bytes */
+    /**
+     * File size in bytes
+     */
     sizeBytes?: number;
 }

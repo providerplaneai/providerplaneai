@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiImageGenerationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GenerateImagesResponse, GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -40,6 +44,10 @@ type ImagenAspectRatioEntry = (typeof IMAGEN_ASPECT_RATIOS)[number];
  * - Converts prompts and optional reference images into Imagen 4 API calls
  * - Handles aspect ratio mapping, reference weight, and prompt tagging
  * - Returns normalized images with base64, mime type, and metadata
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiImageGenerationCapabilityImpl.
  */
 export class GeminiImageGenerationCapabilityImpl
     implements

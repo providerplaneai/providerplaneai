@@ -1,3 +1,7 @@
+/**
+ * @module core/workflow/WorkflowRunner.ts
+ * @description ProviderPlaneAI source module.
+ */
 import {
     AIClient,
     GenericJob,
@@ -22,21 +26,37 @@ import {
  * @public
  */
 export interface WorkflowRunnerHooks {
-    /** Called once when workflow execution starts. */
+    /**
+     * Called once when workflow execution starts.
+     */
     onWorkflowStart?: (workflowId: string) => void;
-    /** Called once when workflow execution completes successfully. */
+    /**
+     * Called once when workflow execution completes successfully.
+     */
     onWorkflowComplete?: (workflowId: string, execution: WorkflowExecution<any>) => void;
-    /** Called once when workflow execution fails. */
+    /**
+     * Called once when workflow execution fails.
+     */
     onWorkflowError?: (workflowId: string, error: Error, execution: WorkflowExecution<any>) => void;
-    /** Called when a node starts executing. */
+    /**
+     * Called when a node starts executing.
+     */
     onNodeStart?: (workflowId: string, nodeId: string) => void;
-    /** Called when a node completes (including retries resolved). */
+    /**
+     * Called when a node completes (including retries resolved).
+     */
     onNodeComplete?: (workflowId: string, nodeId: string, result: WorkflowStepResult) => void;
-    /** Called for every streamed chunk emitted by a workflow node job. */
+    /**
+     * Called for every streamed chunk emitted by a workflow node job.
+     */
     onNodeChunk?: (workflowId: string, nodeId: string, chunk: JobChunk<any>) => void;
-    /** Called when a node attempt fails but will be retried. */
+    /**
+     * Called when a node attempt fails but will be retried.
+     */
     onNodeRetry?: (workflowId: string, nodeId: string, error: Error, attempt: number, maxAttempts: number) => void;
-    /** Called when a node attempt fails and retries are exhausted. */
+    /**
+     * Called when a node attempt fails and retries are exhausted.
+     */
     onNodeError?: (workflowId: string, nodeId: string, error: Error, attempt: number, maxAttempts: number) => void;
 }
 
@@ -46,9 +66,13 @@ export interface WorkflowRunnerHooks {
  * @public
  */
 export interface WorkflowRunnerPersistence {
-    /** Persist the current workflow snapshot (called incrementally during execution). */
+    /**
+     * Persist the current workflow snapshot (called incrementally during execution).
+     */
     persistWorkflowExecution?: (snapshot: WorkflowExecutionSnapshot<any>) => void | Promise<void>;
-    /** Load the latest snapshot for a workflow id. */
+    /**
+     * Load the latest snapshot for a workflow id.
+     */
     loadWorkflowExecution?: (
         workflowId: string
     ) => WorkflowExecutionSnapshot<any> | undefined | Promise<WorkflowExecutionSnapshot<any> | undefined>;
@@ -60,13 +84,21 @@ export interface WorkflowRunnerPersistence {
  * @public
  */
 export interface WorkflowRunnerOptions {
-    /** Job manager used to schedule workflow node jobs. */
+    /**
+     * Job manager used to schedule workflow node jobs.
+     */
     jobManager: JobManager;
-    /** AI client passed to node run callbacks. */
+    /**
+     * AI client passed to node run callbacks.
+     */
     client: AIClient;
-    /** Optional workflow lifecycle hooks. */
+    /**
+     * Optional workflow lifecycle hooks.
+     */
     hooks?: WorkflowRunnerHooks;
-    /** Optional persistence hooks for snapshots/resume. */
+    /**
+     * Optional persistence hooks for snapshots/resume.
+     */
     persistence?: WorkflowRunnerPersistence;
 }
 

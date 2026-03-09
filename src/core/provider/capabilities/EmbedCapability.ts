@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/capabilities/EmbedCapability.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { AIRequest, AIResponse, MultiModalExecutionContext, ProviderCapability } from "#root/index.js";
 
 /**

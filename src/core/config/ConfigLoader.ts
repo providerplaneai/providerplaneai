@@ -1,3 +1,7 @@
+/**
+ * @module core/config/ConfigLoader.ts
+ * @description ProviderPlaneAI source module.
+ */
 import dotenv from "dotenv";
 import config from "config";
 import {
