@@ -9,21 +9,49 @@ import {
     WorkflowStepResult
 } from "#root/index.js";
 
+/**
+ * Lifecycle hooks emitted by {@link WorkflowRunner}.
+ *
+ * @public
+ */
 export interface WorkflowRunnerHooks {
+    /** Called once when workflow execution starts. */
     onWorkflowStart?: (workflowId: string) => void;
+    /** Called once when workflow execution completes successfully. */
     onWorkflowComplete?: (workflowId: string, execution: WorkflowExecution<any>) => void;
+    /** Called once when workflow execution fails. */
     onWorkflowError?: (workflowId: string, error: Error, execution: WorkflowExecution<any>) => void;
+    /** Called when a node starts executing. */
     onNodeStart?: (workflowId: string, nodeId: string) => void;
+    /** Called when a node completes (including retries resolved). */
     onNodeComplete?: (workflowId: string, nodeId: string, result: WorkflowStepResult) => void;
 }
 
+/**
+ * DAG workflow execution engine built on top of JobManager/GenericJob.
+ */
 export class WorkflowRunner {
+    /**
+     * @param jobManager Job scheduler used to run child jobs
+     * @param client AIClient instance passed into workflow nodes
+     * @param hooks Optional workflow lifecycle hooks
+     */
     constructor(
         private jobManager: JobManager,
         private client: AIClient,
         private hooks?: WorkflowRunnerHooks
     ) {}
 
+    /**
+     * Executes a workflow until all nodes complete, are skipped, or an error occurs.
+     *
+     * @typeParam TOutput Final aggregate output type
+     * @param workflow Workflow definition
+     * @param ctx Shared multimodal execution context
+     * @param initialState Optional initial state seed
+     * @returns Final workflow execution result
+     * @throws {Error} On validation failures, deadlocks, or node failures
+     */
     async run<TOutput>(
         workflow: Workflow<TOutput>,
         ctx: MultiModalExecutionContext,
@@ -49,11 +77,9 @@ export class WorkflowRunner {
         try {
             while (completed.size < workflow.nodes.length) {
                 const readyNodes: WorkflowNode[] = [];
+                let madeProgress = false;
 
-                // NOTE: This is O(n^2) in the worst case, but we expect workflows to be relatively small(< 50 nodes).
-                // If performance becomes an issue, we can optimize this with maybe a Topological sort.  For now
-                // this is simpler and more flexible (allows dynamic conditions) than a full topological sort.
-                // Also, runtime is dominated by the actual job executions, so this is unlikely to be a bottleneck in practice.
+                // Workflows are expected to be small; simple ready-node scanning keeps behavior easy to reason about.
                 for (const node of workflow.nodes) {
                     if (completed.has(node.id) || running.has(node.id)) {
                         continue;
@@ -66,8 +92,9 @@ export class WorkflowRunner {
 
                     if (node.condition && !node.condition(state)) {
                         const timeMs = Date.now();
-                        // Mark as skipped by adding to completed without running
+                        // Condition false => mark node complete without creating a job.
                         completed.add(node.id);
+                        madeProgress = true;
                         execution.results.push({
                             stepId: node.id,
                             jobIds: [],
@@ -85,6 +112,11 @@ export class WorkflowRunner {
                 }
 
                 if (readyNodes.length === 0) {
+                    if (madeProgress) {
+                        // Skips can make progress without creating runnable nodes in this pass.
+                        continue;
+                    }
+                    // No ready nodes with unfinished graph implies unresolved dependency graph/deadlock.
                     throw new Error(
                         `WorkflowRunner: no runnable nodes found for workflow '${workflow.id}' (possible cycle, unresolved dependency, or deadlock)`
                     );
@@ -116,6 +148,7 @@ export class WorkflowRunner {
             }
 
             if (workflow.aggregate) {
+                // Convert map to plain record before aggregate so callers get stable serializable input.
                 const aggregateInput: Record<string, unknown> = {};
                 for (const [nodeId, value] of resultsByNode.entries()) {
                     aggregateInput[nodeId] = value;
@@ -136,6 +169,16 @@ export class WorkflowRunner {
         }
     }
 
+    /**
+     * Executes a single node with retry and optional backoff.
+     *
+     * @param workflowId Parent workflow id
+     * @param node Node definition
+     * @param ctx Shared multimodal context
+     * @param state Shared mutable state
+     * @returns Step result payload
+     * @throws {Error} When all attempts fail
+     */
     private async runNodeWithRetry(
         workflowId: string,
         node: WorkflowNode,
@@ -153,6 +196,7 @@ export class WorkflowRunner {
 
                 const job = node.run(ctx, this.client, state);
 
+                // JobManager handles scheduling/lifecycle while node awaits completion promise.
                 this.jobManager.runJob(job.id, ctx);
 
                 const output = node.timeoutMs
@@ -189,6 +233,12 @@ export class WorkflowRunner {
         );
     }
 
+    /**
+     * Performs static workflow validation before execution.
+     *
+     * @param workflow Workflow definition to validate
+     * @throws {Error} On duplicates, missing dependencies, or cycles
+     */
     private validateWorkflow(workflow: Workflow<any>) {
         const ids = new Set<string>();
 
@@ -210,6 +260,12 @@ export class WorkflowRunner {
         this.validateNoCycles(workflow);
     }
 
+    /**
+     * Detects dependency cycles via DFS.
+     *
+     * @param workflow Workflow definition
+     * @throws {Error} When a cycle is found
+     */
     private validateNoCycles(workflow: Workflow<any>) {
         const visiting = new Set<string>();
         const visited = new Set<string>();
@@ -243,10 +299,21 @@ export class WorkflowRunner {
         }
     }
 
+    /**
+     * Waits for a fixed number of milliseconds.
+     *
+     * @param ms Delay in milliseconds
+     */
     private delay(ms: number): Promise<void> {
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
+    /**
+     * Returns a promise that rejects when timeout is reached.
+     *
+     * @param msTimeout Timeout duration in milliseconds
+     * @throws {Error} Timeout error
+     */
     private timeout(msTimeout: number): Promise<void> {
         return new Promise((_, reject) => {
             setTimeout(() => reject(new Error(`WorkflowRunner: node execution exceeded timeout of ${msTimeout}ms`)), msTimeout);

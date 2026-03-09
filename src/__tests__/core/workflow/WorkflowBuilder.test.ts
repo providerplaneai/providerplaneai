@@ -37,6 +37,19 @@ describe("WorkflowBuilder", () => {
         expect(workflow.nodes.find((n) => n.id === "child-2")?.retry).toEqual({ attempts: 3, backoffMs: 50 });
     });
 
+    it("maps condition and timeout options to workflow nodes", () => {
+        const condition = vi.fn().mockReturnValue(true);
+        const workflow = new WorkflowBuilder("wf-node-options")
+            .node("guarded", vi.fn() as any, {
+                condition,
+                timeoutMs: 1200
+            })
+            .build();
+
+        expect(workflow.nodes[0]?.condition).toBe(condition);
+        expect(workflow.nodes[0]?.timeoutMs).toBe(1200);
+    });
+
     it("stores aggregate function and returns workflow output from aggregate", () => {
         const workflow = new WorkflowBuilder<{ summary: string }>("wf-aggregate")
             .node("a", vi.fn() as any)

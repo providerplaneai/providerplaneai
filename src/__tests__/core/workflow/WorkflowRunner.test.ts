@@ -197,6 +197,35 @@ describe("WorkflowRunner", () => {
         expect(execution.output).toEqual({ summary: "first|second|state" });
     });
 
+    it("skips nodes when condition evaluates to false", async () => {
+        const { runner, jobManager } = makeRunner();
+        const runSkippedNode = vi.fn();
+
+        const workflow = {
+            id: "wf-condition-skip",
+            nodes: [
+                {
+                    id: "a",
+                    run: () => makeJob("job-a", Promise.resolve("out-a"))
+                },
+                {
+                    id: "b",
+                    dependsOn: ["a"],
+                    condition: () => false,
+                    run: runSkippedNode
+                }
+            ]
+        } as any;
+
+        const execution = await runner.run(workflow, {} as any);
+
+        expect(runSkippedNode).not.toHaveBeenCalled();
+        expect(jobManager.runJob).toHaveBeenCalledTimes(1);
+        const skipped = execution.results.find((r) => r.stepId === "b");
+        expect(skipped?.skipped).toBe(true);
+        expect(skipped?.jobIds).toEqual([]);
+    });
+
     it("fires hooks in expected order for successful workflows", async () => {
         const jobManager = { runJob: vi.fn() } as any;
         const client = {} as any;
@@ -272,5 +301,17 @@ describe("WorkflowRunner", () => {
         expect(delaySpy).toHaveBeenCalledTimes(2);
         expect(delaySpy).toHaveBeenNthCalledWith(1, 25);
         expect(delaySpy).toHaveBeenNthCalledWith(2, 25);
+    });
+
+    it("fails node execution when timeoutMs is exceeded", async () => {
+        const { runner, jobManager } = makeRunner();
+        const never = new Promise<unknown>(() => undefined);
+
+        const workflow = new WorkflowBuilder("wf-timeout")
+            .node("slow", () => makeJob("job-slow", never), { timeoutMs: 5 })
+            .build();
+
+        await expect(runner.run(workflow, {} as any)).rejects.toThrow("exceeded timeout");
+        expect(jobManager.runJob).toHaveBeenCalledTimes(1);
     });
 });
