@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIImageAnalysisCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -232,7 +236,7 @@ export class OpenAIImageAnalysisCapabilityImpl
      * image_analysis function call completes.
      *
      * @param request - Unified AI request containing reference images
-     * @param _executionContext Optional execution context
+     * @param executionContext Optional execution context
      * @param signal Optional abort signal
      * @returns AIResponseChunk containing normalized image analysis results
      */

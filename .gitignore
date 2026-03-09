@@ -1,10 +1,14 @@
 # Test data
 test_data
 
+# Docs
+docs
+
 # Playground files
 job1.ts
 job2.ts
 playground.ts
+workflow1.ts
 
 # Logs
 logs

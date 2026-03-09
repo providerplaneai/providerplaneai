@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiChatCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -16,6 +20,10 @@ import {
 
 const DEFAULT_GEMINI_CHAT_MODEL = "gemini-2.5-flash-latest";
 
+/**
+ * @public
+ * @description Provider capability implementation for GeminiChatCapabilityImpl.
+ */
 export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatRequest>, ChatStreamCapability<ClientChatRequest> {
     constructor(
         private readonly provider: BaseProvider,

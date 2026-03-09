@@ -1,10 +1,20 @@
+/**
+ * @module client/types/image/edit/ClientImageEditRequest.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { ClientReferenceImage, ClientRequestBase } from "#root/index.js";
 
 /**
  * Provider-agnostic image edit request.
  */
+/**
+ * @public
+ * @description Interface contract for ClientImageEditRequest.
+ */
 export interface ClientImageEditRequest extends ClientRequestBase {
-    /** Text prompt describing how to edit the image */
+    /**
+     * Text prompt describing how to edit the image
+     */
     prompt: string;
 
     /**

@@ -69,7 +69,9 @@ describe("GeminiImageGenerationCapabilityImpl", () => {
         } as any;
         const client = {
             models: {
-                generateImages: vi.fn().mockResolvedValue({ generatedImages: [] })
+                generateImages: vi
+                    .fn()
+                    .mockResolvedValue({ generatedImages: [{ image: { imageBytes: "QUJD", mimeType: "image/png" } }] })
             }
         };
         const cap = new GeminiImageGenerationCapabilityImpl(provider, client as any);

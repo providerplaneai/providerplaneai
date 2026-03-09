@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiAudioTranslationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -15,6 +19,10 @@ import {
 
 const DEFAULT_GEMINI_AUDIO_TRANSLATION_MODEL = "gemini-2.5-flash";
 
+/**
+ * @public
+ * @description Provider capability implementation for GeminiAudioTranslationCapabilityImpl.
+ */
 export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCapability<ClientAudioTranslationRequest> {
     constructor(
         private readonly _provider: BaseProvider,

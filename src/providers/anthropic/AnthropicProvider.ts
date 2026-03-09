@@ -1,3 +1,7 @@
+/**
+ * @module providers/anthropic/AnthropicProvider.ts
+ * @description Provider implementations and capability adapters.
+ */
 import Anthropic from "@anthropic-ai/sdk";
 import {
     AIProvider,
@@ -54,10 +58,13 @@ export class AnthropicProvider
         ImageAnalysisCapability<ClientImageAnalysisRequest>,
         ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
 {
-    /** Underlying Anthropic SDK client instance */
+    /**
+     * Underlying Anthropic SDK client instance
+     */
     private client: Anthropic | null = null;
-
-    /** Capability delegate implementations */
+    /**
+     * Capability delegate implementations
+     */
     private chatDelegate: AnthropicChatCapabilityImpl | null = null;
     private moderateDelegate: AnthropicModerationCapabilityImpl | null = null;
     private embedDelegate: AnthropicEmbedCapabilityImpl | null = null;

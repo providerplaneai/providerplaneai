@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiVideoAnalysisCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -35,6 +39,10 @@ type RequestedVideo = NonNullable<ClientVideoAnalysisRequest["videos"]>[number];
  *
  * Input videos can be provided directly on the request, or implicitly sourced from
  * `MultiModalExecutionContext` when the request omits `input.videos`.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiVideoAnalysisCapabilityImpl.
  */
 export class GeminiVideoAnalysisCapabilityImpl implements VideoAnalysisCapability<
     ClientVideoAnalysisRequest,

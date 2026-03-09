@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/OpenAIProvider.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -71,6 +75,10 @@ import {
  *
  * Implements chat, embedding, image, and moderation capabilities for OpenAI.
  */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIProvider.
+ */
 export class OpenAIProvider
     extends BaseProvider
     implements
@@ -92,10 +100,13 @@ export class OpenAIProvider
         TextToSpeechCapability<ClientTextToSpeechRequest>,
         TextToSpeechStreamCapability<ClientTextToSpeechRequest>
 {
-    /** Underlying OpenAI SDK client */
+    /**
+     * Underlying OpenAI SDK client
+     */
     private client: OpenAI | null = null;
-
-    /** Capability delegate implementations */
+    /**
+     * Capability delegate implementations
+     */
     private chatDelegate: OpenAIChatCapabilityImpl | null = null;
     private embedDelegate: OpenAIEmbedCapabilityImpl | null = null;
     private moderateDelegate: OpenAIModerationCapabilityImpl | null = null;
@@ -345,7 +356,7 @@ export class OpenAIProvider
      * Non-streaming image edit request
      *
      * @template TImageEditInput Image edit input type
-     * @param req - Unified AI request containing image edit input
+     * @param request - Unified AI request containing image edit input
      * @param executionContext Execution context
      * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing normalized edited images

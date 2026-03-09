@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiEmbedCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -25,6 +29,10 @@ const DEFAULT_GEMINI_EMBED_TASK_TYPE = "RETRIEVAL_QUERY";
  *
  * Note:
  * Gemini embedding API supports "taskType" and "outputDimensionality" as modelParams for advanced configuration.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiEmbedCapabilityImpl.
  */
 export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
     /**

@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiAudioTextToSpeechCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -24,6 +28,10 @@ const DEFAULT_STREAM_BATCH_BYTES = 64 * 1024;
  * - Uses `models.generateContent`/`generateContentStream` with `responseModalities: ["AUDIO"]`.
  * - Normalizes inline audio parts to `NormalizedAudio`.
  * - Wraps raw PCM/L16 payloads into WAV for broad playback compatibility.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiAudioTextToSpeechCapabilityImpl.
  */
 export class GeminiAudioTextToSpeechCapabilityImpl
     implements TextToSpeechCapability<ClientTextToSpeechRequest>, TextToSpeechStreamCapability<ClientTextToSpeechRequest>

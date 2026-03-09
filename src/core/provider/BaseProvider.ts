@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/BaseProvider.ts
+ * @description ProviderPlaneAI source module.
+ */
 import {
     AIProviderType,
     BuiltInCapabilityKey,
@@ -25,13 +29,17 @@ import {
  * Does not implement Provider directly, but is intended for extension.
  */
 export abstract class BaseProvider {
-    /** Type of this provider (OpenAI, Anthropic, Gemini, etc.) */
+    /**
+     * Type of this provider (OpenAI, Anthropic, Gemini, etc.)
+     */
     readonly providerType: AIProviderType;
-
-    /** Current connection config */
+    /**
+     * Current connection config
+     */
     protected config: ProviderConnectionConfig | null = null;
-
-    /** Support provider capabilities */
+    /**
+     * Support provider capabilities
+     */
     protected capabilities: Partial<CapabilityMap> = {};
 
     protected executors?: Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>;

@@ -162,4 +162,55 @@ describe("GeminiImageAnalysisCapabilityImpl", () => {
         const out = cap.normalizeGeminiAnalyses({ description: "x", text: [{ text: "word", confidence: 0.8 }] }, [img]);
         expect(out[0].text?.[0]).toEqual({ text: "word", confidence: 0.8 });
     });
+
+    it("toGeminiImagePart handles base64, data-url, file-url and throws for invalid input", () => {
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), { models: {} } as any) as any;
+
+        const fromBase64 = cap.toGeminiImagePart({
+            base64: "data:image/png;base64,QUJD",
+            mimeType: "image/png"
+        });
+        expect(fromBase64.inlineData.mimeType).toBe("image/png");
+        expect(fromBase64.inlineData.data).toBe("QUJD");
+
+        const fromDataUrl = cap.toGeminiImagePart({
+            url: "data:image/jpeg;base64,REVG",
+            mimeType: "image/png"
+        });
+        expect(fromDataUrl.inlineData.mimeType).toBe("image/jpeg");
+        expect(fromDataUrl.inlineData.data).toBe("REVG");
+
+        const fromFileUrl = cap.toGeminiImagePart({
+            url: "https://example.com/image.png",
+            mimeType: "image/webp"
+        });
+        expect(fromFileUrl.fileData.fileUri).toBe("https://example.com/image.png");
+        expect(fromFileUrl.fileData.mimeType).toBe("image/webp");
+
+        expect(() => cap.toGeminiImagePart({ mimeType: "image/png" })).toThrow(
+            "Gemini image analysis requires image.base64 or image.url"
+        );
+    });
+
+    it("extractGeminiResponseText falls back to candidates and stripMarkdownCodeFence removes json fences", () => {
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), { models: {} } as any) as any;
+
+        const fromCandidates = cap.extractGeminiResponseText({
+            candidates: [
+                { content: { parts: [{ text: "first" }, { text: "second" }, { other: 1 }] } },
+                { content: { parts: [{ text: "third" }] } }
+            ]
+        });
+        expect(fromCandidates).toBe("first\nsecond\nthird");
+
+        const stripped = cap.stripMarkdownCodeFence("```json\n{\"description\":\"scene\"}\n```");
+        expect(stripped).toBe("{\"description\":\"scene\"}");
+    });
+
+    it("normalizeGeminiAnalyses falls back to raw text when parsed payload is effectively empty", () => {
+        const cap = new GeminiImageAnalysisCapabilityImpl(makeProvider(), { models: {} } as any) as any;
+        const out = cap.normalizeGeminiAnalyses({}, [img], "raw response text");
+        expect(out[0].description).toBe("raw response text");
+        expect(out[0].id).toBe("i1");
+    });
 });

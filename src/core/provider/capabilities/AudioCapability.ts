@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/capabilities/AudioCapability.ts
+ * @description Provider-agnostic audio capability interface contracts.
+ */
 import {
     AIRequest,
     AIResponse,
@@ -12,6 +16,10 @@ import {
  * Provider-agnostic audio transcription capability.
  *
  * Converts speech audio to text/transcript artifacts.
+ */
+/**
+ * @public
+ * @description Capability contract for AudioTranscriptionCapability.
  */
 export interface AudioTranscriptionCapability<TInput = unknown, TOutput = NormalizedChatMessage[]> extends ProviderCapability {
     /**
@@ -33,6 +41,10 @@ export interface AudioTranscriptionCapability<TInput = unknown, TOutput = Normal
  * Provider-agnostic streaming audio transcription capability.
  *
  * Streams incremental transcription deltas and emits a final transcript output.
+ */
+/**
+ * @public
+ * @description Capability contract for AudioTranscriptionStreamCapability.
  */
 export interface AudioTranscriptionStreamCapability<
     TInput = unknown,
@@ -58,6 +70,10 @@ export interface AudioTranscriptionStreamCapability<
  *
  * Translates spoken audio to a target language (provider-dependent support).
  */
+/**
+ * @public
+ * @description Capability contract for AudioTranslationCapability.
+ */
 export interface AudioTranslationCapability<TInput = unknown, TOutput = NormalizedChatMessage[]> extends ProviderCapability {
     /**
      * Translate input audio and return transcript artifacts.
@@ -79,6 +95,10 @@ export interface AudioTranslationCapability<TInput = unknown, TOutput = Normaliz
  *
  * Converts text into synthesized audio artifacts.
  */
+/**
+ * @public
+ * @description Capability contract for TextToSpeechCapability.
+ */
 export interface TextToSpeechCapability<TInput = unknown, TOutput = NormalizedAudio[]> extends ProviderCapability {
     /**
      * Synthesize speech from text.
@@ -99,6 +119,10 @@ export interface TextToSpeechCapability<TInput = unknown, TOutput = NormalizedAu
  * Provider-agnostic streaming text-to-speech capability.
  *
  * Streams generated audio chunks and emits the final synthesized artifact.
+ */
+/**
+ * @public
+ * @description Capability contract for TextToSpeechStreamCapability.
  */
 export interface TextToSpeechStreamCapability<TInput = unknown, TOutput = NormalizedAudio[]> extends ProviderCapability {
     /**

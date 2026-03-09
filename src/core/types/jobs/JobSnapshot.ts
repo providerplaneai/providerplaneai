@@ -1,13 +1,27 @@
+/**
+ * @module core/types/jobs/JobSnapshot.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import { CapabilityKeyType, JobStatus, ProviderRef, TimelineArtifacts } from "#root/index.js";
 
+/**
+ * @public
+ * @description Data contract for JobSnapshot.
+ */
 export interface JobSnapshot<TInput, TOutput> {
-    /** Snapshot schema version for persistence compatibility. */
+    /**
+     * Snapshot schema version for persistence compatibility.
+     */
     schemaVersion?: 1;
 
     id: string;
-    /** Capability key used to create this job (required for deterministic restore/rerun). */
+    /**
+     * Capability key used to create this job (required for deterministic restore/rerun).
+     */
     capability?: CapabilityKeyType;
-    /** Optional per-job provider chain override used during execution. */
+    /**
+     * Optional per-job provider chain override used during execution.
+     */
     providerChain?: ProviderRef[];
     status: JobStatus;
     input: TInput;
@@ -15,17 +29,21 @@ export interface JobSnapshot<TInput, TOutput> {
     error?: string;
 
     multimodalArtifacts?: TimelineArtifacts;
-
-    /** Job start timestamp in epoch milliseconds. */
+    /**
+     * Job start timestamp in epoch milliseconds.
+     */
     startedAt?: number;
-
-    /** Job end timestamp in epoch milliseconds. */
+    /**
+     * Job end timestamp in epoch milliseconds.
+     */
     endedAt?: number;
-
-    /** Number of execution attempts for this job. */
+    /**
+     * Number of execution attempts for this job.
+     */
     runCount?: number;
-
-    /** Timestamp when this job was restored from persistence (if applicable). */
+    /**
+     * Timestamp when this job was restored from persistence (if applicable).
+     */
     restoredFromSnapshotAt?: number;
 
     durationMs?: number;
@@ -35,19 +53,25 @@ export interface JobSnapshot<TInput, TOutput> {
      * Present only for jobs that emit streaming chunks.
      */
     streaming?: {
-        /** Whether the job supports streaming */
+        /**
+         * Whether the job supports streaming
+         */
         enabled: boolean;
-
-        /** True once the first public JobChunk is emitted */
+        /**
+         * True once the first public JobChunk is emitted
+         */
         started: boolean;
-
-        /** Number of public JobChunk emissions so far (delta and final) */
+        /**
+         * Number of public JobChunk emissions so far (delta and final)
+         */
         chunksEmitted: number;
-
-        /** True once the final JobChunk is emitted */
+        /**
+         * True once the final JobChunk is emitted
+         */
         completed: boolean;
-
-        /** Timestamp of last chunk emission */
+        /**
+         * Timestamp of last chunk emission
+         */
         lastChunkAt?: number;
     };
 }

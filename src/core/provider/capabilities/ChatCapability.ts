@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/capabilities/ChatCapability.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { AIRequest, AIResponse, AIResponseChunk, MultiModalExecutionContext, ProviderCapability } from "#root/index.js";
 
 /**
@@ -12,7 +16,7 @@ export interface ChatCapability<TChatInput = unknown, TChatOutput = unknown> ext
     /**
      * Execute a chat request.
      *
-     * @param req AIRequest containing chat input
+     * @param request AIRequest containing chat input
      * @param ctx Execution context
      * @param signal Optional abort signal
      * @returns AIResponse wrapping the assistant's reply
@@ -37,7 +41,7 @@ export interface ChatStreamCapability<TChatInput = unknown, TChatOutput = unknow
      * Execute a streaming chat request.
      * Yields partial responses as they are generated.
      *
-     * @param req AIRequest containing chat input
+     * @param request AIRequest containing chat input
      * @param ctx Execution context
      * @param signal Optional abort signal
      * @returns AsyncGenerator yielding AIResponseChunk objects

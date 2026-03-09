@@ -1,3 +1,7 @@
+/**
+ * @module providers/index.ts
+ * @description Provider implementations and capability adapters.
+ */
 // Re-export all provider modules for unified import.
 export * from "./anthropic/AnthropicProvider.js"; // Anthropic provider and capabilities
 export * from "./openai/OpenAIProvider.js"; // OpenAI provider and capabilities

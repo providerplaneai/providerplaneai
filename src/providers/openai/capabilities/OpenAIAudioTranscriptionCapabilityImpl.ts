@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIAudioTranscriptionCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
 import { existsSync } from "node:fs";
@@ -25,6 +29,10 @@ const DEFAULT_OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
  * Uses the dedicated Audio Transcriptions endpoint (`/v1/audio/transcriptions`).
  *
  * This implementation intentionally does not use the Responses API for transcription.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIAudioTranscriptionCapabilityImpl.
  */
 export class OpenAIAudioTranscriptionCapabilityImpl
     implements

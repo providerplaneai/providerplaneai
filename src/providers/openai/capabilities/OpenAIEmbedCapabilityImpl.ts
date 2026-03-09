@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIEmbedCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -25,6 +29,10 @@ const DEFAULT_OPENAI_EMBED_MODEL = "text-embedding-3-large";
  * Note:
  * The OpenAI embeddings API supports multiple models (e.g., text-embedding-3-large)
  * and allows customization via modelParams and providerParams.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIEmbedCapabilityImpl.
  */
 export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
     /**

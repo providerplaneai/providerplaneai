@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/GeminiModerationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import { GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -48,6 +52,10 @@ const MODERATION_SCHEMA = {
  * - Uses structured response schema to ensure consistent parsing
  * - Normalizes Gemini-specific responses into provider-agnostic ModerationResult
  * - Tracks metadata and request context for observability
+ */
+/**
+ * @public
+ * @description Provider capability implementation for GeminiModerationCapabilityImpl.
  */
 export class GeminiModerationCapabilityImpl implements ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
     /**

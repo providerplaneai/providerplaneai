@@ -1,3 +1,7 @@
+/**
+ * @module client/types/shared/SafetyRating.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { AIProviderType } from "#root/index.js";
 
 /**
@@ -21,11 +25,18 @@ import { AIProviderType } from "#root/index.js";
  * - Compliance logging and audit trails
  *
  */
+/**
+ * @public
+ * @description Interface contract for SafetyRating.
+ */
 export interface SafetyRating {
-    /** Provider that emitted this rating */
+    /**
+     * Provider that emitted this rating
+     */
     provider?: AIProviderType;
-
-    /** Normalized category (e.g. "sexual", "violence", "hate", "self-harm") */
+    /**
+     * Normalized category (e.g. "sexual", "violence", "hate", "self-harm")
+     */
     categories?: {
         violence?: boolean;
         sexual?: boolean;
@@ -33,20 +44,25 @@ export interface SafetyRating {
         hate?: boolean;
         harassment?: boolean;
     };
-
-    /** Optional subcategory */
+    /**
+     * Optional subcategory
+     */
     subcategory?: string;
-
-    /** Severity or confidence */
+    /**
+     * Severity or confidence
+     */
     level?: string;
-
-    /** Numeric confidence if available (0–1) */
+    /**
+     * Numeric confidence if available (0–1)
+     */
     score?: number;
-
-    /** Optional human-readable explanation or rationale */
+    /**
+     * Optional human-readable explanation or rationale
+     */
     reason?: string;
-
-    /** Provider-specific raw payload */
+    /**
+     * Provider-specific raw payload
+     */
     raw?: unknown;
 
     flagged?: boolean;

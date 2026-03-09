@@ -1,3 +1,7 @@
+/**
+ * @module core/config/ConfigLoader.ts
+ * @description ProviderPlaneAI source module.
+ */
 import dotenv from "dotenv";
 import config from "config";
 import {
@@ -20,7 +24,7 @@ import {
  * @throws Error if no provider or required config is found
  */
 export function loadAppConfig(): AppConfig {
-    dotenv.config(); // load .env variables
+    dotenv.config({ quiet: true }); // load .env variables
 
     // Load config from node-config (already merges default + NODE_ENV json)
     const rawConfig = config.util.toObject();

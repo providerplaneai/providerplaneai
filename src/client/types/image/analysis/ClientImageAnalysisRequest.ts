@@ -1,3 +1,7 @@
+/**
+ * @module client/types/image/analysis/ClientImageAnalysisRequest.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { ClientReferenceImage, ImageAnalysisFeatures, ImageAnalysisHints } from "#root/index.js";
 
 /**
@@ -10,8 +14,14 @@ import { ClientReferenceImage, ImageAnalysisFeatures, ImageAnalysisHints } from 
  * - Safety analysis
  * - Structured scene understanding
  */
+/**
+ * @public
+ * @description Interface contract for ClientImageAnalysisRequest.
+ */
 export interface ClientImageAnalysisRequest {
-    /** One or more images to analyze */
+    /**
+     * One or more images to analyze
+     */
     images?: ClientReferenceImage[];
 
     /**
@@ -19,8 +29,9 @@ export interface ClientImageAnalysisRequest {
      * Example: "Describe the scene and identify safety risks."
      */
     prompt?: string;
-
-    /** Requested analysis features */
+    /**
+     * Requested analysis features
+     */
     features?: ImageAnalysisFeatures;
 
     /**
@@ -28,7 +39,8 @@ export interface ClientImageAnalysisRequest {
      * Providers may ignore unsupported hints.
      */
     hints?: ImageAnalysisHints;
-
-    /** Provider escape hatch */
+    /**
+     * Provider escape hatch
+     */
     extras?: Record<string, unknown>;
 }

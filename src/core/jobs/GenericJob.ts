@@ -1,3 +1,7 @@
+/**
+ * @module core/jobs/GenericJob.ts
+ * @description ProviderPlaneAI source module.
+ */
 import {
     AIResponse,
     AIResponseChunk,
@@ -36,29 +40,35 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
 
     private _response?: AIResponse<TOutput>;
     private _responseChunks: AIResponseChunk<TOutput>[] = [];
-
-    /** Artifacts accumulated during job execution */
+    /**
+     * Artifacts accumulated during job execution
+     */
     private artifacts: TimelineArtifacts = {};
     private artifactSeen = new Map<keyof TimelineArtifacts, Set<string>>();
-
-    /** Completion promise (never blocks unless awaited externally) */
+    /**
+     * Completion promise (never blocks unless awaited externally)
+     */
     private completionPromise: Promise<TOutput>;
     private resolveCompletion!: (value: TOutput) => void;
     private rejectCompletion!: (err: Error) => void;
-
-    /** Called whenever status changes */
+    /**
+     * Called whenever status changes
+     */
     onStatusChange?: (status: JobStatus) => void;
-
-    /** Optional streaming callback */
+    /**
+     * Optional streaming callback
+     */
     onChunk?: (chunk: JobChunk<TOutput>) => void;
-
-    /** Streaming snapshot state */
+    /**
+     * Streaming snapshot state
+     */
     private streamingStarted = false;
     private streamingCompleted = false;
     private chunksEmitted: number = 0;
     private lastChunkAt?: number;
-
-    /** Timing metrics */
+    /**
+     * Timing metrics
+     */
     private startTime?: number;
     private endTime?: number;
     private runCount = 0;
@@ -128,13 +138,15 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     get error() {
         return this._error;
     }
-
-    /** Internal diagnostic view of final orchestration response (read-only). */
+    /**
+     * Internal diagnostic view of final orchestration response (read-only).
+     */
     get response(): AIResponse<TOutput> | undefined {
         return this._response;
     }
-
-    /** Internal diagnostic view of orchestration chunks (read-only snapshot copy). */
+    /**
+     * Internal diagnostic view of orchestration chunks (read-only snapshot copy).
+     */
     get responseChunks(): readonly AIResponseChunk<TOutput>[] {
         return this._responseChunks.slice();
     }

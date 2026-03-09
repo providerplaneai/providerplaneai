@@ -1,0 +1,28 @@
+{
+    "out": "docs",
+    "entryPoints": ["src/core", "src/client", "src/providers", "src/capabilities"],
+    "entryPointStrategy": "expand",
+    "blockTags": [
+        "@defaultValue",
+        "@description",
+        "@example",
+        "@module",
+        "@param",
+        "@privateRemarks",
+        "@remarks",
+        "@returns",
+        "@see",
+        "@template",
+        "@throws",
+        "@typeParam"
+    ],
+    "exclude": [
+        "**/__tests__/**",
+        "**/__tests__/*",
+        "src/__tests__/**",
+        "src/workflow1.ts",
+        "src/job1.ts",
+        "src/job2.ts",
+        "src/playground.ts"
+    ]
+}

@@ -53,7 +53,7 @@ describe("OpenAIImageGenerationCapabilityImpl", () => {
                 create: vi.fn().mockResolvedValue({
                     id: undefined,
                     status: undefined,
-                    output: []
+                    output: [{ type: "image_generation_call", id: "a", result: "QUJD" }]
                 })
             }
         };

@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIAudioTranslationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
 import { existsSync } from "node:fs";
@@ -22,6 +26,10 @@ const DEFAULT_OPENAI_AUDIO_TRANSLATION_MODEL = "whisper-1";
  * Uses the dedicated Audio Translations endpoint (`/v1/audio/translations`).
  * OpenAI translation output is English.
  *
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIAudioTranslationCapabilityImpl.
  */
 export class OpenAIAudioTranslationCapabilityImpl implements AudioTranslationCapability<ClientAudioTranslationRequest> {
     /**

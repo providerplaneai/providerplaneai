@@ -1,3 +1,7 @@
+/**
+ * @module providers/gemini/capabilities/index.ts
+ * @description Provider implementations and capability adapters.
+ */
 export * from "./GeminiChatCapabilityImpl.js";
 export * from "./GeminiEmbedCapabilityImpl.js";
 export * from "./GeminiImageAnalysisCapabilityImpl.js";

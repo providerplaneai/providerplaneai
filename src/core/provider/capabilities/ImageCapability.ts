@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/capabilities/ImageCapability.ts
+ * @description Provider implementations and capability adapters.
+ */
 import {
     AIRequest,
     AIResponse,

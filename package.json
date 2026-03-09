@@ -9,13 +9,15 @@
     "scripts": {
         "prepare": "husky install",
         "clean": "rimraf dist",
+        "docs": "rimraf docs && typedoc --options typedoc.json --tsconfig tsconfig.build.json",
         "playground": "node dist/playground.js",
         "build": "npm run clean && tsc -p tsconfig.build.json",
         "dev": "nodemon --watch src --ext ts --exec \"npm run build && npm run playground\"",
         "lint": "eslint . --ext .ts,.tsx --no-warn-ignored",
         "lint:fix": "eslint . --ext .ts,.tsx --fix",
         "test": "vitest run --coverage",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "test:workflow": "./node_modules/.bin/vitest run src/__tests__/core/workflow"
     },
     "repository": {
         "type": "git",
@@ -71,6 +73,7 @@
         "prettier": "^3.8.1",
         "rimraf": "^6.1.0",
         "ts-node": "^10.9.2",
+        "typedoc": "^0.28.17",
         "typescript": "^5.9.3",
         "vitest": "^4.0.8"
     }

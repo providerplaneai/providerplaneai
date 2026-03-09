@@ -1,9 +1,14 @@
+/**
+ * @module core/provider/Provider.ts
+ * @description Core provider contracts and provider type identifiers.
+ */
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 
 import { ProviderConnectionConfig } from "#root/index.js";
 
 /**
- * Mapping of provider keys to names
+ * @public
+ * @description Canonical provider identifiers used across config, routing, and provider registration.
  */
 export const AIProvider = {
     OpenAI: "openai",
@@ -11,14 +16,15 @@ export const AIProvider = {
     Gemini: "gemini"
 } as const;
 
+/**
+ * @public
+ * @description Union of supported provider identifier values.
+ */
 export type AIProviderType = (typeof AIProvider)[keyof typeof AIProvider];
 
 /**
- * Root provider interface for all concrete providers (e.g., OpenAIProvider, AnthropicProvider).
- *
- * Responsibilities:
- * - Initialize the provider connection using configuration
- * - Declare support for capabilities via BaseProvider
+ * @public
+ * @description Minimal provider initialization contract implemented by concrete provider classes.
  */
 export interface Provider {
     /**
@@ -31,7 +37,7 @@ export interface Provider {
 }
 
 /**
- * Marker interface for provider capabilities.
- * Used for type safety and capability registration.
+ * @public
+ * @description Marker interface for provider capability contracts.
  */
 export interface ProviderCapability {}

@@ -1,13 +1,24 @@
+/**
+ * @module client/types/video/ClientVideoRemixRequest.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { ClientRequestBase } from "#root/index.js";
 
 /**
  * Provider-agnostic video remix request.
  */
+/**
+ * @public
+ * @description Interface contract for ClientVideoRemixRequest.
+ */
 export interface ClientVideoRemixRequest extends ClientRequestBase {
-    /** Existing provider video id to remix from. */
+    /**
+     * Existing provider video id to remix from.
+     */
     sourceVideoId: string;
-
-    /** Prompt used to direct remix output. */
+    /**
+     * Prompt used to direct remix output.
+     */
     prompt: string;
 
     /**

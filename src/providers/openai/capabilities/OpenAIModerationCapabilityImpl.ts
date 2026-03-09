@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIModerationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -26,6 +30,10 @@ const DEFAULT_OPENAI_MODERATION_MODEL = "omni-moderation-latest";
  * Note:
  * OpenAI provides a dedicated moderation API (omni-moderation-latest),
  * which returns flagged status, categories, and category confidence scores.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIModerationCapabilityImpl.
  */
 export class OpenAIModerationCapabilityImpl implements ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
     /**

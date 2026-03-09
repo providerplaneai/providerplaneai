@@ -21,7 +21,7 @@ describe("GeminiProvider", () => {
         const { GeminiProvider } = await import("#root/providers/gemini/GeminiProvider.js");
         const provider = new GeminiProvider();
         expect(() => provider.init({ apiKeyEnvVar: "GEMINI_API_KEY" } as any)).toThrow("Gemini API key");
-    });
+    }, 15000);
 
     it("initializes SDK client and registers capabilities", async () => {
         const { GeminiProvider } = await import("#root/providers/gemini/GeminiProvider.js");

@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/index.ts
+ * @description Provider implementations and capability adapters.
+ */
 export * from "./OpenAIChatCapabilityImpl.js";
 export * from "./OpenAIAudioTranscriptionCapabilityImpl.js";
 export * from "./OpenAIAudioTranslationCapabilityImpl.js";

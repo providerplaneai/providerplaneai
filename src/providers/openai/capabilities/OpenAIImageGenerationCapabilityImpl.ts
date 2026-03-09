@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIImageGenerationCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -26,6 +30,10 @@ const DEFAULT_OPENAI_IMAGE_MODEL = "gpt-4.1";
  *
  * Usage:
  *   Instantiate with a parent provider and OpenAI client, then call `generateImage` or `generateImageStream`.
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIImageGenerationCapabilityImpl.
  */
 export class OpenAIImageGenerationCapabilityImpl
     implements
@@ -100,6 +108,9 @@ export class OpenAIImageGenerationCapabilityImpl
         );
 
         const images = this.parseImages(response.output ?? []);
+        if (images.length === 0) {
+            throw new Error("OpenAI image generation returned no image artifacts");
+        }
 
         return {
             output: images,

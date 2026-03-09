@@ -1,3 +1,7 @@
+/**
+ * @module core/types/exceptions/AllProvidersFailedError.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
+ */
 import { ProviderAttemptResult, ProviderRef } from "#root/index.js";
 
 /**
@@ -5,11 +9,18 @@ import { ProviderAttemptResult, ProviderRef } from "#root/index.js";
  *
  * Represents a terminal failure after all fallback attempts have been exhausted.
  */
+/**
+ * @public
+ * @description Implementation class for AllProvidersFailedError.
+ */
 export class AllProvidersFailedError extends Error {
-    /** The capability that was requested */
+    /**
+     * The capability that was requested
+     */
     public readonly capability: string;
-
-    /** The provider chain that was attempted */
+    /**
+     * The provider chain that was attempted
+     */
     public readonly providerChain: ProviderRef[];
 
     /**

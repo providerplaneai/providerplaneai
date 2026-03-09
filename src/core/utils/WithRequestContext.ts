@@ -1,3 +1,7 @@
+/**
+ * @module core/utils/WithRequestContext.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { v4 as uuidv4 } from "uuid";
 import { AIRequest, AIResponse, AIResponseChunk } from "#root/index.js";
 

@@ -1,3 +1,7 @@
+/**
+ * @module providers/openai/capabilities/OpenAIImageEditCapabilityImpl.ts
+ * @description Provider implementations and capability adapters.
+ */
 import OpenAI from "openai";
 import {
     AIProvider,
@@ -26,6 +30,10 @@ const DEFAULT_OPENAI_IMAGE_EDIT_MODEL = "gpt-4.1";
  * - Multi-turn history
  * - Manual masks
  * - Normalized outputs for images and masks
+ */
+/**
+ * @public
+ * @description Provider capability implementation for OpenAIImageEditCapabilityImpl.
  */
 export class OpenAIImageEditCapabilityImpl
     implements ImageEditCapability<ClientImageEditRequest>, ImageEditStreamCapability<ClientImageEditRequest>

@@ -1,5 +1,13 @@
+/**
+ * @module core/utils/AudioUtils.ts
+ * @description ProviderPlaneAI source module.
+ */
 import { NormalizedAudio } from "#root/index.js";
 
+/**
+ * @public
+ * @description Type alias for AudioArtifactParams.
+ */
 export type AudioArtifactParams = {
     id?: string;
     kind?: NormalizedAudio["kind"];
@@ -14,6 +22,12 @@ export type AudioArtifactParams = {
     raw?: unknown;
 };
 
+/**
+ * @public
+ * @description Utility function createAudioArtifact.
+ * @param params Parameter.
+ * @returns Return value.
+ */
 export function createAudioArtifact(params: AudioArtifactParams): NormalizedAudio {
     return {
         id: params.id ?? crypto.randomUUID(),

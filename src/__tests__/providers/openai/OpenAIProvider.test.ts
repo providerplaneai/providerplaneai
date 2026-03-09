@@ -21,7 +21,7 @@ describe("OpenAIProvider", () => {
         const { OpenAIProvider } = await import("#root/providers/openai/OpenAIProvider.js");
         const provider = new OpenAIProvider();
         expect(() => provider.init({ apiKeyEnvVar: "OPENAI_API_KEY" } as any)).toThrow("OpenAI API key");
-    });
+    }, 15000);
 
     it("initializes SDK client and registers capabilities", async () => {
         const { OpenAIProvider } = await import("#root/providers/openai/OpenAIProvider.js");

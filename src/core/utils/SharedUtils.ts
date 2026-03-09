@@ -1,3 +1,7 @@
+/**
+ * @module core/utils/SharedUtils.ts
+ * @description ProviderPlaneAI source module.
+ */
 import config from "config";
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
@@ -120,6 +124,12 @@ export function stripBinaryPayloadFields<T>(value: T): T {
 
 /**
  * Sanitizes timeline artifacts by removing binary-heavy fields.
+ */
+/**
+ * @public
+ * @description Utility function sanitizeTimelineArtifacts.
+ * @param artifacts Parameter.
+ * @returns Return value.
  */
 export function sanitizeTimelineArtifacts(artifacts?: Partial<TimelineArtifacts>): Partial<TimelineArtifacts> | undefined {
     if (!artifacts) {

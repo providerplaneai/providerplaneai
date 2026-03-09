@@ -1,3 +1,7 @@
+/**
+ * @module core/provider/CapabilityMap.ts
+ * @description Capability key registry and compile-time mapping from keys to capability interfaces.
+ */
 import {
     AudioTranscriptionCapability,
     AudioTranscriptionStreamCapability,
@@ -39,16 +43,18 @@ import {
     NormalizedImage,
     NormalizedImageAnalysis,
     NormalizedModeration,
+    ProviderCapability,
     NormalizedVideo,
     NormalizedVideoAnalysis
 } from "#root/index.js";
 
 /**
- * Unique string constants for capability keys.
- *
- * Used to register, check, and route capabilities in BaseProvider/AIClient.
+ * @public
+ * @description Canonical capability keys used for registration, routing, and job execution.
  */
 export const CapabilityKeys = {
+    ApprovalGateCapabilityKey: "approvalGate",
+    SaveFileCapabilityKey: "saveFile",
     ChatCapabilityKey: "chat",
     ChatStreamCapabilityKey: "chatStream",
     AudioTranscriptionCapabilityKey: "audioTranscription",
@@ -71,18 +77,29 @@ export const CapabilityKeys = {
     ModerationCapabilityKey: "moderation"
 } as const;
 
+/**
+ * @public
+ * @description Union of built-in capability key string literals.
+ */
 export type BuiltInCapabilityKey = (typeof CapabilityKeys)[keyof typeof CapabilityKeys];
+/**
+ * @public
+ * @description Branded string type for user-defined custom capability keys.
+ */
 export type CustomCapabilityKey = string & {};
+/**
+ * @public
+ * @description Any capability key accepted by the system (built-in or custom).
+ */
 export type CapabilityKeyType = BuiltInCapabilityKey | CustomCapabilityKey;
 
 /**
- * Mapping from capability keys to their interface implementations.
- *
- * Guarantees:
- * - Providers only expose capabilities they explicitly register
- * - Consumers can safely cast to the capability interface after checking with hasCapability()
+ * @public
+ * @description Compile-time map from capability keys to capability interface signatures.
  */
 export interface CapabilityMap {
+    [CapabilityKeys.ApprovalGateCapabilityKey]: ProviderCapability;
+    [CapabilityKeys.SaveFileCapabilityKey]: ProviderCapability;
     [CapabilityKeys.ChatCapabilityKey]: ChatCapability<ClientChatRequest, NormalizedChatMessage>;
     [CapabilityKeys.ChatStreamCapabilityKey]: ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>;
     [CapabilityKeys.AudioTranscriptionCapabilityKey]: AudioTranscriptionCapability<
