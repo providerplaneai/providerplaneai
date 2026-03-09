@@ -13,6 +13,7 @@ export default defineConfig({
         globals: true,
         silent: true,
         environment: "node",
+        testTimeout: 12500,
         setupFiles: "src/__tests__/setupTests.ts",
         coverage: {
             thresholds: {

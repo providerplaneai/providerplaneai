@@ -152,24 +152,61 @@ export abstract class BaseProvider {
             if (!src) {
                 continue;
             }
-
-            for (const key of Object.keys(src)) {
-                const val = src[key];
-
-                if (Array.isArray(val)) {
-                    // arrays override, never merge
-                    result[key] = [...val];
-                } else if (val && typeof val === "object") {
-                    // deep merge objects
-                    result[key] = this.mergeOptions(result[key] || {}, val);
-                } else {
-                    // primitives override
-                    result[key] = val;
-                }
-            }
+            this.mergeOptionsInto(result, src);
         }
 
         return result;
+    }
+
+    /**
+     * Merges a source object into a target object.
+     * Arrays override, plain objects are deep-merged, primitives override.
+     *
+     * @param target Target object to mutate
+     * @param source Source object to read from
+     */
+    private mergeOptionsInto(target: Record<string, unknown>, source: Record<string, unknown>) {
+        const stack: Array<{ dst: Record<string, unknown>; src: Record<string, unknown> }> = [{ dst: target, src: source }];
+
+        while (stack.length > 0) {
+            const frame = stack.pop()!;
+            const { dst, src } = frame;
+
+            for (const [key, value] of Object.entries(src)) {
+                if (Array.isArray(value)) {
+                    dst[key] = [...value];
+                    continue;
+                }
+
+                if (this.isMergeableObject(value)) {
+                    const current = dst[key];
+                    if (!this.isMergeableObject(current)) {
+                        dst[key] = {};
+                    }
+                    stack.push({
+                        dst: dst[key] as Record<string, unknown>,
+                        src: value as Record<string, unknown>
+                    });
+                    continue;
+                }
+
+                dst[key] = value;
+            }
+        }
+    }
+
+    /**
+     * Determines whether a value is a plain object that should be deep-merged.
+     *
+     * @param value Candidate value
+     * @returns `true` for mergeable plain objects
+     */
+    private isMergeableObject(value: unknown): value is Record<string, unknown> {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return false;
+        }
+        const prototype = Object.getPrototypeOf(value);
+        return prototype === Object.prototype || prototype === null;
     }
 
     /**

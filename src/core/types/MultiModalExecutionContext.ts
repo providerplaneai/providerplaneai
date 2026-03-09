@@ -131,12 +131,25 @@ export class MultiModalExecutionContext {
             return;
         }
 
+        const mergedArtifacts = this.mergeArtifacts(this.createEmptyArtifacts(), artifacts);
+        if (this.isArtifactsEmpty(mergedArtifacts)) {
+            return;
+        }
+
+        const lastEvent = this.timeline[this.timeline.length - 1];
+        if (lastEvent?.type === "systemEvent" && lastEvent.action === "streamChunk") {
+            // Coalesce consecutive stream chunks to avoid timeline growth under token streaming.
+            lastEvent.artifacts = this.mergeArtifacts(lastEvent.artifacts, mergedArtifacts);
+            lastEvent.timestamp = Date.now();
+            return;
+        }
+
         const event: SystemEvent = {
             id: crypto.randomUUID(),
             type: "systemEvent",
             timestamp: Date.now(),
             action: "streamChunk",
-            artifacts: this.mergeArtifacts(this.createEmptyArtifacts(), artifacts)
+            artifacts: mergedArtifacts
         };
 
         this.timeline.push(event);
@@ -199,6 +212,28 @@ export class MultiModalExecutionContext {
             files: [],
             custom: []
         };
+    }
+
+    /**
+     * Returns true when all artifact arrays are empty.
+     */
+    private isArtifactsEmpty(artifacts: TimelineArtifacts): boolean {
+        const sizeOf = (value: unknown): number => (Array.isArray(value) ? value.length : 0);
+        return (
+            sizeOf(artifacts.chat) === 0 &&
+            sizeOf(artifacts.images) === 0 &&
+            sizeOf(artifacts.masks) === 0 &&
+            sizeOf(artifacts.imageAnalysis) === 0 &&
+            sizeOf(artifacts.videoAnalysis) === 0 &&
+            sizeOf(artifacts.transcript) === 0 &&
+            sizeOf(artifacts.translation) === 0 &&
+            sizeOf(artifacts.embeddings) === 0 &&
+            sizeOf(artifacts.moderation) === 0 &&
+            sizeOf(artifacts.tts) === 0 &&
+            sizeOf(artifacts.video) === 0 &&
+            sizeOf(artifacts.files) === 0 &&
+            sizeOf(artifacts.custom) === 0
+        );
     }
     /**
      * Generic helper to find the latest artifact type in the timeline

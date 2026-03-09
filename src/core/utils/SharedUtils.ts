@@ -8,9 +8,9 @@ import { lookup } from "node:dns/promises";
 import { CapabilityKeyType, ClientReferenceImage, JobSnapshot, TimelineArtifacts } from "#root/index.js";
 
 /**
- * Default timeout (ms) for remote image fetches. Infinity disables timeout.
+ * Default timeout (ms) for remote image fetches.
  */
-const DEFAULT_REMOTE_IMAGE_FETCH_TIMEOUT_MS = Infinity;
+const DEFAULT_REMOTE_IMAGE_FETCH_TIMEOUT_MS = 30_000;
 /**
  * Default maximum allowed remote image size in bytes (512 MB).
  */
@@ -43,7 +43,7 @@ export function logProviderAttempts(label: string, metadata: Record<string, any>
         console.log(`[${label}] providerAttempts: none`);
         return;
     }
-    console.log(`[${label}] providerAttempts:`, JSON.stringify(attempts, null, 2));
+    console.log(`[${label}] providerAttempts:`, attempts, null, 2);
 }
 
 /**
@@ -52,19 +52,12 @@ export function logProviderAttempts(label: string, metadata: Record<string, any>
  * @param metadata Metadata object with raw payload budget fields
  */
 export function logRawBudgetDiagnostics(label: string, metadata: Record<string, any> | undefined) {
-    console.log(
-        `[${label}] raw diagnostics:`,
-        JSON.stringify(
-            {
-                rawPayloadDropped: metadata?.rawPayloadDropped,
-                rawPayloadDroppedCount: metadata?.rawPayloadDroppedCount,
-                rawPayloadDroppedBytes: metadata?.rawPayloadDroppedBytes,
-                rawPayloadStoredBytes: metadata?.rawPayloadStoredBytes
-            },
-            null,
-            2
-        )
-    );
+    console.log(`[${label}] raw diagnostics:`, {
+        rawPayloadDropped: metadata?.rawPayloadDropped,
+        rawPayloadDroppedCount: metadata?.rawPayloadDroppedCount,
+        rawPayloadDroppedBytes: metadata?.rawPayloadDroppedBytes,
+        rawPayloadStoredBytes: metadata?.rawPayloadStoredBytes
+    });
 }
 
 /**
@@ -190,7 +183,7 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
 
     // 2. Otherwise, fetch the remote image
     try {
-        await assertSafeRemoteImageUrl(url);
+        await assertSafeRemoteHttpUrl(url);
 
         const timeout = AbortSignal.timeout(remoteImageFetchTimeoutMs);
         const response = await fetch(url, { signal: timeout });
@@ -211,7 +204,7 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
             throw new Error("Failed to read response body");
         }
 
-        const chunks: Uint8Array[] = [];
+        const chunks: Buffer[] = [];
         let total = 0;
         while (true) {
             const { done, value } = await reader.read();
@@ -226,13 +219,10 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
             if (total > maxRemoteImageBytes) {
                 throw new Error(`Image exceeds max allowed size (${maxRemoteImageBytes} bytes)`);
             }
-            chunks.push(value);
+            chunks.push(Buffer.from(value));
         }
 
-        return Buffer.concat(
-            chunks.map((c) => Buffer.from(c)),
-            total
-        );
+        return Buffer.concat(chunks, total);
     } catch {
         // Keep outward errors generic so URLs/tokens from provider-specific errors are not leaked.
         throw new Error("Could not resolve reference image");
@@ -275,7 +265,7 @@ function toNonNegativeInteger(value: unknown, fallback: number): number {
  * @param rawUrl The URL to check
  * @throws Error if the URL is unsafe
  */
-async function assertSafeRemoteImageUrl(rawUrl: string) {
+export async function assertSafeRemoteHttpUrl(rawUrl: string) {
     let parsed: URL;
     try {
         parsed = new URL(rawUrl);

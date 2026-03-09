@@ -151,9 +151,23 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
 
         /**
          * Ensure deterministic ordering.
-         * Voyage returns index fields but we do not assume order.
+         * Fast-path contiguous/unique indices to avoid sort allocations;
+         * fallback to defensive sort when provider indices are sparse/out of order.
          */
-        const vectors = voyageResponse.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
+        const indexedVectors: Array<number[] | undefined> = new Array(voyageResponse.data.length);
+        let canUseIndexedFastPath = true;
+        for (const item of voyageResponse.data) {
+            const idx = item.index;
+            if (!Number.isInteger(idx) || idx < 0 || idx >= indexedVectors.length || indexedVectors[idx] !== undefined) {
+                canUseIndexedFastPath = false;
+                break;
+            }
+            indexedVectors[idx] = item.embedding;
+        }
+
+        const vectors = canUseIndexedFastPath
+            ? (indexedVectors as number[][])
+            : [...voyageResponse.data].sort((a, b) => a.index - b.index).map((d) => d.embedding);
 
         // Map to NormalizedEmbedding[]
         const normalized: NormalizedEmbedding[] = vectors.map((vector, _idx) => ({

@@ -6,7 +6,7 @@ import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { GoogleGenAI } from "@google/genai";
-import { AIProvider, NormalizedVideo } from "#root/index.js";
+import { AIProvider, NormalizedVideo, assertSafeRemoteHttpUrl } from "#root/index.js";
 
 const MIN_VIDEO_POLL_INTERVAL_MS = 250;
 const VALID_GEMINI_FILE_NAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -281,15 +281,27 @@ export async function downloadGeminiFileViaApi(
         );
     }
 
-    const downloadPath = path.join(tmpdir(), `gemini-video-${Date.now()}-${normalizedName}.mp4`);
-    const downloadRefs = Array.from(new Set([`files/${normalizedName}`, normalizedName]));
+    const downloadPath = path.join(tmpdir(), `gemini-video-${crypto.randomUUID()}-${normalizedName}.mp4`);
+    const primaryRef = `files/${normalizedName}`;
+    const secondaryRef = normalizedName;
 
     let lastError: unknown;
     try {
-        for (const ref of downloadRefs) {
+        try {
+            await (client.files as any).download({
+                file: primaryRef,
+                downloadPath,
+                config: { abortSignal: signal }
+            });
+            return await readFile(downloadPath);
+        } catch (error) {
+            lastError = error;
+        }
+
+        if (secondaryRef !== primaryRef) {
             try {
                 await (client.files as any).download({
-                    file: ref,
+                    file: secondaryRef,
                     downloadPath,
                     config: { abortSignal: signal }
                 });
@@ -341,6 +353,7 @@ export async function resolveGeminiVideoBase64(args: ResolveVideoBase64Args): Pr
     }
 
     if (video.uri.startsWith("http://") || video.uri.startsWith("https://")) {
+        await assertSafeRemoteHttpUrl(video.uri);
         const response = await fetch(video.uri, { signal });
         if (response.ok) {
             const bytes = Buffer.from(await response.arrayBuffer());

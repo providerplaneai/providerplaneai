@@ -29,7 +29,9 @@ export default [
             "dist/**",
             "node_modules/**",
             "examples/**",
-            "src/examples/**"
+            "src/examples/**",
+            "docs/**",
+            "coverage-local/**"
         ]
     },
     {

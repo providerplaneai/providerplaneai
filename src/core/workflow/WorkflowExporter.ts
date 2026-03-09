@@ -237,7 +237,16 @@ export class WorkflowExporter {
      */
     static workflowAsJSON(workflow: Workflow<unknown>): WorkflowJsonExport {
         const allIds = this.listAllNodeIdsInOrder(workflow);
-        const dependencyMap = new Map(workflow.nodes.map((node) => [node.id, Array.from(new Set(node.dependsOn ?? []))]));
+        const edges = this.listUniqueEdges(workflow);
+        const dependencyMap = new Map<string, string[]>();
+        for (const edge of edges) {
+            const deps = dependencyMap.get(edge.to);
+            if (deps) {
+                deps.push(edge.from);
+            } else {
+                dependencyMap.set(edge.to, [edge.from]);
+            }
+        }
         const nodes: WorkflowJsonNode[] = allIds.map((id) => ({
             id,
             dependsOn: dependencyMap.get(id) ?? []
@@ -246,7 +255,7 @@ export class WorkflowExporter {
         return {
             id: workflow.id,
             nodes,
-            edges: this.listUniqueEdges(workflow)
+            edges
         };
     }
 

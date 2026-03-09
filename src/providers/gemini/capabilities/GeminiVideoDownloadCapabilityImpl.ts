@@ -2,9 +2,6 @@
  * @module providers/gemini/capabilities/GeminiVideoDownloadCapabilityImpl.ts
  * @description Provider implementations and capability adapters.
  */
-import { readFile, unlink } from "node:fs/promises";
-import path from "node:path";
-import { tmpdir } from "node:os";
 import { GoogleGenAI } from "@google/genai";
 import {
     AIProvider,
@@ -15,8 +12,13 @@ import {
     ClientVideoDownloadRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
+    assertSafeRemoteHttpUrl,
     VideoDownloadCapability
 } from "#root/index.js";
+import {
+    downloadGeminiFileViaApi,
+    extractGeminiFileName
+} from "#root/providers/gemini/capabilities/shared/GeminiVideoUtils.js";
 
 const DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS = 30_000;
 
@@ -95,6 +97,7 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
         }
 
         if (source.startsWith("http://") || source.startsWith("https://")) {
+            await assertSafeRemoteHttpUrl(source);
             const response = await fetch(source, { signal });
             if (response.ok) {
                 return Buffer.from(await response.arrayBuffer());
@@ -124,87 +127,11 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
     }
 
     private extractGeminiFileName(source: string): string | undefined {
-        const normalize = (raw: string): string | undefined => {
-            const decoded = decodeURIComponent(raw.trim());
-            if (!decoded) {
-                return undefined;
-            }
-            // Full URLs are not valid Gemini file names and must be parsed separately.
-            if (decoded.includes("://")) {
-                return undefined;
-            }
-            const withoutPrefix = decoded.replace(/^files\//, "");
-            // Keep only the file-name token and drop known suffix forms (e.g. :download).
-            const base = withoutPrefix.split(":", 1)[0].split("/", 1)[0];
-            if (/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(base)) {
-                return base;
-            }
-            return undefined;
-        };
-
-        const direct = normalize(source);
-        if (direct) {
-            return direct;
-        }
-
-        try {
-            const parsed = new URL(source);
-            const nameParam = parsed.searchParams.get("name");
-            if (nameParam) {
-                const fromParam = normalize(nameParam);
-                if (fromParam) {
-                    return fromParam;
-                }
-            }
-
-            const filesMatch = parsed.pathname.match(/\/files\/([^/:?#]+)/i);
-            if (filesMatch?.[1]) {
-                const fromPath = normalize(filesMatch[1]);
-                if (fromPath) {
-                    return fromPath;
-                }
-            }
-
-            return undefined;
-        } catch {
-            return undefined;
-        }
+        return extractGeminiFileName(source);
     }
 
     private async downloadViaFilesApi(fileRefOrName: string, signal?: AbortSignal): Promise<Buffer> {
-        const normalizedName = this.extractGeminiFileName(fileRefOrName);
-        if (!normalizedName) {
-            throw new Error(
-                "Gemini video download requires a valid file reference (files/<name> or URL containing /files/<name>)."
-            );
-        }
-
-        const fileName = normalizedName;
-        const downloadPath = path.join(tmpdir(), `gemini-video-${Date.now()}-${fileName}.mp4`);
-
-        const downloadRefs = Array.from(new Set([`files/${normalizedName}`, normalizedName]));
-
-        let lastError: unknown;
-        try {
-            for (const ref of downloadRefs) {
-                try {
-                    await (this.client.files as any).download({
-                        file: ref,
-                        downloadPath,
-                        config: { abortSignal: signal }
-                    });
-                    return await readFile(downloadPath);
-                } catch (error) {
-                    lastError = error;
-                }
-            }
-            if (lastError instanceof Error) {
-                throw lastError;
-            }
-            throw new Error("Gemini files.download failed for all attempted file reference formats");
-        } finally {
-            await unlink(downloadPath).catch(() => undefined);
-        }
+        return await downloadGeminiFileViaApi(this.client, fileRefOrName, signal);
     }
 
     private resolveDownloadTimeoutMs(value: unknown): number {

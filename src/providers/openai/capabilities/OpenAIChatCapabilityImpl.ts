@@ -371,8 +371,11 @@ export class OpenAIChatCapabilityImpl
      * @param parts Message component to convert to OpenAI format
      * @returns Array of converted messages for OpenAI
      */
-    private mapParts(parts: ClientMessagePart[]): any[] {
-        return parts.map((part) => {
+    private mapParts(parts: ClientMessagePart[] | ClientMessagePart | string): any[] {
+        const normalizedParts: ClientMessagePart[] =
+            typeof parts === "string" ? [{ type: "text", text: parts }] : Array.isArray(parts) ? parts : [parts];
+
+        return normalizedParts.map((part) => {
             if (part.type !== "text" && !part.url && !part.base64) {
                 throw new Error(`${part.type} part must have url or base64`);
             }

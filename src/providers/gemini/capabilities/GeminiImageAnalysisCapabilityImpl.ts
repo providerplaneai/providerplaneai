@@ -122,12 +122,7 @@ export class GeminiImageAnalysisCapabilityImpl
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisCapabilityKey, options);
 
-        const contents = [
-            {
-                role: "user",
-                parts: [{ text: prompt }, ...images.map((img) => this.toGeminiImagePart(img))]
-            }
-        ];
+        const contents = [this.buildGeminiUserContent(images)];
 
         const response = await this.client.models.generateContent({
             model: merged.model ?? DEFAULT_GEMINI_IMAGE_ANALYSIS_MODEL,
@@ -185,12 +180,7 @@ export class GeminiImageAnalysisCapabilityImpl
         try {
             const stream = await this.client.models.generateContentStream({
                 model: merged.model ?? DEFAULT_GEMINI_IMAGE_ANALYSIS_MODEL,
-                contents: [
-                    {
-                        role: "user",
-                        parts: [{ text: prompt }, ...images.map((img) => this.toGeminiImagePart(img))]
-                    }
-                ],
+                contents: [this.buildGeminiUserContent(images)],
                 config: {
                     temperature: 0,
                     ...(merged.modelParams ?? {})
@@ -362,13 +352,25 @@ export class GeminiImageAnalysisCapabilityImpl
             return response.text;
         }
 
-        const candidateTexts =
-            response?.candidates
-                ?.flatMap((candidate: any) => candidate?.content?.parts ?? [])
-                ?.map((part: any) => (typeof part?.text === "string" ? part.text : ""))
-                ?.filter((t: string) => t.length > 0) ?? [];
+        let text = "";
+        const candidates = response?.candidates;
+        if (!Array.isArray(candidates)) {
+            return "";
+        }
 
-        return candidateTexts.join("\n");
+        for (const candidate of candidates) {
+            const parts = candidate?.content?.parts;
+            if (!Array.isArray(parts)) {
+                continue;
+            }
+            for (const part of parts) {
+                if (typeof part?.text === "string" && part.text.length > 0) {
+                    text += text.length > 0 ? `\n${part.text}` : part.text;
+                }
+            }
+        }
+
+        return text;
     }
 
     /**
@@ -378,5 +380,25 @@ export class GeminiImageAnalysisCapabilityImpl
         const trimmed = value.trim();
         const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
         return match?.[1]?.trim() ?? trimmed;
+    }
+
+    private buildGeminiUserContent(images: Array<{ base64?: string; url?: string; mimeType?: string }>): {
+        role: "user";
+        parts: Array<
+            | { text: string }
+            | { inlineData: { mimeType: string; data: string } }
+            | { fileData: { mimeType: string; fileUri: string } }
+        >;
+    } {
+        const parts = new Array(images.length + 1) as Array<
+            | { text: string }
+            | { inlineData: { mimeType: string; data: string } }
+            | { fileData: { mimeType: string; fileUri: string } }
+        >;
+        parts[0] = { text: prompt };
+        for (let i = 0; i < images.length; i++) {
+            parts[i + 1] = this.toGeminiImagePart(images[i]);
+        }
+        return { role: "user", parts };
     }
 }

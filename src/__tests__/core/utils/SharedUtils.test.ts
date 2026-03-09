@@ -77,7 +77,8 @@ describe("SharedUtils", () => {
 
         expect(spy).toHaveBeenCalledTimes(2);
         expect(spy.mock.calls[0]?.[0]).toContain("providerAttempts: none");
-        expect(String(spy.mock.calls[1]?.[1])).toContain("openai");
+        expect(spy.mock.calls[1]?.[0]).toContain("providerAttempts:");
+        expect(spy.mock.calls[1]?.[1]).toEqual([{ provider: "openai" }]);
     });
 
     it("logRawBudgetDiagnostics logs expected payload diagnostics", () => {
@@ -90,7 +91,12 @@ describe("SharedUtils", () => {
         });
         expect(spy).toHaveBeenCalledOnce();
         expect(spy.mock.calls[0]?.[0]).toContain("raw diagnostics");
-        expect(String(spy.mock.calls[0]?.[1])).toContain("rawPayloadDropped");
+        expect(spy.mock.calls[0]?.[1]).toMatchObject({
+            rawPayloadDropped: true,
+            rawPayloadDroppedCount: 2,
+            rawPayloadDroppedBytes: 30,
+            rawPayloadStoredBytes: 10
+        });
     });
 
     it("validateBoolean accepts booleans and undefined and rejects other values", () => {

@@ -16,6 +16,7 @@ import {
     VideoGenerationCapability
 } from "#root/index.js";
 import { toFile } from "openai/uploads";
+import { pollOpenAIVideoUntilTerminal, delayWithAbort } from "#root/providers/openai/capabilities/shared/OpenAIVideoUtils.js";
 
 const DEFAULT_OPENAI_VIDEO_MODEL = "sora-2";
 const DEFAULT_VIDEO_POLL_INTERVAL_MS = 2_000;
@@ -84,7 +85,18 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
         const includeBase64 = input.params?.includeBase64 ?? false;
         const variant = input.params?.downloadVariant ?? "video";
 
-        const video = pollUntilComplete ? await this.pollUntilTerminal(created.id, pollIntervalMs, maxPollMs, signal) : created;
+        const video = pollUntilComplete
+            ? await pollOpenAIVideoUntilTerminal({
+                  videoId: created.id,
+                  pollIntervalMs,
+                  maxPollMs,
+                  signal,
+                  retrieve: (videoId, retrieveOptions) => this.client.videos.retrieve(videoId, retrieveOptions),
+                  getStatus: (video) => video.status,
+                  delay: (ms, abortSignal) => delayWithAbort(ms, abortSignal, "Video generation polling aborted"),
+                  abortMessage: "Video generation polling aborted"
+              })
+            : created;
 
         if (video.status === "failed") {
             throw new Error(
@@ -137,50 +149,6 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
         };
     }
 
-    private async pollUntilTerminal(videoId: string, pollIntervalMs: number, maxPollMs: number, signal?: AbortSignal) {
-        const started = Date.now();
-        while (true) {
-            if (signal?.aborted) {
-                throw new Error("Video generation polling aborted");
-            }
-
-            const video = await this.client.videos.retrieve(videoId, { signal });
-            if (video.status === "completed" || video.status === "failed") {
-                return video;
-            }
-
-            if (Date.now() - started >= maxPollMs) {
-                throw new Error(`Timed out waiting for video job '${videoId}' to complete`);
-            }
-
-            await this.delay(pollIntervalMs, signal);
-        }
-    }
-
-    private delay(ms: number, signal?: AbortSignal): Promise<void> {
-        if (ms <= 0) {
-            return Promise.resolve();
-        }
-
-        return new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(() => {
-                signal?.removeEventListener("abort", onAbort);
-                resolve();
-            }, ms);
-            const onAbort = () => {
-                clearTimeout(timer);
-                reject(new Error("Video generation polling aborted"));
-            };
-            if (signal) {
-                if (signal.aborted) {
-                    onAbort();
-                    return;
-                }
-                signal.addEventListener("abort", onAbort, { once: true });
-            }
-        });
-    }
-
     private parseVideoSize(size: string): { width?: number; height?: number } {
         const [w, h] = size.split("x", 2);
         const width = Number.parseInt(w, 10);
@@ -189,6 +157,17 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
             width: Number.isFinite(width) ? width : undefined,
             height: Number.isFinite(height) ? height : undefined
         };
+    }
+
+    /**
+     * Backward-compatible abort-aware delay helper used by tests and internal callers.
+     *
+     * @param ms Delay duration in milliseconds.
+     * @param signal Optional abort signal.
+     * @returns Promise that resolves after delay or rejects on abort.
+     */
+    private delay(ms: number, signal?: AbortSignal): Promise<void> {
+        return delayWithAbort(ms, signal, "Video generation polling aborted");
     }
 
     private resolveMimeTypeForVariant(variant: string): string {
