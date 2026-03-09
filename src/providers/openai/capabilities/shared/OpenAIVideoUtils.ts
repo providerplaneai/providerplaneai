@@ -24,7 +24,7 @@ export type OpenAIVideoPollingOptions = {
     defaultMaxPollMs: number;
 };
 
-type PollOpenAIVideoArgs<TVideo> = {
+export type PollOpenAIVideoArgs<TVideo> = {
     videoId: string;
     pollIntervalMs: number;
     maxPollMs: number;
@@ -35,12 +35,12 @@ type PollOpenAIVideoArgs<TVideo> = {
     abortMessage: string;
 };
 
-type OpenAIVideoStatusPayload = {
+export type OpenAIVideoStatusPayload = {
     status?: string;
     error?: { code?: string; message?: string } | null;
 };
 
-type BuildOpenAIVideoArtifactArgs = {
+export type BuildOpenAIVideoArtifactArgs = {
     id: string;
     variant: OpenAIVideoVariant;
     base64?: string;
@@ -53,7 +53,7 @@ type BuildOpenAIVideoArtifactArgs = {
     extraMetadata?: Record<string, unknown>;
 };
 
-type BuildOpenAIVideoResponseMetadataArgs = {
+export type BuildOpenAIVideoResponseMetadataArgs = {
     contextMetadata?: Record<string, unknown>;
     model: string | undefined;
     status: string | undefined;

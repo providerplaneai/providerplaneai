@@ -11,7 +11,7 @@ import { GenericJob, JobChunk, JobSnapshot, MultiModalExecutionContext } from "#
  * @template TOutput Output type for the job
  * @param snapshot The current snapshot of the job
  */
-type JobSubscriber<TInput, TOutput> = (snapshot: JobSnapshot<TInput, TOutput>) => void;
+export type JobSubscriber<TInput, TOutput> = (snapshot: JobSnapshot<TInput, TOutput>) => void;
 
 /**
  * Represents a job and its execution context queued for processing.

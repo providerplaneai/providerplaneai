@@ -18,7 +18,7 @@ import {
     WorkflowError
 } from "#root/index.js";
 
-type WorkflowNodeFn = (
+export type WorkflowNodeFn = (
     ctx: MultiModalExecutionContext,
     client: AIClient,
     runner: WorkflowRunner,
@@ -28,9 +28,8 @@ type WorkflowNodeFn = (
 /**
  * Builder-time options for an individual workflow node.
  *
- * @internal
  */
-interface WorkflowNodeOptions {
+export interface WorkflowNodeOptions {
     dependsOn?: string[];
     condition?: (state: WorkflowState) => boolean;
     retry?: WorkflowRetryPolicy;
@@ -40,9 +39,8 @@ interface WorkflowNodeOptions {
 /**
  * Builder-time options for capability-backed node helpers.
  *
- * @internal
  */
-type WorkflowCapabilityNodeOptions = WorkflowNodeOptions & {
+export type WorkflowCapabilityNodeOptions = WorkflowNodeOptions & {
     providerChain?: ProviderRef[];
     addToManager?: boolean;
 };
@@ -51,9 +49,8 @@ type WorkflowCapabilityNodeOptions = WorkflowNodeOptions & {
  * Static request payload or lazy request factory used by capability helpers.
  *
  * @typeParam TInput Capability request input type
- * @internal
  */
-type WorkflowCapabilityRequestFactory<TInput> =
+export type WorkflowCapabilityRequestFactory<TInput> =
     | AIRequest<TInput>
     | ((ctx: MultiModalExecutionContext, state: WorkflowState) => AIRequest<TInput>);
 

@@ -152,7 +152,7 @@ export function delayWithAbort(ms: number, signal: AbortSignal | undefined, abor
     });
 }
 
-type PollGeminiVideoArgs = {
+export type PollGeminiVideoArgs = {
     client: GoogleGenAI;
     operation: any;
     pollIntervalMs: number;
@@ -308,7 +308,7 @@ export async function downloadGeminiFileViaApi(
     }
 }
 
-type ResolveVideoBase64Args = {
+export type ResolveVideoBase64Args = {
     client: GoogleGenAI;
     video: GeminiGeneratedVideoPayload;
     signal?: AbortSignal;
@@ -476,7 +476,7 @@ export function throwIfGeminiOperationFailed(operation: any, errorMessage: strin
     }
 }
 
-type BuildGeminiVideoArtifactArgs = {
+export type BuildGeminiVideoArtifactArgs = {
     id: string;
     video: GeminiGeneratedVideoPayload;
     base64?: string;
@@ -514,7 +514,7 @@ export function buildGeminiVideoArtifact(args: BuildGeminiVideoArtifactArgs): No
     };
 }
 
-type BuildGeminiVideoResponseMetadataArgs = {
+export type BuildGeminiVideoResponseMetadataArgs = {
     contextMetadata?: Record<string, unknown>;
     model: string | undefined;
     operationName: string | undefined;

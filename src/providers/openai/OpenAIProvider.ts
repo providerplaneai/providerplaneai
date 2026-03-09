@@ -356,7 +356,7 @@ export class OpenAIProvider
      * Non-streaming image edit request
      *
      * @template TImageEditInput Image edit input type
-     * @param req - Unified AI request containing image edit input
+     * @param request - Unified AI request containing image edit input
      * @param executionContext Execution context
      * @param signal AbortSignal for request cancellation
      * @returns AIResponse containing normalized edited images

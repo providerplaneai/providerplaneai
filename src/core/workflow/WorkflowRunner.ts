@@ -114,12 +114,19 @@ export class WorkflowRunner {
     private readonly persistence?: WorkflowRunnerPersistence;
 
     /**
+     * Creates a workflow runner.
+     *
+     * @param options Runner options (preferred overload)
+     */
+    constructor(options: WorkflowRunnerOptions);
+    /**
+     * Creates a workflow runner.
+     *
      * @param jobManager Job scheduler used to run child jobs
      * @param client AIClient instance passed into workflow nodes
      * @param hooks Optional workflow lifecycle hooks
      * @param persistence Optional workflow persistence adapters
      */
-    constructor(options: WorkflowRunnerOptions);
     constructor(jobManager: JobManager, client: AIClient, hooks?: WorkflowRunnerHooks, persistence?: WorkflowRunnerPersistence);
     constructor(
         jobManagerOrOptions: JobManager | WorkflowRunnerOptions,

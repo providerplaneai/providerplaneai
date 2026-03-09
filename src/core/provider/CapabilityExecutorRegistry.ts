@@ -23,7 +23,7 @@ import { createSaveFileExecutor } from "../../capabilities/SaveFileCapabilityImp
  * @typeParam C Capability key
  * @remarks For custom keys, falls back to the generic `ProviderCapability` marker.
  */
-type CapabilityFor<C extends CapabilityKeyType> = C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability;
+export type CapabilityFor<C extends CapabilityKeyType> = C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability;
 
 /**
  * Executor contract for streaming capabilities.
