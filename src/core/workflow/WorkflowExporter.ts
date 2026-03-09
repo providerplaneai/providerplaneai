@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { Workflow } from "#root/index.js";
+import { WorkflowError, type Workflow } from "#root/index.js";
 
 /**
  * JSON-exported workflow node shape.
@@ -246,7 +246,7 @@ export class WorkflowExporter {
             case "d3":
                 return this.workflowAsD3(workflow);
             default:
-                throw new Error(`Unsupported export format: ${format}`);
+                throw new WorkflowError(`Unsupported export format: ${format}`);
         }
     }
 

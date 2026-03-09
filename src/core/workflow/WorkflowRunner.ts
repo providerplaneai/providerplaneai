@@ -11,7 +11,8 @@ import {
     WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION,
     WorkflowNode,
     WorkflowState,
-    WorkflowStepResult
+    WorkflowStepResult,
+    WorkflowError
 } from "#root/index.js";
 
 /**
@@ -176,11 +177,11 @@ export class WorkflowRunner {
         signal?: AbortSignal
     ): Promise<WorkflowExecution<TOutput>> {
         if (!this.persistence?.loadWorkflowExecution) {
-            throw new Error("WorkflowRunner: resume requires loadWorkflowExecution persistence hook");
+            throw new WorkflowError("WorkflowRunner: resume requires loadWorkflowExecution persistence hook");
         }
         const snapshot = await this.persistence.loadWorkflowExecution(workflow.id);
         if (!snapshot) {
-            throw new Error(`WorkflowRunner: no persisted snapshot found for workflow '${workflow.id}'`);
+            throw new WorkflowError(`WorkflowRunner: no persisted snapshot found for workflow '${workflow.id}'`);
         }
         return this.execute(workflow, ctx, snapshot as WorkflowExecutionSnapshot<TOutput>, undefined, signal);
     }
@@ -404,12 +405,12 @@ export class WorkflowRunner {
         }
         const schemaVersion = snapshot.schemaVersion ?? 1;
         if (schemaVersion !== WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION) {
-            throw new Error(
+            throw new WorkflowError(
                 `WorkflowRunner: unsupported workflow snapshot schemaVersion '${schemaVersion}'. Expected '${WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION}'`
             );
         }
         if (snapshot.workflowId !== workflow.id) {
-            throw new Error(
+            throw new WorkflowError(
                 `WorkflowRunner: snapshot workflowId '${snapshot.workflowId}' does not match workflow '${workflow.id}'`
             );
         }
@@ -420,23 +421,23 @@ export class WorkflowRunner {
             currentWorkflowVersion !== undefined &&
             snapshotWorkflowVersion !== currentWorkflowVersion
         ) {
-            throw new Error(
+            throw new WorkflowError(
                 `WorkflowRunner: snapshot workflowVersion '${snapshotWorkflowVersion}' does not match workflow version '${currentWorkflowVersion}'`
             );
         }
         const nodeIds = new Set(workflow.nodes.map((n) => n.id));
         for (const id of snapshot.completedNodeIds) {
             if (!nodeIds.has(id)) {
-                throw new Error(`WorkflowRunner: snapshot contains unknown completed node '${id}'`);
+                throw new WorkflowError(`WorkflowRunner: snapshot contains unknown completed node '${id}'`);
             }
         }
         const completedSet = new Set(snapshot.completedNodeIds);
         for (const result of snapshot.results) {
             if (!nodeIds.has(result.stepId)) {
-                throw new Error(`WorkflowRunner: snapshot contains unknown result node '${result.stepId}'`);
+                throw new WorkflowError(`WorkflowRunner: snapshot contains unknown result node '${result.stepId}'`);
             }
             if (!completedSet.has(result.stepId)) {
-                throw new Error(
+                throw new WorkflowError(
                     `WorkflowRunner: snapshot result for node '${result.stepId}' is not present in completedNodeIds`
                 );
             }
@@ -449,7 +450,7 @@ export class WorkflowRunner {
             }
             for (const dep of node.dependsOn ?? []) {
                 if (!completedSet.has(dep)) {
-                    throw new Error(
+                    throw new WorkflowError(
                         `WorkflowRunner: snapshot completed node '${completedNodeId}' is missing completed dependency '${dep}'`
                     );
                 }
@@ -566,7 +567,7 @@ export class WorkflowRunner {
 
         throw (
             lastError ??
-            new Error(`WorkflowRunner: node '${node.id}' in workflow '${workflowId}' failed unexpectedly without error`)
+            new WorkflowError(`WorkflowRunner: node '${node.id}' in workflow '${workflowId}' failed unexpectedly without error`)
         );
     }
 
@@ -574,14 +575,14 @@ export class WorkflowRunner {
      * Performs static workflow validation before execution.
      *
      * @param workflow Workflow definition to validate
-     * @throws {Error} On duplicates, missing dependencies, or cycles
+     * @throws {WorkflowError} On duplicates, missing dependencies, or cycles
      */
     private validateWorkflow(workflow: Workflow<any>) {
         const ids = new Set<string>();
 
         for (const node of workflow.nodes) {
             if (ids.has(node.id)) {
-                throw new Error(`WorkflowRunner: duplicate node id '${node.id}'`);
+                throw new WorkflowError(`WorkflowRunner: duplicate node id '${node.id}'`);
             }
             ids.add(node.id);
         }
@@ -589,7 +590,7 @@ export class WorkflowRunner {
         for (const node of workflow.nodes) {
             for (const dep of node.dependsOn ?? []) {
                 if (!ids.has(dep)) {
-                    throw new Error(`WorkflowRunner: node '${node.id}' depends on unknown node '${dep}'`);
+                    throw new WorkflowError(`WorkflowRunner: node '${node.id}' depends on unknown node '${dep}'`);
                 }
             }
         }
@@ -601,7 +602,7 @@ export class WorkflowRunner {
      * Detects dependency cycles via DFS.
      *
      * @param workflow Workflow definition
-     * @throws {Error} When a cycle is found
+     * @throws {WorkflowError} When a cycle is found
      */
     private validateNoCycles(workflow: Workflow<any>) {
         const visiting = new Set<string>();
@@ -613,7 +614,7 @@ export class WorkflowRunner {
                 return;
             }
             if (visiting.has(nodeId)) {
-                throw new Error(`WorkflowRunner: cycle detected at node '${nodeId}'`);
+                throw new WorkflowError(`WorkflowRunner: cycle detected at node '${nodeId}'`);
             }
 
             visiting.add(nodeId);
@@ -649,8 +650,8 @@ export class WorkflowRunner {
         return error.name === "WorkflowNodeTimeoutError";
     }
 
-    private makeAbortError(): Error {
-        const abortError = new Error("Workflow aborted");
+    private makeAbortError(): WorkflowError {
+        const abortError = new WorkflowError("Workflow aborted");
         abortError.name = "AbortError";
         return abortError;
     }

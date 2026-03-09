@@ -10,6 +10,8 @@ import {
     ProviderCapability,
     MultiModalExecutionContext
 } from "#root/index.js";
+import { createApprovalGateExecutor } from "../../capabilities/ApprovalGateCapabilityImpl.js";
+import { createSaveFileExecutor } from "../../capabilities/SaveFileCapabilityImpl.js";
 
 /**
  * Resolves the provider capability type for a given capability key.
@@ -266,6 +268,12 @@ export function createDefaultExecutors(): CapabilityExecutorRegistry {
         streaming: false,
         invoke: (capability, input, ctx, signal) => capability.remixVideo(input, ctx, signal)
     });
+
+    // Register built-in approval-gate executor (provider-agnostic).
+    registry.register(CapabilityKeys.ApprovalGateCapabilityKey, createApprovalGateExecutor());
+
+    // Register built-in save-file executor (provider-agnostic).
+    registry.register(CapabilityKeys.SaveFileCapabilityKey, createSaveFileExecutor());
 
     // Register default non-streaming moderation executor
     registry.register(CapabilityKeys.ModerationCapabilityKey, {

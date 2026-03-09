@@ -79,6 +79,8 @@ describe("CapabilityExecutorRegistry", () => {
         expect(registry.get(CapabilityKeys.ImageEditStreamCapabilityKey).streaming).toBe(true);
         expect(registry.get(CapabilityKeys.EmbedCapabilityKey).streaming).toBe(false);
         expect(registry.get(CapabilityKeys.ModerationCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.ApprovalGateCapabilityKey).streaming).toBe(false);
+        expect(registry.get(CapabilityKeys.SaveFileCapabilityKey).streaming).toBe(false);
     });
 
     it("default non-streaming executors call the mapped capability methods", async () => {

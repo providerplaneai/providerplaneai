@@ -39,6 +39,7 @@ import {
     NormalizedImage,
     NormalizedImageAnalysis,
     NormalizedModeration,
+    ProviderCapability,
     NormalizedVideo,
     NormalizedVideoAnalysis
 } from "#root/index.js";
@@ -49,6 +50,8 @@ import {
  * Used to register, check, and route capabilities in BaseProvider/AIClient.
  */
 export const CapabilityKeys = {
+    ApprovalGateCapabilityKey: "approvalGate",
+    SaveFileCapabilityKey: "saveFile",
     ChatCapabilityKey: "chat",
     ChatStreamCapabilityKey: "chatStream",
     AudioTranscriptionCapabilityKey: "audioTranscription",
@@ -83,6 +86,8 @@ export type CapabilityKeyType = BuiltInCapabilityKey | CustomCapabilityKey;
  * - Consumers can safely cast to the capability interface after checking with hasCapability()
  */
 export interface CapabilityMap {
+    [CapabilityKeys.ApprovalGateCapabilityKey]: ProviderCapability;
+    [CapabilityKeys.SaveFileCapabilityKey]: ProviderCapability;
     [CapabilityKeys.ChatCapabilityKey]: ChatCapability<ClientChatRequest, NormalizedChatMessage>;
     [CapabilityKeys.ChatStreamCapabilityKey]: ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>;
     [CapabilityKeys.AudioTranscriptionCapabilityKey]: AudioTranscriptionCapability<

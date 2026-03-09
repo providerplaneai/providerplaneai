@@ -10,7 +10,8 @@ import {
     WorkflowRunner,
     WorkflowDefaults,
     WorkflowRetryPolicy,
-    WorkflowState
+    WorkflowState,
+    WorkflowError
 } from "#root/index.js";
 
 type WorkflowNodeFn = (
@@ -63,7 +64,7 @@ export class WorkflowBuilder<TOutput = unknown> {
      */
     node(id: string, fn: WorkflowNodeFn, options?: WorkflowNodeOptions): this {
         if (this.nodes.some((n) => n.id === id)) {
-            throw new Error(`WorkflowBuilder: duplicate node id '${id}'`);
+            throw new WorkflowError(`WorkflowBuilder: duplicate node id '${id}'`);
         }
 
         // Store node definition as plain data; execution behavior lives in WorkflowRunner.

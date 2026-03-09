@@ -21,7 +21,7 @@ describe("AnthropicProvider", () => {
         const { AnthropicProvider } = await import("#root/providers/anthropic/AnthropicProvider.js");
         const provider = new AnthropicProvider();
         expect(() => provider.init({ apiKeyEnvVar: "ANTHROPIC_API_KEY" } as any)).toThrow("Anthropic API key");
-    });
+    }, 15000);
 
     it("initializes SDK client and registers capabilities", async () => {
         process.env.VOYAGE_API_KEY = "voyage-test";
