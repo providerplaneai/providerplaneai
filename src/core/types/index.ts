@@ -7,3 +7,4 @@ export * from "./artifacts/index.js";
 export * from "./timeline/index.js";
 export * from "./NormalizedUserInput.js";
 export * from "./jobs/index.js";
+export * from "./workflow/index.js";

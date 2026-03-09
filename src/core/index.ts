@@ -3,3 +3,5 @@ export * from "./config/index.js"; // Configuration loader
 export * from "./provider/index.js"; // Provider base, registry, and capabilities
 export * from "./types/index.js"; // Core types (requests, responses, config, context)
 export * from "./utils/index.js"; // Shared utilities (logging, request context, audio helpers, etc.)
+export * from "./jobs/index.js"; // Job system (Job interface, JobManager, etc.)
+export * from "./workflow/index.js"; // Workflow engine and related types

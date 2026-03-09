@@ -23,15 +23,18 @@ const modulePaths = [
     "#root/core/types/exceptions/ExecutionPolicyError.js",
     "#root/core/types/exceptions/index.js",
     "#root/core/types/index.js",
-    "#root/core/types/jobs/GenericJob.js",
     "#root/core/types/jobs/Job.js",
-    "#root/core/types/jobs/JobManager.js",
     "#root/core/types/jobs/JobSnapshot.js",
     "#root/core/types/jobs/index.js",
     "#root/core/types/timeline/TimelineArtifacts.js",
     "#root/core/types/timeline/TimelineEvents.js",
     "#root/core/types/timeline/TimelineSnapshot.js",
-    "#root/core/types/timeline/index.js"
+    "#root/core/types/timeline/index.js",
+    "#root/core/types/workflow/WorkflowTypes.js",
+    "#root/core/types/workflow/index.js",
+    "#root/core/jobs/GenericJob.js",
+    "#root/core/jobs/JobManager.js",
+    "#root/core/jobs/index.js"
 ];
 
 describe("core/types module coverage", () => {
@@ -42,4 +45,3 @@ describe("core/types module coverage", () => {
         }
     });
 });
-
