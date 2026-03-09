@@ -11,6 +11,7 @@ import {
     WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION,
     WorkflowNode,
     WorkflowState,
+    WorkflowStepAttemptMetric,
     WorkflowStepResult,
     WorkflowError
 } from "#root/index.js";
@@ -203,7 +204,10 @@ export class WorkflowRunner {
             workflowId: workflow.id,
             status: "running",
             results: resumeSnapshot?.results ? [...resumeSnapshot.results] : [],
-            state
+            state,
+            startedAt,
+            endedAt: resumeSnapshot?.endedAt,
+            durationMs: resumeSnapshot?.durationMs
         };
 
         const completed = new Set<string>(resumeSnapshot?.completedNodeIds ?? []);
@@ -353,6 +357,8 @@ export class WorkflowRunner {
             }
 
             execution.status = "completed";
+            execution.endedAt = Date.now();
+            execution.durationMs = execution.endedAt - startedAt;
             this.hooks?.onWorkflowComplete?.(workflow.id, execution);
             await this.persistExecutionSnapshot(execution, completed, startedAt, workflow.version);
 
@@ -365,6 +371,8 @@ export class WorkflowRunner {
             const normalized = err instanceof Error ? err : new Error(String(err));
             const isAbort = signal?.aborted || aborted || this.isAbortError(normalized);
             execution.status = isAbort ? "aborted" : "error";
+            execution.endedAt = Date.now();
+            execution.durationMs = execution.endedAt - startedAt;
             if (!isAbort) {
                 this.hooks?.onWorkflowError?.(workflow.id, normalized, execution);
             }
@@ -394,7 +402,9 @@ export class WorkflowRunner {
             output: execution.output,
             state: execution.state,
             startedAt,
-            updatedAt: Date.now()
+            updatedAt: Date.now(),
+            endedAt: execution.endedAt,
+            durationMs: execution.durationMs
         };
         await this.persistence.persistWorkflowExecution(snapshot);
     }
@@ -481,6 +491,7 @@ export class WorkflowRunner {
         const timeoutMs = node.timeoutMs ?? workflowDefaults?.timeoutMs;
         const maxAttempts = Math.max(retry?.attempts ?? 1, 1);
         const backoffMs = Math.max(retry?.backoffMs ?? 0, 0);
+        const attemptMetrics: WorkflowStepAttemptMetric[] = [];
 
         let lastError: Error | undefined;
 
@@ -491,6 +502,7 @@ export class WorkflowRunner {
 
             let jobId: string | undefined;
             let timeoutId: ReturnType<typeof setTimeout> | undefined;
+            const attemptStartTime = Date.now();
 
             try {
                 const startTime = Date.now();
@@ -521,6 +533,14 @@ export class WorkflowRunner {
 
                 const endTime = Date.now();
                 const durationMs = endTime - startTime;
+                attemptMetrics.push({
+                    attempt,
+                    jobId: job.id,
+                    startedAt: attemptStartTime,
+                    endedAt: endTime,
+                    durationMs: endTime - attemptStartTime,
+                    status: "completed"
+                });
 
                 return {
                     stepId: node.id,
@@ -528,10 +548,31 @@ export class WorkflowRunner {
                     outputs: [output],
                     startedAt: startTime,
                     endedAt: endTime,
-                    durationMs
+                    durationMs,
+                    attemptCount: attemptMetrics.length,
+                    attempts: attemptMetrics,
+                    retryCount: Math.max(attemptMetrics.length - 1, 0),
+                    totalAttemptDurationMs: attemptMetrics.reduce((sum, metric) => sum + metric.durationMs, 0)
                 };
             } catch (err) {
                 lastError = err instanceof Error ? err : new Error(String(err));
+                const attemptEndedAt = Date.now();
+                attemptMetrics.push({
+                    attempt,
+                    jobId,
+                    startedAt: attemptStartTime,
+                    endedAt: attemptEndedAt,
+                    durationMs: attemptEndedAt - attemptStartTime,
+                    status: signal?.aborted
+                        ? "aborted"
+                        : this.isTimeoutError(lastError)
+                          ? "timeout"
+                          : this.isAbortError(lastError)
+                            ? "aborted"
+                            : "error",
+                    errorName: lastError.name,
+                    errorMessage: lastError.message
+                });
 
                 if (jobId && (signal?.aborted || this.isTimeoutError(lastError))) {
                     try {

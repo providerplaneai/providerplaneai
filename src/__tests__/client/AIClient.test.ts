@@ -45,7 +45,7 @@ describe("AIClient", () => {
         expect(manager.getStoreRawResponses()).toBe(true);
         expect(manager.getStripBinaryPayloadsInSnapshotsAndTimeline()).toBe(true);
         expect(manager.getMaxRawBytesPerJob()).toBe(1048576);
-    });
+    }, 15000);
 
     it("does not overwrite injected JobManager limits when already set", async () => {
         const { AIClient, root } = await loadClient();

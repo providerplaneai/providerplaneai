@@ -146,6 +146,16 @@ describe("WorkflowRunner", () => {
         expect(execution.status).toBe("completed");
         expect(execution.state.values.retrying).toBe("ok");
         expect(jobManager.runJob).toHaveBeenCalledTimes(2);
+        expect(execution.startedAt).toEqual(expect.any(Number));
+        expect(execution.endedAt).toEqual(expect.any(Number));
+        expect(execution.durationMs).toEqual(expect.any(Number));
+
+        const step = execution.results.find((result) => result.stepId === "retrying");
+        expect(step?.attemptCount).toBe(2);
+        expect(step?.retryCount).toBe(1);
+        expect(step?.totalAttemptDurationMs).toEqual(expect.any(Number));
+        expect(step?.attempts?.map((attemptMetric) => attemptMetric.status)).toEqual(["error", "completed"]);
+        expect(step?.attempts?.[0]?.errorMessage).toContain("first failure");
     });
 
     it("throws when retries are exhausted", async () => {
@@ -562,5 +572,59 @@ describe("WorkflowRunner", () => {
 
         await expect(runPromise).rejects.toThrow("Workflow aborted");
         expect(jobManager.abortJob).toHaveBeenCalled();
+    });
+
+    it("aborts an in-flight node job when workflow signal is aborted", async () => {
+        const { runner, jobManager } = makeRunner();
+        const slowDeferred = deferred<string>();
+        const controller = new AbortController();
+        jobManager.abortJob.mockImplementation((_id: string) => {
+            slowDeferred.reject(new Error("Workflow aborted"));
+        });
+
+        const workflow = new WorkflowBuilder("wf-abort-single")
+            .node("slow", () => makeJob("job-slow-abort", slowDeferred.promise))
+            .build();
+
+        const runPromise = runner.run(workflow, {} as any, undefined, controller.signal);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        controller.abort();
+
+        await expect(runPromise).rejects.toThrow("Workflow aborted");
+        expect(jobManager.abortJob).toHaveBeenCalledWith("job-slow-abort", "Workflow aborted");
+    });
+
+    it("aborts all in-flight parallel node jobs when workflow signal is aborted", async () => {
+        const { runner, jobManager } = makeRunner();
+        const aDeferred = deferred<string>();
+        const bDeferred = deferred<string>();
+        const cDeferred = deferred<string>();
+        const controller = new AbortController();
+        jobManager.abortJob.mockImplementation((id: string) => {
+            if (id === "job-a-abort") {
+                aDeferred.reject(new Error("Workflow aborted"));
+            } else if (id === "job-b-abort") {
+                bDeferred.reject(new Error("Workflow aborted"));
+            } else if (id === "job-c-abort") {
+                cDeferred.reject(new Error("Workflow aborted"));
+            }
+        });
+
+        const workflow = new WorkflowBuilder("wf-abort-parallel")
+            .node("a", () => makeJob("job-a-abort", aDeferred.promise))
+            .after("a", "b", () => makeJob("job-b-abort", bDeferred.promise))
+            .after("a", "c", () => makeJob("job-c-abort", cDeferred.promise))
+            .build();
+
+        const runPromise = runner.run(workflow, {} as any, undefined, controller.signal);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        aDeferred.resolve("out-a");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        controller.abort();
+
+        await expect(runPromise).rejects.toThrow("Workflow aborted");
+        expect(jobManager.abortJob).toHaveBeenCalledWith("job-b-abort", "Workflow aborted");
+        expect(jobManager.abortJob).toHaveBeenCalledWith("job-c-abort", "Workflow aborted");
     });
 });

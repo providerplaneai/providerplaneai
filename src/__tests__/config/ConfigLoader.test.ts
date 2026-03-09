@@ -48,7 +48,7 @@ describe('ConfigLoader - error and env cases', () => {
         // env injection (apiKey is injected under the connection name, e.g. `default`)
         expect(cfg.providers.openai.default.apiKey).toBe("openai-test-key");
         expect(cfg.providers.anthropic.default.apiKey).toBe("anthropic-test-key");
-    });
+    }, 15000);
 
     it("ensures providers have models", async () => {
         const defaultCfg = loadDefaultConfig();

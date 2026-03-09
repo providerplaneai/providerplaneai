@@ -126,6 +126,38 @@ export interface WorkflowStepResult {
     endedAt?: number;
     /** Total duration in milliseconds. */
     durationMs?: number;
+    /** Number of execution attempts made for this node. */
+    attemptCount?: number;
+    /** Per-attempt metrics in execution order (attempt 1..N). */
+    attempts?: WorkflowStepAttemptMetric[];
+    /** Number of retries performed (attemptCount - 1). */
+    retryCount?: number;
+    /** Sum of all attempt durations in milliseconds. */
+    totalAttemptDurationMs?: number;
+}
+
+/**
+ * Metrics for a single node attempt within a workflow step execution.
+ *
+ * @public
+ */
+export interface WorkflowStepAttemptMetric {
+    /** 1-based attempt index. */
+    attempt: number;
+    /** Optional job id created for this attempt. */
+    jobId?: string;
+    /** Attempt start timestamp (epoch ms). */
+    startedAt: number;
+    /** Attempt end timestamp (epoch ms). */
+    endedAt: number;
+    /** Attempt duration in milliseconds. */
+    durationMs: number;
+    /** Attempt terminal status. */
+    status: "completed" | "error" | "timeout" | "aborted";
+    /** Error name when attempt did not complete successfully. */
+    errorName?: string;
+    /** Error message when attempt did not complete successfully. */
+    errorMessage?: string;
 }
 
 /**
@@ -145,6 +177,12 @@ export interface WorkflowExecution<TOutput = unknown> {
     output?: TOutput;
     /** Final shared workflow state snapshot. */
     state: WorkflowState;
+    /** Workflow start timestamp (epoch ms). */
+    startedAt?: number;
+    /** Workflow end timestamp (epoch ms). */
+    endedAt?: number;
+    /** Total workflow duration in milliseconds. */
+    durationMs?: number;
 }
 
 /**
@@ -174,4 +212,8 @@ export interface WorkflowExecutionSnapshot<TOutput = unknown> {
     startedAt: number;
     /** Last persisted timestamp (epoch ms). */
     updatedAt: number;
+    /** Workflow end timestamp (epoch ms) when terminal. */
+    endedAt?: number;
+    /** Total workflow duration in milliseconds when terminal. */
+    durationMs?: number;
 }

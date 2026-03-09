@@ -82,6 +82,18 @@ Inside a node, use the runner argument:
 
 Nested chunk events are forwarded via `onNodeChunk`.
 
+## Workflow Guarantees
+
+- Execution model: DAG scheduling with dependency ordering and parallel execution for independent nodes.
+- Delivery semantics: at-least-once node execution. If a process crashes and work is resumed, a node may run again unless your node logic is idempotent.
+- Retry semantics: node `retry.attempts` includes the first attempt. `retry.backoffMs` is a fixed delay between attempts.
+- Timeout semantics: node/workflow default `timeoutMs` is a hard guard for the node attempt; timed-out attempts are aborted through `JobManager.abortJob(...)`.
+- Skip semantics: if `condition(state)` returns `false`, the node is marked completed as `skipped` and emits no job.
+- Failure semantics: if a node exhausts retries, workflow status becomes `error` and downstream dependents do not execute.
+- Abort semantics: aborting the workflow signal marks the workflow `aborted` and best-effort aborts active node jobs.
+- Resume semantics: `resume(...)` restarts from the last persisted snapshot for that workflow id, including completed/skipped nodes already recorded.
+- Observability payloads: `WorkflowExecution` includes workflow timing (`startedAt`, `endedAt`, `durationMs`), and each `WorkflowStepResult` can include attempt metrics (`attemptCount`, `attempts`, `retryCount`, `totalAttemptDurationMs`).
+
 ## Cancellation
 
 `WorkflowRunner.run(...)` accepts an optional `AbortSignal`.
