@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { WorkflowBuilder } from "#root/core/workflow/WorkflowBuilder.js";
 import { WorkflowRunner } from "#root/core/workflow/WorkflowRunner.js";
+import { WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION } from "#root/index.js";
 
 function makeRunner() {
     const jobManager = {
-        runJob: vi.fn()
+        runJob: vi.fn(),
+        abortJob: vi.fn()
     } as any;
     const client = { marker: "client" } as any;
     const runner = new WorkflowRunner(jobManager, client);
@@ -29,6 +31,25 @@ function deferred<T>() {
 }
 
 describe("WorkflowRunner", () => {
+    it("supports options-object constructor signature", async () => {
+        const jobManager = { runJob: vi.fn(), abortJob: vi.fn() } as any;
+        const client = {} as any;
+        const onWorkflowStart = vi.fn();
+        const runner = new WorkflowRunner({
+            jobManager,
+            client,
+            hooks: { onWorkflowStart }
+        });
+
+        const workflow = new WorkflowBuilder("wf-options-ctor")
+            .node("a", () => makeJob("job-a", Promise.resolve("a")))
+            .build();
+
+        const execution = await runner.run(workflow, {} as any);
+        expect(execution.status).toBe("completed");
+        expect(onWorkflowStart).toHaveBeenCalledWith("wf-options-ctor");
+    });
+
     it("runs sequential DAG nodes and propagates state", async () => {
         const { runner, jobManager, client } = makeRunner();
         const callOrder: string[] = [];
@@ -39,12 +60,12 @@ describe("WorkflowRunner", () => {
                 callOrder.push("a");
                 return makeJob("job-a", Promise.resolve("out-a"));
             })
-            .after("a", "b", (_ctx, _c, state) => {
+            .after("a", "b", (_ctx, _c, _runner, state) => {
                 expect(state.values.a).toBe("out-a");
                 callOrder.push("b");
                 return makeJob("job-b", Promise.resolve("out-b"));
             })
-            .after("b", "c", (_ctx, _c, state) => {
+            .after("b", "c", (_ctx, _c, _runner, state) => {
                 expect(state.values.b).toBe("out-b");
                 callOrder.push("c");
                 return makeJob("job-c", Promise.resolve("out-c"));
@@ -71,7 +92,7 @@ describe("WorkflowRunner", () => {
             .node("a", () => makeJob("job-a", aDeferred.promise))
             .after("a", "b", () => makeJob("job-b", bDeferred.promise))
             .after("a", "c", () => makeJob("job-c", cDeferred.promise))
-            .after(["b", "c"], "d", (_ctx, _client, state) => {
+            .after(["b", "c"], "d", (_ctx, _client, _runner, state) => {
                 dStarted = true;
                 expect(state.values.b).toBe("out-b");
                 expect(state.values.c).toBe("out-c");
@@ -84,14 +105,14 @@ describe("WorkflowRunner", () => {
         // First batch only runs A.
         await Promise.resolve();
         expect(jobManager.runJob).toHaveBeenCalledTimes(1);
-        expect(jobManager.runJob).toHaveBeenCalledWith("job-a", expect.anything());
+        expect(jobManager.runJob).toHaveBeenCalledWith("job-a", expect.anything(), expect.any(Function));
 
         // Resolving A unlocks B/C in the next scheduler pass.
         aDeferred.resolve("out-a");
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        expect(jobManager.runJob).toHaveBeenCalledWith("job-b", expect.anything());
-        expect(jobManager.runJob).toHaveBeenCalledWith("job-c", expect.anything());
+        expect(jobManager.runJob).toHaveBeenCalledWith("job-b", expect.anything(), expect.any(Function));
+        expect(jobManager.runJob).toHaveBeenCalledWith("job-c", expect.anything(), expect.any(Function));
         expect(dStarted).toBe(false);
 
         bDeferred.resolve("out-b");
@@ -100,7 +121,7 @@ describe("WorkflowRunner", () => {
         const execution = await runPromise;
         expect(dStarted).toBe(true);
         expect(execution.state.values.d).toBe("out-d");
-        expect(jobManager.runJob).toHaveBeenCalledWith("job-d", expect.anything());
+        expect(jobManager.runJob).toHaveBeenCalledWith("job-d", expect.anything(), expect.any(Function));
     });
 
     it("retries node failures and succeeds before max attempts", async () => {
@@ -183,7 +204,7 @@ describe("WorkflowRunner", () => {
         const { runner } = makeRunner();
 
         const workflow = new WorkflowBuilder<{ summary: string }>("wf-aggregate")
-            .node("a", (_ctx, _client, state) => {
+            .node("a", (_ctx, _client, _runner, state) => {
                 state.values.extra = "state";
                 return makeJob("job-a", Promise.resolve("first"));
             })
@@ -313,5 +334,233 @@ describe("WorkflowRunner", () => {
 
         await expect(runner.run(workflow, {} as any)).rejects.toThrow("exceeded timeout");
         expect(jobManager.runJob).toHaveBeenCalledTimes(1);
+        expect(jobManager.abortJob).toHaveBeenCalledWith("job-slow", "Workflow node timed out");
+    });
+
+    it("applies workflow default retry policy when node retry is not set", async () => {
+        const { runner, jobManager } = makeRunner();
+        let attempt = 0;
+
+        const workflow = {
+            id: "wf-default-retry",
+            defaults: { retry: { attempts: 2, backoffMs: 0 } },
+            nodes: [
+                {
+                    id: "unstable",
+                    run: () => {
+                        attempt += 1;
+                        if (attempt === 1) {
+                            return makeJob("job-default-retry-1", Promise.reject(new Error("first-fail")));
+                        }
+                        return makeJob("job-default-retry-2", Promise.resolve("ok"));
+                    }
+                }
+            ]
+        } as any;
+
+        const execution = await runner.run(workflow, {} as any);
+        expect(execution.status).toBe("completed");
+        expect(execution.state.values.unstable).toBe("ok");
+        expect(jobManager.runJob).toHaveBeenCalledTimes(2);
+    });
+
+    it("applies workflow default timeout when node timeout is not set", async () => {
+        const { runner, jobManager } = makeRunner();
+        const never = new Promise<unknown>(() => undefined);
+
+        const workflow = {
+            id: "wf-default-timeout",
+            defaults: { timeoutMs: 5 },
+            nodes: [
+                {
+                    id: "slow",
+                    run: () => makeJob("job-default-timeout", never)
+                }
+            ]
+        } as any;
+
+        await expect(runner.run(workflow, {} as any)).rejects.toThrow("exceeded timeout");
+        expect(jobManager.abortJob).toHaveBeenCalledWith("job-default-timeout", "Workflow node timed out");
+    });
+
+    it("persists workflow snapshots during execution and completion", async () => {
+        const { jobManager, client } = makeRunner();
+        const persistWorkflowExecution = vi.fn();
+        const runner = new WorkflowRunner(jobManager, client, undefined, {
+            persistWorkflowExecution
+        });
+
+        const workflow = new WorkflowBuilder("wf-persist")
+            .version("v1")
+            .node("a", () => makeJob("job-a", Promise.resolve("out-a")))
+            .after("a", "b", () => makeJob("job-b", Promise.resolve("out-b")))
+            .build();
+
+        await runner.run(workflow, {} as any);
+
+        expect(persistWorkflowExecution).toHaveBeenCalled();
+        const snapshots = persistWorkflowExecution.mock.calls.map((c) => c[0]);
+        expect(snapshots.some((s) => s.status === "running")).toBe(true);
+        expect(snapshots.some((s) => s.status === "completed")).toBe(true);
+        const last = snapshots.at(-1);
+        expect(last.workflowId).toBe("wf-persist");
+        expect(last.workflowVersion).toBe("v1");
+        expect(last.schemaVersion).toBe(WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION);
+        expect(last.completedNodeIds.sort()).toEqual(["a", "b"]);
+    });
+
+    it("resumes from persisted snapshot and only executes remaining nodes", async () => {
+        const { jobManager, client } = makeRunner();
+        const persisted = {
+            schemaVersion: WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION,
+            workflowId: "wf-resume",
+            workflowVersion: "v1",
+            status: "running",
+            completedNodeIds: ["a"],
+            results: [
+                {
+                    stepId: "a",
+                    jobIds: ["job-a"],
+                    outputs: ["out-a"],
+                    startedAt: Date.now() - 1000,
+                    endedAt: Date.now() - 900,
+                    durationMs: 100
+                }
+            ],
+            state: { values: { a: "out-a" } },
+            startedAt: Date.now() - 1000,
+            updatedAt: Date.now() - 900
+        };
+        const runner = new WorkflowRunner(jobManager, client, undefined, {
+            loadWorkflowExecution: vi.fn().mockResolvedValue(persisted),
+            persistWorkflowExecution: vi.fn()
+        });
+
+        const workflow = new WorkflowBuilder("wf-resume")
+            .version("v1")
+            .node("a", () => makeJob("job-a-should-not-run", Promise.resolve("bad")))
+            .after("a", "b", (_ctx, _c, _runner, state) => {
+                expect(state.values.a).toBe("out-a");
+                return makeJob("job-b", Promise.resolve("out-b"));
+            })
+            .build();
+
+        const execution = await runner.resume(workflow, {} as any);
+        expect(execution.status).toBe("completed");
+        expect(execution.state.values.a).toBe("out-a");
+        expect(execution.state.values.b).toBe("out-b");
+        expect(jobManager.runJob).toHaveBeenCalledTimes(1);
+        expect(jobManager.runJob).toHaveBeenCalledWith("job-b", expect.anything(), expect.any(Function));
+    });
+
+    it("rejects resume when snapshot schemaVersion is unsupported", async () => {
+        const { jobManager, client } = makeRunner();
+        const runner = new WorkflowRunner(jobManager, client, undefined, {
+            loadWorkflowExecution: vi.fn().mockResolvedValue({
+                schemaVersion: 999,
+                workflowId: "wf-resume-bad-version",
+                status: "running",
+                completedNodeIds: [],
+                results: [],
+                state: { values: {} },
+                startedAt: Date.now() - 1000,
+                updatedAt: Date.now()
+            })
+        });
+
+        const workflow = new WorkflowBuilder("wf-resume-bad-version")
+            .node("a", () => makeJob("job-a", Promise.resolve("a")))
+            .build();
+
+        await expect(runner.resume(workflow, {} as any)).rejects.toThrow("unsupported workflow snapshot schemaVersion");
+    });
+
+    it("rejects resume when snapshot workflowVersion differs", async () => {
+        const { jobManager, client } = makeRunner();
+        const runner = new WorkflowRunner(jobManager, client, undefined, {
+            loadWorkflowExecution: vi.fn().mockResolvedValue({
+                schemaVersion: WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION,
+                workflowId: "wf-resume-version",
+                workflowVersion: "v1",
+                status: "running",
+                completedNodeIds: [],
+                results: [],
+                state: { values: {} },
+                startedAt: Date.now() - 1000,
+                updatedAt: Date.now()
+            })
+        });
+
+        const workflow = new WorkflowBuilder("wf-resume-version")
+            .version("v2")
+            .node("a", () => makeJob("job-a", Promise.resolve("a")))
+            .build();
+
+        await expect(runner.resume(workflow, {} as any)).rejects.toThrow("snapshot workflowVersion");
+    });
+
+    it("rejects resume snapshot when completed node is missing a completed dependency", async () => {
+        const { jobManager, client } = makeRunner();
+        const runner = new WorkflowRunner(jobManager, client, undefined, {
+            loadWorkflowExecution: vi.fn().mockResolvedValue({
+                schemaVersion: WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION,
+                workflowId: "wf-resume-deps",
+                status: "running",
+                completedNodeIds: ["b"],
+                results: [
+                    {
+                        stepId: "b",
+                        jobIds: ["job-b"],
+                        outputs: ["out-b"]
+                    }
+                ],
+                state: { values: { b: "out-b" } },
+                startedAt: Date.now() - 1000,
+                updatedAt: Date.now()
+            })
+        });
+
+        const workflow = new WorkflowBuilder("wf-resume-deps")
+            .node("a", () => makeJob("job-a", Promise.resolve("a")))
+            .after("a", "b", () => makeJob("job-b", Promise.resolve("b")))
+            .build();
+
+        await expect(runner.resume(workflow, {} as any)).rejects.toThrow("missing completed dependency");
+    });
+
+    it("aborts nested child node job when parent workflow signal is aborted", async () => {
+        const jobs = new Map<string, any>();
+        const childDeferred = deferred<unknown>();
+        const jobManager = {
+            addJob: vi.fn((job: any) => {
+                jobs.set(job.id, job);
+            }),
+            runJob: vi.fn((id: string, ctx: any, onChunk?: (chunk: any) => void) => {
+                const registered = jobs.get(id);
+                if (registered?.run) {
+                    void registered.run(ctx, undefined, onChunk);
+                }
+                return registered;
+            }),
+            abortJob: vi.fn((_id: string) => {
+                childDeferred.reject(new Error("Workflow aborted"));
+            })
+        } as any;
+
+        const runner = new WorkflowRunner(jobManager, {} as any);
+        const childWorkflow = new WorkflowBuilder("child-abort")
+            .node("childSlow", () => makeJob("job-child-never", childDeferred.promise))
+            .build();
+        const parentWorkflow = new WorkflowBuilder("parent-abort")
+            .node("nested", (_ctx, _c, runner) => runner.createWorkflowJob(childWorkflow))
+            .build();
+
+        const controller = new AbortController();
+        const runPromise = runner.run(parentWorkflow, {} as any, undefined, controller.signal);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        controller.abort();
+
+        await expect(runPromise).rejects.toThrow("Workflow aborted");
+        expect(jobManager.abortJob).toHaveBeenCalled();
     });
 });

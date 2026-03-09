@@ -97,7 +97,6 @@ export class GeminiImageAnalysisCapabilityImpl
         executionContext?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedImageAnalysis[]>> {
-        // Ensure the provider has credentials and is initialized
         this.provider.ensureInitialized();
 
         const { input, options, context } = request;
@@ -105,7 +104,6 @@ export class GeminiImageAnalysisCapabilityImpl
         const contextImages = executionContext?.getLatestImages() ?? [];
         const images = input.images ?? contextImages ?? [];
 
-        // Defensive guard
         if (!images.length) {
             throw new Error("At least one image is required for analysis");
         }
@@ -114,22 +112,12 @@ export class GeminiImageAnalysisCapabilityImpl
             throw new Error("Request aborted");
         }
 
-        // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisCapabilityKey, options);
 
-        // Prompt + inline image bytes in a single user turn keeps ordering deterministic.
         const contents = [
             {
                 role: "user",
-                parts: [
-                    { text: prompt },
-                    ...images.map((img) => ({
-                        inlineData: {
-                            mimeType: img.mimeType ?? "image/png",
-                            data: img.base64!
-                        }
-                    }))
-                ]
+                parts: [{ text: prompt }, ...images.map((img) => this.toGeminiImagePart(img))]
             }
         ];
 
@@ -143,12 +131,10 @@ export class GeminiImageAnalysisCapabilityImpl
             ...(merged.providerParams ?? {})
         });
 
-        // Gemini can return imperfect JSON; parseBestEffortJson tolerates minor formatting drift.
-        const parsed = parseBestEffortJson<GeminiImageAnalysisPayload>(response.text ?? "");
+        const responseText = this.extractGeminiResponseText(response);
+        const parsed = parseBestEffortJson<GeminiImageAnalysisPayload>(this.stripMarkdownCodeFence(responseText));
+        const normalized = this.normalizeGeminiAnalyses(parsed, images, responseText);
 
-        const normalized = this.normalizeGeminiAnalyses(parsed, images);
-
-        // Return provider-agnostic normalized response.
         return {
             output: normalized,
             rawResponse: response,
@@ -159,28 +145,13 @@ export class GeminiImageAnalysisCapabilityImpl
                 model: merged.model,
                 status: "completed",
                 requestId: context?.requestId,
-                // Useful telemetry signal when model emits fewer/more objects than input images.
-                countsMatch: parsed.length === images.length
+                countsMatch: normalized.length === images.length
             }
         };
     }
 
     /**
      * Analyze images with streaming output using Gemini.
-     *
-     * IMPORTANT:
-     * - Gemini does NOT stream structured objects
-     * - It streams raw text tokens
-     * - When multiple images are analyzed, Gemini emits
-     *   MULTIPLE JSON OBJECTS back-to-back, separated by newlines
-     *
-     * Example streamed text:
-     *   { ...image 0 json... }
-     *   { ...image 1 json... }
-     *
-     * This implementation:
-     * - Accumulates text chunks
-     * - Emits ONE final chunk (OpenAI-compatible semantics)
      */
     async *analyzeImageStream(
         request: AIRequest<ClientImageAnalysisRequest>,
@@ -209,15 +180,7 @@ export class GeminiImageAnalysisCapabilityImpl
                 contents: [
                     {
                         role: "user",
-                        parts: [
-                            { text: prompt },
-                            ...images.map((img) => ({
-                                inlineData: {
-                                    mimeType: img.mimeType ?? "image/png",
-                                    data: img.base64!
-                                }
-                            }))
-                        ]
+                        parts: [{ text: prompt }, ...images.map((img) => this.toGeminiImagePart(img))]
                     }
                 ],
                 config: {
@@ -227,7 +190,6 @@ export class GeminiImageAnalysisCapabilityImpl
                 ...(merged.providerParams ?? {})
             });
 
-            // Gemini streaming is treated as transport only.
             for await (const chunk of stream) {
                 if (signal?.aborted) {
                     throw new Error("Request aborted");
@@ -238,9 +200,8 @@ export class GeminiImageAnalysisCapabilityImpl
                 }
             }
 
-            const parsed = parseBestEffortJson<GeminiImageAnalysisPayload>(accumulatedText);
-
-            const normalized = this.normalizeGeminiAnalyses(parsed, images);
+            const parsed = parseBestEffortJson<GeminiImageAnalysisPayload>(this.stripMarkdownCodeFence(accumulatedText));
+            const normalized = this.normalizeGeminiAnalyses(parsed, images, accumulatedText);
 
             yield {
                 output: normalized,
@@ -253,8 +214,7 @@ export class GeminiImageAnalysisCapabilityImpl
                     model: merged.model,
                     status: "completed",
                     requestId: context?.requestId,
-                    // Lets callers detect partial/misaligned structured output quickly.
-                    countsMatch: parsed.length === images.length
+                    countsMatch: normalized.length === images.length
                 }
             };
         } catch (err) {
@@ -281,13 +241,18 @@ export class GeminiImageAnalysisCapabilityImpl
 
     private normalizeGeminiAnalyses(
         payload: GeminiImageAnalysisPayload | GeminiImageAnalysisPayload[],
-        images: { id?: string }[]
+        images: { id?: string }[],
+        rawText?: string
     ): NormalizedImageAnalysis[] {
-        // Single-object and array outputs are both accepted to keep parsing resilient.
-        const items = Array.isArray(payload) ? payload : [payload];
+        let items = Array.isArray(payload) ? payload : [payload];
+
+        // If structured JSON parsing produced an empty payload, keep the raw text as description
+        // so callers still get useful analysis output.
+        if (this.isEffectivelyEmptyPayload(items) && typeof rawText === "string" && rawText.trim().length > 0) {
+            items = [{ description: rawText.trim() }];
+        }
 
         return items.map((item, index) => ({
-            // Prefer explicit imageIndex from model output; otherwise fall back to array order.
             id: images[item.imageIndex ?? index]?.id ?? crypto.randomUUID(),
             description: item.description,
             tags: item.tags?.filter(Boolean),
@@ -300,5 +265,110 @@ export class GeminiImageAnalysisCapabilityImpl
                 : { flagged: false, provider: AIProvider.Gemini },
             raw: item
         }));
+    }
+
+    private isEffectivelyEmptyPayload(items: GeminiImageAnalysisPayload[]): boolean {
+        if (!items.length) {
+            return true;
+        }
+
+        return items.every((item) => {
+            const hasDescription = typeof item.description === "string" && item.description.trim().length > 0;
+            const hasTags =
+                Array.isArray(item.tags) && item.tags.some((tag) => typeof tag === "string" && tag.trim().length > 0);
+            const hasText =
+                Array.isArray(item.text) && item.text.some((t) => typeof t?.text === "string" && t.text.trim().length > 0);
+            const hasSafety = typeof item.safety?.flagged === "boolean";
+
+            return !hasDescription && !hasTags && !hasText && !hasSafety;
+        });
+    }
+
+    /**
+     * Converts provider-agnostic image input into Gemini content part shape.
+     */
+    private toGeminiImagePart(img: { base64?: string; url?: string; mimeType?: string }) {
+        const mimeType = img.mimeType ?? "image/png";
+
+        if (typeof img.base64 === "string" && img.base64.length > 0) {
+            return {
+                inlineData: {
+                    mimeType,
+                    data: this.stripDataUriPrefix(img.base64)
+                }
+            };
+        }
+
+        if (typeof img.url === "string" && img.url.length > 0) {
+            // Data URIs are not valid fileUri values for Gemini; convert them to inlineData.
+            if (img.url.startsWith("data:")) {
+                const parsed = this.parseDataUri(img.url);
+                return {
+                    inlineData: {
+                        mimeType: parsed.mimeType ?? mimeType,
+                        data: parsed.base64
+                    }
+                };
+            }
+
+            return {
+                fileData: {
+                    mimeType,
+                    fileUri: img.url
+                }
+            };
+        }
+
+        throw new Error("Gemini image analysis requires image.base64 or image.url");
+    }
+
+    /**
+     * Strips `data:<mime>;base64,` when present.
+     */
+    private stripDataUriPrefix(value: string): string {
+        const marker = "base64,";
+        const idx = value.toLowerCase().indexOf(marker);
+        if (idx >= 0) {
+            return value.slice(idx + marker.length).trim();
+        }
+        return value.trim();
+    }
+
+    private parseDataUri(dataUri: string): { mimeType?: string; base64: string } {
+        const match = dataUri.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/i);
+        if (!match) {
+            return { base64: this.stripDataUriPrefix(dataUri) };
+        }
+        return {
+            mimeType: match[1],
+            base64: (match[2] ?? "").trim()
+        };
+    }
+
+    /**
+     * Gemini can place text in either top-level `text` or nested candidate parts.
+     * Prefer top-level text, then fall back to concatenated candidate-part text.
+     */
+    private extractGeminiResponseText(response: any): string {
+        if (typeof response?.text === "string" && response.text.length > 0) {
+            return response.text;
+        }
+
+        const candidateTexts =
+            response?.candidates
+                ?.flatMap((candidate: any) => candidate?.content?.parts ?? [])
+                ?.map((part: any) => (typeof part?.text === "string" ? part.text : ""))
+                ?.filter((t: string) => t.length > 0) ?? [];
+
+        return candidateTexts.join("\n");
+    }
+
+    /**
+     * Gemini may wrap JSON in markdown code fences. Remove a single outer fence block.
+     */
+    private stripMarkdownCodeFence(value: string): string {
+        const trimmed = value.trim();
+        const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+        return match?.[1]?.trim() ?? trimmed;
     }
 }

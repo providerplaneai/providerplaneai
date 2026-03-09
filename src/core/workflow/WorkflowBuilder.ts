@@ -1,14 +1,24 @@
 import {
     AIClient,
+    AIRequest,
+    CapabilityKeyType,
     GenericJob,
     MultiModalExecutionContext,
+    ProviderRef,
     Workflow,
     WorkflowNode,
+    WorkflowRunner,
+    WorkflowDefaults,
     WorkflowRetryPolicy,
     WorkflowState
 } from "#root/index.js";
 
-type WorkflowNodeFn = (ctx: MultiModalExecutionContext, client: AIClient, state: WorkflowState) => GenericJob<any, any>;
+type WorkflowNodeFn = (
+    ctx: MultiModalExecutionContext,
+    client: AIClient,
+    runner: WorkflowRunner,
+    state: WorkflowState
+) => GenericJob<any, any>;
 
 interface WorkflowNodeOptions {
     dependsOn?: string[];
@@ -17,13 +27,24 @@ interface WorkflowNodeOptions {
     timeoutMs?: number;
 }
 
+type WorkflowCapabilityNodeOptions = WorkflowNodeOptions & {
+    providerChain?: ProviderRef[];
+    addToManager?: boolean;
+};
+
+type WorkflowCapabilityRequestFactory<TInput> =
+    | AIRequest<TInput>
+    | ((ctx: MultiModalExecutionContext, state: WorkflowState) => AIRequest<TInput>);
+
 /**
- * Fluent builder used to construct workflow DAG definitions.
+ * Builder used to construct workflow DAG definitions.
  *
  * @typeParam TOutput Final aggregate output type
  */
 export class WorkflowBuilder<TOutput = unknown> {
+    private workflowVersion?: string | number;
     private nodes: WorkflowNode[] = [];
+    private defaultPolicies: WorkflowDefaults = {};
     private aggregator?: (results: Record<string, unknown>, state: WorkflowState) => TOutput;
 
     /**
@@ -93,6 +114,96 @@ export class WorkflowBuilder<TOutput = unknown> {
     }
 
     /**
+     * Sets workflow-level default policies used by runner and capability helpers.
+     * Calling this multiple times merges values (latest wins per field).
+     *
+     * @param defaults Default policy values
+     * @returns Builder instance for chaining
+     */
+    defaults(defaults: WorkflowDefaults): this {
+        this.defaultPolicies = {
+            ...this.defaultPolicies,
+            ...defaults
+        };
+        return this;
+    }
+
+    /**
+     * Sets a workflow version identifier used by resume drift checks.
+     *
+     * @param value Version value
+     * @returns Builder instance for chaining
+     */
+    version(value: string | number): this {
+        this.workflowVersion = value;
+        return this;
+    }
+
+    /**
+     * Adds a capability-backed node without writing the boilerplate `client.createCapabilityJob(...)` call.
+     *
+     * @typeParam C Capability key
+     * @typeParam TInput Capability request input type
+     * @typeParam TOutput Capability output type
+     * @param id Unique node identifier
+     * @param capability Capability key to execute
+     * @param requestOrFactory Static request or state-aware request factory
+     * @param options Optional node + capability-job options
+     * @returns Builder instance for chaining
+     */
+    capabilityNode<C extends CapabilityKeyType, TInput, TOutput>(
+        id: string,
+        capability: C,
+        requestOrFactory: WorkflowCapabilityRequestFactory<TInput>,
+        options?: WorkflowCapabilityNodeOptions
+    ): this {
+        const { providerChain, addToManager, ...nodeOptions } = options ?? {};
+        const resolvedProviderChain = providerChain ?? this.defaultPolicies.providerChain;
+        const resolvedAddToManager = addToManager ?? this.defaultPolicies.addToManager;
+
+        return this.node(
+            id,
+            (ctx, client, _runner, state) =>
+                client.createCapabilityJob<C, TInput, TOutput>(
+                    capability,
+                    typeof requestOrFactory === "function" ? requestOrFactory(ctx, state) : requestOrFactory,
+                    {
+                        providerChain: resolvedProviderChain,
+                        addToManager: resolvedAddToManager
+                    }
+                ),
+            nodeOptions
+        );
+    }
+
+    /**
+     * Adds a capability-backed node with dependencies.
+     *
+     * @typeParam C Capability key
+     * @typeParam TInput Capability request input type
+     * @typeParam TOutput Capability output type
+     * @param dependencies One dependency id or list of dependency ids
+     * @param id Unique node identifier
+     * @param capability Capability key to execute
+     * @param requestOrFactory Static request or state-aware request factory
+     * @param options Optional node + capability-job options
+     * @returns Builder instance for chaining
+     */
+    capabilityAfter<C extends CapabilityKeyType, TInput, TOutput>(
+        dependencies: string | string[],
+        id: string,
+        capability: C,
+        requestOrFactory: WorkflowCapabilityRequestFactory<TInput>,
+        options?: Omit<WorkflowCapabilityNodeOptions, "dependsOn">
+    ): this {
+        const dependsOn = Array.isArray(dependencies) ? dependencies : [dependencies];
+        return this.capabilityNode<C, TInput, TOutput>(id, capability, requestOrFactory, {
+            ...(options ?? {}),
+            dependsOn
+        });
+    }
+
+    /**
      * Builds an immutable workflow definition snapshot.
      *
      * @returns Workflow definition
@@ -100,7 +211,9 @@ export class WorkflowBuilder<TOutput = unknown> {
     build(): Workflow<TOutput> {
         return {
             id: this.id,
+            ...(this.workflowVersion !== undefined ? { version: this.workflowVersion } : {}),
             nodes: [...this.nodes],
+            defaults: { ...this.defaultPolicies },
             aggregate: this.aggregator
         };
     }

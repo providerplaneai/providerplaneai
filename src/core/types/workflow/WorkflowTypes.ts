@@ -1,4 +1,8 @@
-import { AIClient, GenericJob, MultiModalExecutionContext } from "#root/index.js";
+import { AIClient, GenericJob, MultiModalExecutionContext, ProviderRef } from "#root/index.js";
+import type { WorkflowRunner } from "#root/index.js";
+
+/** Current persisted schema version for workflow execution snapshots. */
+export const WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 
 /**
  * High-level lifecycle status for a workflow execution.
@@ -29,6 +33,23 @@ export interface WorkflowState {
 }
 
 /**
+ * Workflow-level default policy values.
+ * Node-level values always take precedence when explicitly set.
+ *
+ * @public
+ */
+export interface WorkflowDefaults {
+    /** Default retry policy applied when a node does not define `retry`. */
+    retry?: WorkflowRetryPolicy;
+    /** Default node timeout applied when a node does not define `timeoutMs`. */
+    timeoutMs?: number;
+    /** Default provider chain for capability-backed builder helpers. */
+    providerChain?: ProviderRef[];
+    /** Default `addToManager` behavior for capability-backed builder helpers. */
+    addToManager?: boolean;
+}
+
+/**
  * Executable node in a workflow DAG.
  *
  * @public
@@ -42,9 +63,15 @@ export interface WorkflowNode {
      *
      * @param ctx Shared multimodal execution context
      * @param client AI client instance
+     * @param runner Workflow runner instance executing this node
      * @param state Shared mutable workflow state
      */
-    run: (ctx: MultiModalExecutionContext, client: AIClient, state: WorkflowState) => GenericJob<any, any>;
+    run: (
+        ctx: MultiModalExecutionContext,
+        client: AIClient,
+        runner: WorkflowRunner,
+        state: WorkflowState
+    ) => GenericJob<any, any>;
 
     /**
      * Optional state-based guard that controls whether the node should execute.
@@ -69,8 +96,12 @@ export interface WorkflowNode {
 export interface Workflow<TOutput = unknown> {
     /** Unique workflow identifier. */
     id: string;
+    /** Optional user-defined workflow version used for resume compatibility checks. */
+    version?: string | number;
     /** DAG nodes to execute. */
     nodes: WorkflowNode[];
+    /** Optional default policies used by runner/builder helpers. */
+    defaults?: WorkflowDefaults;
     /** Optional function used to produce a final workflow output. */
     aggregate?: (results: Record<string, unknown>, state: WorkflowState) => TOutput;
 }
@@ -114,4 +145,33 @@ export interface WorkflowExecution<TOutput = unknown> {
     output?: TOutput;
     /** Final shared workflow state snapshot. */
     state: WorkflowState;
+}
+
+/**
+ * Persistable workflow execution snapshot used for resume/recovery.
+ *
+ * @typeParam TOutput Final aggregated output type
+ * @public
+ */
+export interface WorkflowExecutionSnapshot<TOutput = unknown> {
+    /** Snapshot schema version. */
+    schemaVersion: number;
+    /** Workflow identifier. */
+    workflowId: string;
+    /** Optional workflow version captured at snapshot time. */
+    workflowVersion?: string | number;
+    /** Current workflow status. */
+    status: WorkflowStatus;
+    /** IDs of nodes already completed (including skipped nodes). */
+    completedNodeIds: string[];
+    /** Per-node execution results accumulated so far. */
+    results: WorkflowStepResult[];
+    /** Optional aggregated output when workflow reached terminal completion. */
+    output?: TOutput;
+    /** Current shared workflow state. */
+    state: WorkflowState;
+    /** First start timestamp (epoch ms). */
+    startedAt: number;
+    /** Last persisted timestamp (epoch ms). */
+    updatedAt: number;
 }

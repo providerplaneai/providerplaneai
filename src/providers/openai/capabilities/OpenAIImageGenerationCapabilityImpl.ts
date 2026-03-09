@@ -100,6 +100,9 @@ export class OpenAIImageGenerationCapabilityImpl
         );
 
         const images = this.parseImages(response.output ?? []);
+        if (images.length === 0) {
+            throw new Error("OpenAI image generation returned no image artifacts");
+        }
 
         return {
             output: images,

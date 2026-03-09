@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { WorkflowBuilder } from "#root/core/workflow/WorkflowBuilder.js";
+import { AIProvider, CapabilityKeys } from "#root/index.js";
 
 describe("WorkflowBuilder", () => {
     it("registers nodes and applies default options", () => {
@@ -75,5 +76,82 @@ describe("WorkflowBuilder", () => {
 
         const rebuilt = builder.build();
         expect(rebuilt.nodes.map((n) => n.id)).toEqual(["a"]);
+    });
+
+    it("supports capabilityNode and capabilityAfter with provider-chain options", () => {
+        const builder = new WorkflowBuilder("wf-capability-sugar")
+            .capabilityNode(
+                "ask",
+                CapabilityKeys.ChatCapabilityKey,
+                {
+                    input: {
+                        messages: [{ role: "user", content: [{ type: "text", text: "Hello" }] }]
+                    }
+                },
+                {
+                    providerChain: [{ providerType: AIProvider.OpenAI, connectionName: "default" }]
+                }
+            )
+            .capabilityAfter(
+                "ask",
+                "summarize",
+                CapabilityKeys.ChatCapabilityKey,
+                (_ctx, state) => ({
+                    input: {
+                        messages: [
+                            {
+                                role: "user",
+                                content: [{ type: "text", text: `Summarize: ${String(state.values.ask ?? "")}` }]
+                            }
+                        ]
+                    }
+                }),
+                {
+                    providerChain: [{ providerType: AIProvider.Gemini, connectionName: "default" }],
+                    retry: { attempts: 2, backoffMs: 10 }
+                }
+            )
+            .build();
+
+        expect(builder.nodes.map((n) => n.id)).toEqual(["ask", "summarize"]);
+        expect(builder.nodes.find((n) => n.id === "summarize")?.dependsOn).toEqual(["ask"]);
+        expect(builder.nodes.find((n) => n.id === "summarize")?.retry).toEqual({ attempts: 2, backoffMs: 10 });
+    });
+
+    it("applies workflow defaults and uses them in capability helpers when node options are omitted", () => {
+        const defaultProviderChain = [{ providerType: AIProvider.Anthropic, connectionName: "default" }] as const;
+        const builder = new WorkflowBuilder("wf-default-policies")
+            .defaults({
+                retry: { attempts: 4, backoffMs: 12 },
+                timeoutMs: 900,
+                providerChain: [...defaultProviderChain],
+                addToManager: false
+            })
+            .capabilityNode("ask", CapabilityKeys.ChatCapabilityKey, {
+                input: { messages: [{ role: "user", content: [{ type: "text", text: "Ping" }] }] }
+            });
+
+        const workflow = builder.build();
+        expect(workflow.defaults).toEqual({
+            retry: { attempts: 4, backoffMs: 12 },
+            timeoutMs: 900,
+            providerChain: [...defaultProviderChain],
+            addToManager: false
+        });
+        expect(workflow.nodes[0]?.retry).toBeUndefined();
+        expect(workflow.nodes[0]?.timeoutMs).toBeUndefined();
+
+        const createCapabilityJob = vi.fn().mockReturnValue({ id: "job-default", getCompletionPromise: vi.fn() });
+        const fakeClient = { createCapabilityJob } as any;
+        workflow.nodes[0]?.run({} as any, fakeClient, {} as any, { values: {} });
+
+        expect(createCapabilityJob).toHaveBeenCalledWith(
+            CapabilityKeys.ChatCapabilityKey,
+            expect.any(Object),
+            {
+                providerChain: [...defaultProviderChain],
+                addToManager: false
+            }
+        );
     });
 });

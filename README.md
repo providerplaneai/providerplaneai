@@ -17,6 +17,7 @@ It focuses on modern AI system challenges such as streaming, multimodal pipeline
 - [Getting Started](#getting-started)
 - [Built-In Providers](#built-in-providers)
 - [Design Goals](#design-goals)
+- [Workflow System](#workflow-system)
 - [Development](#development)
 - [Open Source and Contributions](#open-source-and-contributions)
 - [License](#license)
@@ -267,6 +268,13 @@ ProviderPlaneAI is built around several guiding principles:
 - **Clear observability and traceability**
 - **Extensibility and long-term maintainability**
 - **Production-focused architecture**
+
+---
+
+<a id="workflow-system"></a>
+## Workflow System
+
+Workflow orchestration docs (DAG nodes, defaults, nested workflows, streaming hooks, cancellation, and resume) are available in `docs/workflows.md`.
 
 ---
 

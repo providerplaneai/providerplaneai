@@ -1170,6 +1170,8 @@ export class AIClient {
             const timeoutId = setTimeout(() => {
                 controller.abort(new Error("Execution timed out"));
             }, request.timeoutMs);
+            // Prevent long request timeouts from holding process exit after work completed.
+            (timeoutId as any)?.unref?.();
 
             // Cleanup timer if aborted early
             controller.signal.addEventListener("abort", () => {

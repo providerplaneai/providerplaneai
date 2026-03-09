@@ -1,9 +1,14 @@
 import {
     AIClient,
+    GenericJob,
+    JobChunk,
     JobManager,
     MultiModalExecutionContext,
     Workflow,
+    WorkflowDefaults,
     WorkflowExecution,
+    WorkflowExecutionSnapshot,
+    WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION,
     WorkflowNode,
     WorkflowState,
     WorkflowStepResult
@@ -25,22 +30,118 @@ export interface WorkflowRunnerHooks {
     onNodeStart?: (workflowId: string, nodeId: string) => void;
     /** Called when a node completes (including retries resolved). */
     onNodeComplete?: (workflowId: string, nodeId: string, result: WorkflowStepResult) => void;
+    /** Called for every streamed chunk emitted by a workflow node job. */
+    onNodeChunk?: (workflowId: string, nodeId: string, chunk: JobChunk<any>) => void;
+    /** Called when a node attempt fails but will be retried. */
+    onNodeRetry?: (workflowId: string, nodeId: string, error: Error, attempt: number, maxAttempts: number) => void;
+    /** Called when a node attempt fails and retries are exhausted. */
+    onNodeError?: (workflowId: string, nodeId: string, error: Error, attempt: number, maxAttempts: number) => void;
+}
+
+/**
+ * Optional persistence hooks for workflow execution snapshots.
+ */
+export interface WorkflowRunnerPersistence {
+    /** Persist the current workflow snapshot (called incrementally during execution). */
+    persistWorkflowExecution?: (snapshot: WorkflowExecutionSnapshot<any>) => void | Promise<void>;
+    /** Load the latest snapshot for a workflow id. */
+    loadWorkflowExecution?: (
+        workflowId: string
+    ) => WorkflowExecutionSnapshot<any> | undefined | Promise<WorkflowExecutionSnapshot<any> | undefined>;
+}
+
+/**
+ * Constructor options for {@link WorkflowRunner}.
+ */
+export interface WorkflowRunnerOptions {
+    /** Job manager used to schedule workflow node jobs. */
+    jobManager: JobManager;
+    /** AI client passed to node run callbacks. */
+    client: AIClient;
+    /** Optional workflow lifecycle hooks. */
+    hooks?: WorkflowRunnerHooks;
+    /** Optional persistence hooks for snapshots/resume. */
+    persistence?: WorkflowRunnerPersistence;
 }
 
 /**
  * DAG workflow execution engine built on top of JobManager/GenericJob.
  */
 export class WorkflowRunner {
+    private readonly jobManager: JobManager;
+    private readonly client: AIClient;
+    private readonly hooks?: WorkflowRunnerHooks;
+    private readonly persistence?: WorkflowRunnerPersistence;
+
     /**
      * @param jobManager Job scheduler used to run child jobs
      * @param client AIClient instance passed into workflow nodes
      * @param hooks Optional workflow lifecycle hooks
      */
+    constructor(options: WorkflowRunnerOptions);
+    constructor(jobManager: JobManager, client: AIClient, hooks?: WorkflowRunnerHooks, persistence?: WorkflowRunnerPersistence);
     constructor(
-        private jobManager: JobManager,
-        private client: AIClient,
-        private hooks?: WorkflowRunnerHooks
-    ) {}
+        jobManagerOrOptions: JobManager | WorkflowRunnerOptions,
+        client?: AIClient,
+        hooks?: WorkflowRunnerHooks,
+        persistence?: WorkflowRunnerPersistence
+    ) {
+        if (client) {
+            this.jobManager = jobManagerOrOptions as JobManager;
+            this.client = client;
+            this.hooks = hooks;
+            this.persistence = persistence;
+            return;
+        }
+
+        const options = jobManagerOrOptions as WorkflowRunnerOptions;
+        this.jobManager = options.jobManager;
+        this.client = options.client;
+        this.hooks = options.hooks;
+        this.persistence = options.persistence;
+    }
+
+    /**
+     * Wraps a child workflow into a job so it can be used as a node output in a parent workflow.
+     *
+     * @typeParam TOutput Child workflow aggregate output type
+     * @param workflow Child workflow definition
+     * @param initialState Optional initial child workflow state
+     * @returns Generic job whose final output is the child workflow aggregated output
+     */
+    createWorkflowJob<TOutput>(workflow: Workflow<TOutput>, initialState?: WorkflowState): GenericJob<void, TOutput> {
+        const job = new GenericJob<void, TOutput>(undefined, false, async (_input, ctx, signal) => {
+            // Child runner shares manager/client, but forwards chunks back through the parent runner hooks
+            // with a namespaced node id so nested streams remain traceable.
+            const childRunner = new WorkflowRunner({
+                jobManager: this.jobManager,
+                client: this.client,
+                hooks: {
+                    ...this.hooks,
+                    onNodeChunk: (childWorkflowId, nodeId, chunk) => {
+                        this.hooks?.onNodeChunk?.(childWorkflowId, `${workflow.id}.${nodeId}`, chunk);
+                    }
+                },
+                persistence: this.persistence
+            });
+
+            const result = await childRunner.run(workflow, ctx, initialState, signal);
+
+            return {
+                output: result.output as TOutput,
+                rawResponse: result,
+                id: workflow.id,
+                metadata: {
+                    status: result.status
+                }
+            };
+        });
+
+        // WorkflowRunner executes all node jobs through JobManager.runJob(id, ...),
+        // so nested workflow wrapper jobs must be registered before being returned.
+        this.jobManager.addJob(job);
+        return job;
+    }
 
     /**
      * Executes a workflow until all nodes complete, are skipped, or an error occurs.
@@ -55,32 +156,109 @@ export class WorkflowRunner {
     async run<TOutput>(
         workflow: Workflow<TOutput>,
         ctx: MultiModalExecutionContext,
-        initialState?: WorkflowState
+        initialState?: WorkflowState,
+        signal?: AbortSignal
+    ): Promise<WorkflowExecution<TOutput>> {
+        return this.execute(workflow, ctx, undefined, initialState, signal);
+    }
+
+    /**
+     * Resumes a workflow from the latest persisted snapshot.
+     *
+     * @typeParam TOutput Final aggregate output type
+     * @param workflow Workflow definition
+     * @param ctx Shared multimodal execution context
+     * @param signal Optional abort signal
+     */
+    async resume<TOutput>(
+        workflow: Workflow<TOutput>,
+        ctx: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<WorkflowExecution<TOutput>> {
+        if (!this.persistence?.loadWorkflowExecution) {
+            throw new Error("WorkflowRunner: resume requires loadWorkflowExecution persistence hook");
+        }
+        const snapshot = await this.persistence.loadWorkflowExecution(workflow.id);
+        if (!snapshot) {
+            throw new Error(`WorkflowRunner: no persisted snapshot found for workflow '${workflow.id}'`);
+        }
+        return this.execute(workflow, ctx, snapshot as WorkflowExecutionSnapshot<TOutput>, undefined, signal);
+    }
+
+    private async execute<TOutput>(
+        workflow: Workflow<TOutput>,
+        ctx: MultiModalExecutionContext,
+        resumeSnapshot?: WorkflowExecutionSnapshot<TOutput>,
+        initialState?: WorkflowState,
+        signal?: AbortSignal
     ): Promise<WorkflowExecution<TOutput>> {
         this.validateWorkflow(workflow);
+        this.validateResumeSnapshot(workflow, resumeSnapshot);
 
-        const state: WorkflowState = initialState ?? { values: {} };
+        const state: WorkflowState = resumeSnapshot?.state ?? initialState ?? { values: {} };
+        const startedAt = resumeSnapshot?.startedAt ?? Date.now();
 
         const execution: WorkflowExecution<TOutput> = {
             workflowId: workflow.id,
             status: "running",
-            results: [],
+            results: resumeSnapshot?.results ? [...resumeSnapshot.results] : [],
             state
         };
 
-        const completed = new Set<string>();
+        const completed = new Set<string>(resumeSnapshot?.completedNodeIds ?? []);
         const running = new Set<string>();
-        const resultsByNode = new Map<string, unknown>();
+        const resultsByNode = new Map<string, unknown>(
+            (resumeSnapshot?.results ?? [])
+                .filter((r) => r.outputs.length > 0)
+                .map((r) => [r.stepId, r.outputs[0] as unknown] as const)
+        );
+        const nodeMap = new Map(workflow.nodes.map((node) => [node.id, node] as const));
+        const orderedNodes = Array.from(nodeMap.values()).sort((a, b) => a.id.localeCompare(b.id));
+        const activeJobIds = new Set<string>();
+        const inFlightNodes = new Map<
+            string,
+            Promise<{
+                nodeId: string;
+            }>
+        >();
+        let aborted = false;
+
+        const abortRunningJobs = () => {
+            aborted = true;
+            for (const jobId of activeJobIds) {
+                try {
+                    this.jobManager.abortJob(jobId, "Workflow aborted");
+                } catch {
+                    // Best effort: job may already be terminal.
+                }
+            }
+        };
+
+        const onAbort = () => {
+            abortRunningJobs();
+        };
+
+        if (signal?.aborted) {
+            abortRunningJobs();
+            throw this.makeAbortError();
+        }
+        signal?.addEventListener("abort", onAbort);
 
         this.hooks?.onWorkflowStart?.(workflow.id);
+        await this.persistExecutionSnapshot(execution, completed, startedAt, workflow.version);
 
         try {
-            while (completed.size < workflow.nodes.length) {
-                const readyNodes: WorkflowNode[] = [];
+            while (completed.size < nodeMap.size) {
+                if (signal?.aborted || aborted) {
+                    abortRunningJobs();
+                    throw this.makeAbortError();
+                }
+
                 let madeProgress = false;
 
-                // Workflows are expected to be small; simple ready-node scanning keeps behavior easy to reason about.
-                for (const node of workflow.nodes) {
+                // Continuously schedule newly-ready nodes so short branches are not blocked
+                // by long-running siblings that happened to start in the same pass.
+                for (const node of orderedNodes) {
                     if (completed.has(node.id) || running.has(node.id)) {
                         continue;
                     }
@@ -104,14 +282,51 @@ export class WorkflowRunner {
                             startedAt: timeMs,
                             endedAt: timeMs
                         });
+                        await this.persistExecutionSnapshot(execution, completed, startedAt, workflow.version);
 
                         continue;
                     }
 
-                    readyNodes.push(node);
+                    running.add(node.id);
+                    this.hooks?.onNodeStart?.(workflow.id, node.id);
+                    madeProgress = true;
+
+                    const nodePromise = (async () => {
+                        try {
+                            const result = await this.runNodeWithRetry(
+                                workflow.id,
+                                node,
+                                ctx,
+                                state,
+                                activeJobIds,
+                                workflow.defaults,
+                                signal
+                            );
+                            const output = result.outputs[0];
+
+                            resultsByNode.set(node.id, output);
+                            state.values[node.id] = output;
+
+                            completed.add(node.id);
+
+                            execution.results.push(result);
+                            this.hooks?.onNodeComplete?.(workflow.id, node.id, result);
+                            await this.persistExecutionSnapshot(execution, completed, startedAt, workflow.version);
+                            return { nodeId: node.id };
+                        } finally {
+                            running.delete(node.id);
+                            inFlightNodes.delete(node.id);
+                        }
+                    })();
+
+                    inFlightNodes.set(node.id, nodePromise);
                 }
 
-                if (readyNodes.length === 0) {
+                if (completed.size >= nodeMap.size) {
+                    break;
+                }
+
+                if (inFlightNodes.size === 0) {
                     if (madeProgress) {
                         // Skips can make progress without creating runnable nodes in this pass.
                         continue;
@@ -122,29 +337,8 @@ export class WorkflowRunner {
                     );
                 }
 
-                await Promise.all(
-                    readyNodes.map(async (node) => {
-                        running.add(node.id);
-                        this.hooks?.onNodeStart?.(workflow.id, node.id);
-
-                        try {
-                            const result = await this.runNodeWithRetry(workflow.id, node, ctx, state);
-                            const output = result.outputs[0];
-
-                            resultsByNode.set(node.id, output);
-                            state.values[node.id] = output;
-
-                            completed.add(node.id);
-
-                            execution.results.push(result);
-                            this.hooks?.onNodeComplete?.(workflow.id, node.id, result);
-
-                            return result;
-                        } finally {
-                            running.delete(node.id);
-                        }
-                    })
-                );
+                // Wait for at least one node to finish, then rescan immediately for newly-runnable work.
+                await Promise.race(inFlightNodes.values());
             }
 
             if (workflow.aggregate) {
@@ -159,13 +353,107 @@ export class WorkflowRunner {
 
             execution.status = "completed";
             this.hooks?.onWorkflowComplete?.(workflow.id, execution);
+            await this.persistExecutionSnapshot(execution, completed, startedAt, workflow.version);
 
             return execution;
         } catch (err) {
-            execution.status = "error";
+            if (inFlightNodes.size > 0) {
+                // Avoid unhandled rejections from sibling in-flight nodes when one fails early.
+                await Promise.allSettled(inFlightNodes.values());
+            }
             const normalized = err instanceof Error ? err : new Error(String(err));
-            this.hooks?.onWorkflowError?.(workflow.id, normalized, execution);
+            const isAbort = signal?.aborted || aborted || this.isAbortError(normalized);
+            execution.status = isAbort ? "aborted" : "error";
+            if (!isAbort) {
+                this.hooks?.onWorkflowError?.(workflow.id, normalized, execution);
+            }
+            await this.persistExecutionSnapshot(execution, completed, startedAt, workflow.version);
             throw normalized;
+        } finally {
+            signal?.removeEventListener("abort", onAbort);
+        }
+    }
+
+    private async persistExecutionSnapshot<TOutput>(
+        execution: WorkflowExecution<TOutput>,
+        completed: Set<string>,
+        startedAt: number,
+        workflowVersion?: string | number
+    ) {
+        if (!this.persistence?.persistWorkflowExecution) {
+            return;
+        }
+        const snapshot: WorkflowExecutionSnapshot<TOutput> = {
+            schemaVersion: WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION,
+            workflowId: execution.workflowId,
+            workflowVersion,
+            status: execution.status,
+            completedNodeIds: Array.from(completed),
+            results: execution.results,
+            output: execution.output,
+            state: execution.state,
+            startedAt,
+            updatedAt: Date.now()
+        };
+        await this.persistence.persistWorkflowExecution(snapshot);
+    }
+
+    private validateResumeSnapshot<TOutput>(workflow: Workflow<TOutput>, snapshot?: WorkflowExecutionSnapshot<TOutput>) {
+        if (!snapshot) {
+            return;
+        }
+        const schemaVersion = snapshot.schemaVersion ?? 1;
+        if (schemaVersion !== WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION) {
+            throw new Error(
+                `WorkflowRunner: unsupported workflow snapshot schemaVersion '${schemaVersion}'. Expected '${WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION}'`
+            );
+        }
+        if (snapshot.workflowId !== workflow.id) {
+            throw new Error(
+                `WorkflowRunner: snapshot workflowId '${snapshot.workflowId}' does not match workflow '${workflow.id}'`
+            );
+        }
+        const snapshotWorkflowVersion = snapshot.workflowVersion;
+        const currentWorkflowVersion = workflow.version;
+        if (
+            snapshotWorkflowVersion !== undefined &&
+            currentWorkflowVersion !== undefined &&
+            snapshotWorkflowVersion !== currentWorkflowVersion
+        ) {
+            throw new Error(
+                `WorkflowRunner: snapshot workflowVersion '${snapshotWorkflowVersion}' does not match workflow version '${currentWorkflowVersion}'`
+            );
+        }
+        const nodeIds = new Set(workflow.nodes.map((n) => n.id));
+        for (const id of snapshot.completedNodeIds) {
+            if (!nodeIds.has(id)) {
+                throw new Error(`WorkflowRunner: snapshot contains unknown completed node '${id}'`);
+            }
+        }
+        const completedSet = new Set(snapshot.completedNodeIds);
+        for (const result of snapshot.results) {
+            if (!nodeIds.has(result.stepId)) {
+                throw new Error(`WorkflowRunner: snapshot contains unknown result node '${result.stepId}'`);
+            }
+            if (!completedSet.has(result.stepId)) {
+                throw new Error(
+                    `WorkflowRunner: snapshot result for node '${result.stepId}' is not present in completedNodeIds`
+                );
+            }
+        }
+        const nodeMap = new Map(workflow.nodes.map((n) => [n.id, n] as const));
+        for (const completedNodeId of snapshot.completedNodeIds) {
+            const node = nodeMap.get(completedNodeId);
+            if (!node) {
+                continue;
+            }
+            for (const dep of node.dependsOn ?? []) {
+                if (!completedSet.has(dep)) {
+                    throw new Error(
+                        `WorkflowRunner: snapshot completed node '${completedNodeId}' is missing completed dependency '${dep}'`
+                    );
+                }
+            }
         }
     }
 
@@ -183,24 +471,51 @@ export class WorkflowRunner {
         workflowId: string,
         node: WorkflowNode,
         ctx: MultiModalExecutionContext,
-        state: WorkflowState
+        state: WorkflowState,
+        activeJobIds: Set<string>,
+        workflowDefaults?: WorkflowDefaults,
+        signal?: AbortSignal
     ): Promise<WorkflowStepResult> {
-        const maxAttempts = Math.max(node.retry?.attempts ?? 1, 1);
-        const backoffMs = Math.max(node.retry?.backoffMs ?? 0, 0);
+        const retry = node.retry ?? workflowDefaults?.retry;
+        const timeoutMs = node.timeoutMs ?? workflowDefaults?.timeoutMs;
+        const maxAttempts = Math.max(retry?.attempts ?? 1, 1);
+        const backoffMs = Math.max(retry?.backoffMs ?? 0, 0);
 
         let lastError: Error | undefined;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (signal?.aborted) {
+                throw this.makeAbortError();
+            }
+
+            let jobId: string | undefined;
+            let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
             try {
                 const startTime = Date.now();
 
-                const job = node.run(ctx, this.client, state);
+                const job = node.run(ctx, this.client, this, state);
+                jobId = job.id;
+                activeJobIds.add(job.id);
 
                 // JobManager handles scheduling/lifecycle while node awaits completion promise.
-                this.jobManager.runJob(job.id, ctx);
+                this.jobManager.runJob(job.id, ctx, (chunk) => {
+                    this.hooks?.onNodeChunk?.(workflowId, node.id, chunk);
+                });
 
-                const output = node.timeoutMs
-                    ? await Promise.race([job.getCompletionPromise(), this.timeout(node.timeoutMs)])
+                const output = timeoutMs
+                    ? await Promise.race([
+                          job.getCompletionPromise(),
+                          new Promise<never>((_, reject) => {
+                              const timeoutError = new Error(
+                                  `WorkflowRunner: node execution exceeded timeout of ${timeoutMs}ms`
+                              );
+                              timeoutError.name = "WorkflowNodeTimeoutError";
+                              timeoutId = setTimeout(() => reject(timeoutError), timeoutMs);
+                              // Do not keep Node.js alive solely because of timeout guards.
+                              (timeoutId as any)?.unref?.();
+                          })
+                      ])
                     : await job.getCompletionPromise();
 
                 const endTime = Date.now();
@@ -217,12 +532,34 @@ export class WorkflowRunner {
             } catch (err) {
                 lastError = err instanceof Error ? err : new Error(String(err));
 
+                if (jobId && (signal?.aborted || this.isTimeoutError(lastError))) {
+                    try {
+                        this.jobManager.abortJob(jobId, signal?.aborted ? "Workflow aborted" : "Workflow node timed out");
+                    } catch {
+                        // Best effort: job may already be terminal.
+                    }
+                }
+
+                if (signal?.aborted || this.isAbortError(lastError)) {
+                    throw this.makeAbortError();
+                }
+
                 if (attempt >= maxAttempts) {
+                    this.hooks?.onNodeError?.(workflowId, node.id, lastError, attempt, maxAttempts);
                     throw lastError;
                 }
 
+                this.hooks?.onNodeRetry?.(workflowId, node.id, lastError, attempt, maxAttempts);
+
                 if (backoffMs > 0) {
                     await this.delay(backoffMs);
+                }
+            } finally {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
+                if (jobId) {
+                    activeJobIds.delete(jobId);
                 }
             }
         }
@@ -308,15 +645,17 @@ export class WorkflowRunner {
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
-    /**
-     * Returns a promise that rejects when timeout is reached.
-     *
-     * @param msTimeout Timeout duration in milliseconds
-     * @throws {Error} Timeout error
-     */
-    private timeout(msTimeout: number): Promise<void> {
-        return new Promise((_, reject) => {
-            setTimeout(() => reject(new Error(`WorkflowRunner: node execution exceeded timeout of ${msTimeout}ms`)), msTimeout);
-        });
+    private isTimeoutError(error: Error): boolean {
+        return error.name === "WorkflowNodeTimeoutError";
+    }
+
+    private makeAbortError(): Error {
+        const abortError = new Error("Workflow aborted");
+        abortError.name = "AbortError";
+        return abortError;
+    }
+
+    private isAbortError(error: Error): boolean {
+        return error.name === "AbortError";
     }
 }

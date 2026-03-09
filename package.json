@@ -15,7 +15,8 @@
         "lint": "eslint . --ext .ts,.tsx --no-warn-ignored",
         "lint:fix": "eslint . --ext .ts,.tsx --fix",
         "test": "vitest run --coverage",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "test:workflow": "./node_modules/.bin/vitest run src/__tests__/core/workflow"
     },
     "repository": {
         "type": "git",

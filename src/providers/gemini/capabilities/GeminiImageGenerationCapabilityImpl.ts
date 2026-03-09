@@ -128,7 +128,8 @@ export class GeminiImageGenerationCapabilityImpl
                 // Apply weight from the primary reference if available
                 referenceImageWeight: this.mapWeight(input.referenceImages?.[0]?.weight),
                 // Safety setting for person generation
-                personGeneration: "allow_adult"
+                personGeneration: "allow_adult",
+                numberOfImages: this.resolveNumberOfImages(input)
             }
         })) as GenerateImagesResponse;
 
@@ -152,6 +153,9 @@ export class GeminiImageGenerationCapabilityImpl
                 id: `${responseId}-${idx}`
             };
         });
+        if (images.length === 0) {
+            throw new Error("Gemini image generation returned no image artifacts");
+        }
 
         // Normalize to AIResult
         return {
@@ -222,7 +226,8 @@ export class GeminiImageGenerationCapabilityImpl
                     aspectRatio: this.mapSizeToImagenAspectRatio(input.params?.size),
                     includeRaiReason: true,
                     referenceImageWeight: this.mapWeight(input.referenceImages?.[0]?.weight),
-                    personGeneration: "allow_adult"
+                    personGeneration: "allow_adult",
+                    numberOfImages: this.resolveNumberOfImages(input)
                 }
             })) as GenerateImagesResponse;
 
@@ -345,6 +350,31 @@ export class GeminiImageGenerationCapabilityImpl
         }
 
         return "MEDIUM";
+    }
+
+    /**
+     * Resolves image count from provider-agnostic request extras.
+     * Defaults to 1 to keep fallback behavior deterministic.
+     */
+    private resolveNumberOfImages(input: ClientImageGenerationRequest): number {
+        const extras = input.params?.extras ?? {};
+        const raw =
+            (extras as Record<string, unknown>).numberOfImages ??
+            (extras as Record<string, unknown>).numImages ??
+            (extras as Record<string, unknown>).count;
+
+        if (typeof raw !== "number" || !Number.isFinite(raw)) {
+            return 1;
+        }
+
+        const normalized = Math.floor(raw);
+        if (normalized < 1) {
+            return 1;
+        }
+        if (normalized > 8) {
+            return 8;
+        }
+        return normalized;
     }
 
     /**
