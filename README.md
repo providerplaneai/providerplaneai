@@ -4,10 +4,13 @@
 [![npm downloads](https://img.shields.io/npm/dm/providerplaneai)](https://www.npmjs.com/package/providerplaneai)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/providerplaneai/providerplaneai/node.js.yml?branch=main)](https://github.com/providerplaneai/providerplaneai/actions)
+[![TypeDocs](https://img.shields.io/badge/docs-typedoc-blue)](https://www.providerplane.dev)
 
-**ProviderPlaneAI** is a job-first, provider-agnostic AI orchestration framework designed for building scalable, resilient, and observable AI applications.
+**ProviderPlaneAI** is a workflow-first, provider-agnostic AI orchestration framework designed for building scalable, resilient, and observable AI applications.
 
 It focuses on modern AI system challenges such as streaming, multimodal pipelines, fallback strategies, execution tracing, and asynchronous workflows while remaining extensible and production-ready.
+
+API documentation: [www.providerplane.dev](https://www.providerplane.dev)
 
 ## Table of Contents
 
@@ -27,14 +30,15 @@ It focuses on modern AI system challenges such as streaming, multimodal pipeline
 <a id="key-concepts"></a>
 ## Key Concepts 🧠
 
-### Job-First Architecture 🧩
+### Workflow-First Architecture 🧩
 
-ProviderPlaneAI treats every AI operation as a **job**. This enables:
+ProviderPlaneAI treats workflows as the primary API and jobs as the execution substrate (middle layer). This enables:
+- High-level DAG orchestration as the default developer experience
 - Asynchronous and synchronous execution
 - Retry, rerun, and persistence support
 - Concurrency and queue control
 - Observability and lifecycle tracking
-- Streaming and non-streaming workflows under a unified model
+- Streaming and non-streaming execution under a unified model
 
 ### Capability-Based Design 🔌
 
@@ -73,7 +77,7 @@ ProviderPlaneAI is designed with observability in mind:
 ## Core Features ✨
 
 - Provider-agnostic AI orchestration
-- Job-based execution model
+- Workflow-first orchestration model (with jobs as internal/advanced layer)
 - Streaming and non-streaming support
 - Multimodal artifact pipelines
 - Execution policies and fallback
@@ -167,7 +171,35 @@ Minimal example:
 
 Set environment variables referenced by `apiKeyEnvVar` (for example `OPENAI_API_KEY_1`, `GEMINI_API_KEY_1`, `ANTHROPIC_API_KEY_1`).
 
-### Basic Usage 💡
+### Basic Usage (Workflow-First) 💡
+
+```ts
+import {
+  AIClient,
+  CapabilityKeys,
+  MultiModalExecutionContext,
+  WorkflowBuilder,
+  WorkflowRunner
+} from "providerplaneai";
+
+const client = new AIClient();
+const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+
+const workflow = new WorkflowBuilder<{ text: string }>("quickstart-workflow")
+  .capabilityNode("ask", CapabilityKeys.ChatCapabilityKey, {
+    input: {
+      messages: [{ role: "user", content: [{ type: "text", text: "Say hello in one sentence." }] }]
+    }
+  })
+  .aggregate((results) => ({ text: String(results.ask) }))
+  .build();
+
+const execution = await runner.run(workflow, new MultiModalExecutionContext());
+console.log(execution.output?.text);
+```
+
+### Advanced Usage (Direct Job API) ⚙️
+Use direct jobs when you need fine-grained low-level control outside a workflow DAG.
 
 ```ts
 import {
@@ -274,7 +306,171 @@ ProviderPlaneAI is built around several guiding principles:
 <a id="workflow-system"></a>
 ## Workflow System
 
-Workflow orchestration docs (DAG nodes, defaults, nested workflows, streaming hooks, cancellation, and resume) are available in `docs/workflows.md`.
+ProviderPlaneAI includes a DAG workflow engine on top of the job system.
+
+### Workflow capabilities
+
+- Deterministic DAG execution with explicit dependencies
+- Parallel fan-out and fan-in aggregation
+- Conditional step execution (`condition`)
+- Per-node retry and timeout policies
+- Provider-chain override per workflow step
+- Streaming node support with workflow-level chunk hooks
+- Nested workflows
+- Persistence + resume support
+- Export to JSON, Mermaid, DOT, and D3 graph formats
+
+### Core APIs
+
+- `WorkflowBuilder` (`src/core/workflow/WorkflowBuilder.ts`)
+- `WorkflowRunner` (`src/core/workflow/WorkflowRunner.ts`)
+- `WorkflowExporter` (`src/core/workflow/WorkflowExporter.ts`)
+
+### Quick example
+
+```ts
+import {
+  AIClient,
+  CapabilityKeys,
+  MultiModalExecutionContext,
+  WorkflowBuilder,
+  WorkflowRunner
+} from "providerplaneai";
+
+const client = new AIClient();
+const runner = new WorkflowRunner({
+  jobManager: client.jobManager,
+  client,
+  hooks: {
+    onNodeChunk: (_workflowId, nodeId, chunk) => {
+      if (typeof chunk.delta === "string") {
+        process.stdout.write(`[${nodeId}] ${chunk.delta}`);
+      }
+    }
+  }
+});
+
+const workflow = new WorkflowBuilder<{ finalText: string }>("example-workflow")
+  .defaults({
+    retry: { attempts: 2, backoffMs: 250 },
+    timeoutMs: 45000
+  })
+  .capabilityNode(
+    "draft",
+    CapabilityKeys.ChatStreamCapabilityKey,
+    {
+      input: {
+        messages: [{ role: "user", content: [{ type: "text", text: "Write one sentence about workflow reliability." }] }]
+      },
+      options: { model: "gpt-4.1" }
+    },
+    {
+      providerChain: [
+        { providerType: "openai", connectionName: "default" },
+        { providerType: "gemini", connectionName: "default" }
+      ]
+    }
+  )
+  .capabilityAfter(
+    "draft",
+    "moderate",
+    CapabilityKeys.ModerationCapabilityKey,
+    (_ctx, state) => ({
+      input: { text: String(state.values.draft) }
+    })
+  )
+  .after(
+    "moderate",
+    "approval",
+    (_ctx, nodeClient) =>
+      nodeClient.createCapabilityJob(CapabilityKeys.ApprovalGateCapabilityKey, {
+        input: { requestedAt: new Date().toISOString(), decision: { status: "approved", approver: "system" } }
+      })
+  )
+  .aggregate((results) => ({
+    finalText: String(results.draft)
+  }))
+  .build();
+
+const execution = await runner.run(workflow, new MultiModalExecutionContext());
+console.log(execution.status, execution.output);
+```
+
+### Built-in workflow-oriented capabilities
+
+- `approvalGate` (`CapabilityKeys.ApprovalGateCapabilityKey`)
+- `saveFile` (`CapabilityKeys.SaveFileCapabilityKey`)
+
+These are registered by default in the capability executor registry.
+
+### Workflow export
+
+```ts
+import { WorkflowExporter } from "providerplaneai";
+
+const json = WorkflowExporter.workflowAsJSON(workflow);
+const mermaid = WorkflowExporter.workflowAsMermaid(workflow);
+const dot = WorkflowExporter.workflowAsDOT(workflow);
+const d3 = WorkflowExporter.workflowAsD3(workflow);
+
+// or via unified format selector
+const anyFormat = WorkflowExporter.export(workflow, "mermaid");
+
+// and optionally write to disk
+await WorkflowExporter.exportToFile(workflow, "mermaid", "./test_data/workflows/example.mermaid");
+```
+
+### Example Workflow
+
+```mermaid
+graph TD
+    n0["seedBrief"]
+    n1["geminiAngles"]
+    n2["anthropicRisks"]
+    n3["seedTts"]
+    n4["transcribeAudio"]
+    n5["translateAudio"]
+    n6["moderateTranscript"]
+    n7["embedTranslation"]
+    n8["imagePrompt"]
+    n9["generateImage"]
+    n10["analyzeImageAnthropic"]
+    n11["unsafeEscalation"]
+    n12["safeContinue"]
+    n13["streamSynthesis"]
+    n14["finalNarrationTts"]
+    n15["saveFinalNarrationAudio"]
+    n0 --> n1
+    n0 --> n2
+    n0 --> n3
+    n3 --> n4
+    n3 --> n5
+    n4 --> n6
+    n5 --> n7
+    n1 --> n8
+    n2 --> n8
+    n8 --> n9
+    n9 --> n10
+    n6 --> n11
+    n6 --> n12
+    n1 --> n13
+    n2 --> n13
+    n4 --> n13
+    n5 --> n13
+    n6 --> n13
+    n7 --> n13
+    n10 --> n13
+    n13 --> n14
+    n14 --> n15
+```
+
+### Integration testing
+
+- Deterministic integration tests:
+  - `npm run test:integration`
+- Provider-backed live integration tests:
+  - `RUN_WORKFLOW_LIVE_INTEGRATION=1 npm run test:integration:live`
+  - requires `OPENAI_API_KEY_1`, `GEMINI_API_KEY_1`, and `ANTHROPIC_API_KEY_1`
 
 ---
 
