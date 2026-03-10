@@ -7,7 +7,6 @@
  * Error thrown when a pipeline step cannot be resolved or constructed safely.
  *
  * @public
- * @extends Error
  * @param {string} message Human-readable pipeline failure reason.
  */
 export class PipelineError extends Error {

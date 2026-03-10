@@ -567,7 +567,14 @@ graph TD
 npm run build
 npm run test
 npm run lint
+npm run perf:quick
 ```
+
+Performance artifacts are generated under `scripts/perf/results` as both JSON and Markdown:
+- `npm run perf:quick` (5 cold-import runs)
+- `npm run perf` (20 cold-import runs)
+- `npm run perf:full` (30 cold-import runs)
+- `npm run perf:ci` (30 runs + CI threshold checks; exits non-zero on regression)
 
 ### Git Hooks 🪝
 We use Husky to enforce linting and tests.

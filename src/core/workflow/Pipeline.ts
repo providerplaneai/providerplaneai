@@ -27,10 +27,34 @@ import {
     toPipelineAudioInput
 } from "#root/index.js";
 
-type StepValues = Record<string, unknown>;
-type StepTextInput = string | ((values: StepValues) => string);
-type PipelineSelectorFn<T> = (sourceValue: unknown, values: StepValues) => T;
-type PipelineSourceArtifact = {
+/**
+ * Generic workflow state value map used by pipeline request/selector callbacks.
+ *
+ * @public
+ */
+export type StepValues = Record<string, unknown>;
+
+/**
+ * Text input accepted by high-level pipeline text-capable helpers.
+ *
+ * @public
+ */
+export type StepTextInput = string | ((values: StepValues) => string);
+
+/**
+ * Generic selector callback signature used to project source step outputs.
+ *
+ * @public
+ * @template T Projected value type.
+ */
+export type PipelineSelectorFn<T> = (sourceValue: unknown, values: StepValues) => T;
+
+/**
+ * Normalized artifact shape used across source-bound pipeline helpers.
+ *
+ * @public
+ */
+export type PipelineSourceArtifact = {
     id?: string;
     mimeType?: string;
     base64?: string;
@@ -45,16 +69,62 @@ export interface PipelineSourceBinding<TSelect> {
     step: PipelineStepRef;
     select?: TSelect;
 }
-type PipelineTextSelect = "text" | PipelineSelectorFn<string>;
-type PipelineArtifactSelect = "artifact" | "audio" | "video" | PipelineSelectorFn<PipelineSourceArtifact>;
-type PipelineImageSelect = "image" | PipelineSelectorFn<ClientReferenceImage>;
-type PipelineVideoSelect = "video" | "artifact" | PipelineSelectorFn<PipelineSourceArtifact>;
+/**
+ * Selectors for text-producing source bindings.
+ *
+ * @public
+ */
+export type PipelineTextSelect = "text" | PipelineSelectorFn<string>;
+
+/**
+ * Selectors for artifact-producing source bindings.
+ *
+ * @public
+ */
+export type PipelineArtifactSelect = "artifact" | "audio" | "video" | PipelineSelectorFn<PipelineSourceArtifact>;
+
+/**
+ * Selectors for image-producing source bindings.
+ *
+ * @public
+ */
+export type PipelineImageSelect = "image" | PipelineSelectorFn<ClientReferenceImage>;
+
+/**
+ * Selectors for video-producing source bindings.
+ *
+ * @public
+ */
+export type PipelineVideoSelect = "video" | "artifact" | PipelineSelectorFn<PipelineSourceArtifact>;
 export type PipelineNormalizePreset = "text" | "artifact" | "image";
 export type PipelineNormalizeFn = (output: unknown, values: StepValues) => unknown;
-type PipelineTextSourceRef = PipelineStepRef | PipelineSourceBinding<PipelineTextSelect>;
-type PipelineArtifactSourceRef = PipelineStepRef | PipelineSourceBinding<PipelineArtifactSelect>;
-type PipelineImageSourceRef = PipelineStepRef | PipelineSourceBinding<PipelineImageSelect>;
-type PipelineVideoSourceRef = PipelineStepRef | PipelineSourceBinding<PipelineVideoSelect>;
+/**
+ * Source reference union accepted by text-bound helpers.
+ *
+ * @public
+ */
+export type PipelineTextSourceRef = PipelineStepRef | PipelineSourceBinding<PipelineTextSelect>;
+
+/**
+ * Source reference union accepted by artifact-bound helpers.
+ *
+ * @public
+ */
+export type PipelineArtifactSourceRef = PipelineStepRef | PipelineSourceBinding<PipelineArtifactSelect>;
+
+/**
+ * Source reference union accepted by image-bound helpers.
+ *
+ * @public
+ */
+export type PipelineImageSourceRef = PipelineStepRef | PipelineSourceBinding<PipelineImageSelect>;
+
+/**
+ * Source reference union accepted by video-bound helpers.
+ *
+ * @public
+ */
+export type PipelineVideoSourceRef = PipelineStepRef | PipelineSourceBinding<PipelineVideoSelect>;
 
 /**
  * Source selector builder contract used by helpers.

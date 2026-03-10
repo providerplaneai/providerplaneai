@@ -31,7 +31,8 @@ export default [
             "examples/**",
             "src/examples/**",
             "docs/**",
-            "coverage-local/**"
+            "coverage-local/**",
+            "scripts/**"
         ]
     },
     {

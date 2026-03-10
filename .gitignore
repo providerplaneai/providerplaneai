@@ -1,6 +1,9 @@
 # Test data
 test_data
 
+# perf results
+scripts/perf/results
+
 # Docs
 docs
 
@@ -73,6 +76,10 @@ web_modules/
 
 # Output of 'npm pack'
 *.tgz
+
+# Perf benchmark outputs
+scripts/perf/results/
+.perf-npm-cache/
 
 # Yarn Integrity file
 .yarn-integrity

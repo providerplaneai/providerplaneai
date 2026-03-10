@@ -2,7 +2,7 @@
     "type": "module",
     "name": "providerplaneai",
     "version": "0.2.0",
-    "description": "Multi-provider AI abstraction layer for Node.js applications.",
+    "description": "Multi-provider AI orchestration layer for Node.js applications.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "license": "MIT",
@@ -19,7 +19,11 @@
         "test:watch": "vitest",
         "test:workflow": "./node_modules/.bin/vitest run src/__tests__/core/workflow",
         "test:integration": "./node_modules/.bin/vitest run -c vitest.integration.config.ts",
-        "test:integration:live": "RUN_WORKFLOW_LIVE_INTEGRATION=1 ./node_modules/.bin/vitest run -c vitest.integration.config.ts"
+        "test:integration:live": "RUN_WORKFLOW_LIVE_INTEGRATION=1 ./node_modules/.bin/vitest run -c vitest.integration.config.ts",
+        "perf": "npm run build && node scripts/perf/run.js",
+        "perf:quick": "npm run build && node scripts/perf/run.js --runs 5",
+        "perf:full": "npm run build && node scripts/perf/run.js --runs 30",
+        "perf:ci": "npm run build && node scripts/perf/run.js --runs 30 --ci"
     },
     "repository": {
         "type": "git",

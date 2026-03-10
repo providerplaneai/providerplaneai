@@ -7,7 +7,6 @@
  * Error thrown when workflow construction, scheduling, or execution fails.
  *
  * @public
- * @extends Error
  * @remarks
  * This is the generic workflow-domain error type and may be thrown directly
  * by workflow runtime internals when a more specific domain exception is not used.
