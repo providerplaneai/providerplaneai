@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnthropicEmbedCapabilityImpl } from "#root/providers/anthropic/capabilities/AnthropicEmbedCapabilityImpl.js";
+import { CapabilityKeys } from "#root/index.js";
 
 const originalVoyage = process.env.VOYAGE_API_KEY;
 
@@ -111,5 +112,68 @@ describe("AnthropicEmbedCapabilityImpl", () => {
         expect(res.output[0].inputId).toBe("input-1");
         expect(res.output[0].metadata?.model).toBe("voyage-fallback-model");
         expect(res.metadata?.model).toBe("voyage-fallback-model");
+    });
+
+    it("calls provider.ensureInitialized and forwards merged model params into Voyage request body", async () => {
+        const provider = {
+            ensureInitialized: vi.fn(),
+            getMergedOptions: vi.fn(() => ({
+                model: "voyage-custom",
+                modelParams: { output_dimension: 256 },
+                providerParams: { input_type: "document" }
+            }))
+        } as any;
+        const cap = new AnthropicEmbedCapabilityImpl(provider);
+
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                object: "list",
+                model: "voyage-custom",
+                usage: { total_tokens: 2 },
+                data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2] }]
+            })
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        await cap.embed({ input: { input: "hello" } } as any);
+
+        expect(provider.ensureInitialized).toHaveBeenCalledOnce();
+        expect(provider.getMergedOptions).toHaveBeenCalledWith(CapabilityKeys.EmbedCapabilityKey, undefined);
+        expect(fetchMock).toHaveBeenCalledOnce();
+        const [, req] = fetchMock.mock.calls[0] as [string, RequestInit];
+        const body = JSON.parse(String(req.body ?? "{}"));
+        expect(body).toMatchObject({
+            model: "voyage-custom",
+            output_dimension: 256,
+            input_type: "document",
+            input: ["hello"]
+        });
+    });
+
+    it("falls back to sort path when provider indices are invalid/duplicate", async () => {
+        const cap = new AnthropicEmbedCapabilityImpl(makeProvider());
+        vi.stubGlobal(
+            "fetch",
+            vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    object: "list",
+                    model: "voyage-3",
+                    usage: { total_tokens: 4 },
+                    data: [
+                        { object: "embedding", index: 0, embedding: [9] },
+                        { object: "embedding", index: 0, embedding: [1] }
+                    ]
+                })
+            })
+        );
+
+        const res = await cap.embed({ input: { input: ["a", "b"] } } as any);
+        expect(res.output).toHaveLength(2);
+        // sort path preserves sorted-by-index order as returned by sort comparator;
+        // both are same index, so we only assert valid normalized embeddings are returned.
+        expect(Array.isArray(res.output[0]?.vector)).toBe(true);
+        expect(Array.isArray(res.output[1]?.vector)).toBe(true);
     });
 });

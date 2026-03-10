@@ -176,22 +176,17 @@ Set environment variables referenced by `apiKeyEnvVar` (for example `OPENAI_API_
 ```ts
 import {
   AIClient,
-  CapabilityKeys,
   MultiModalExecutionContext,
-  WorkflowBuilder,
+  Pipeline,
   WorkflowRunner
 } from "providerplaneai";
 
 const client = new AIClient();
 const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
 
-const workflow = new WorkflowBuilder<{ text: string }>("quickstart-workflow")
-  .capabilityNode("ask", CapabilityKeys.ChatCapabilityKey, {
-    input: {
-      messages: [{ role: "user", content: [{ type: "text", text: "Say hello in one sentence." }] }]
-    }
-  })
-  .aggregate((results) => ({ text: String(results.ask) }))
+const workflow = new Pipeline<{ text: string }>("quickstart-workflow")
+  .chat("ask", "Say hello in one sentence.")
+  .output((values) => ({ text: String(values.ask) }))
   .build();
 
 const execution = await runner.run(workflow, new MultiModalExecutionContext());
@@ -322,11 +317,86 @@ ProviderPlaneAI includes a DAG workflow engine on top of the job system.
 
 ### Core APIs
 
+- `Pipeline` (`src/core/workflow/Pipeline.ts`) as the recommended DSL
 - `WorkflowBuilder` (`src/core/workflow/WorkflowBuilder.ts`)
 - `WorkflowRunner` (`src/core/workflow/WorkflowRunner.ts`)
 - `WorkflowExporter` (`src/core/workflow/WorkflowExporter.ts`)
 
-### Quick example
+### Pipeline DSL (recommended)
+
+Use `Pipeline` for most workflows. It hides request-shape boilerplate and keeps dependencies explicit.
+
+```ts
+import { AIClient, MultiModalExecutionContext, Pipeline, WorkflowRunner } from "providerplaneai";
+
+const client = new AIClient();
+const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+
+const pipeline = new Pipeline<{ text: string }>("pipeline-example");
+const seed = pipeline.step("seed");
+const seedAudio = pipeline.step("seedAudio");
+const seedTranscript = pipeline.step("seedTranscript");
+
+const workflow = pipeline
+  .chat(seed.id, "Say one sentence about resilient workflows.")
+  .tts(seedAudio.id, { voice: "alloy", format: "mp3" }, { source: seed })
+  .transcribe(seedTranscript.id, { responseFormat: "text" }, { source: seedAudio })
+  .moderate("riskCheck", {}, { source: seedTranscript })
+  .chat(
+    "summary",
+    "Summarize in one sentence:\n{{seedTranscript}}",
+    { after: [seedTranscript, "riskCheck"] }
+  )
+  .output((values) => ({ text: String(values.summary) }))
+  .build();
+
+const execution = await runner.run(workflow, new MultiModalExecutionContext());
+console.log(execution.output?.text);
+```
+
+Notes:
+- `source` binds step input to prior step output.
+- `after` adds extra ordering dependencies.
+- If both are present, dependencies are merged and deduplicated.
+- `normalize` can adapt raw provider output into stable shapes (`text`, `artifact`, `image`, or custom fn).
+
+### Pipeline DSL Cheat Sheet
+
+| Method | Use for | Typical input | Key options |
+|---|---|---|---|
+| `chat(id, prompt, opts?)` | Non-streaming text generation | Prompt string or `(values) => string` | `after`, `provider/providerChain`, `requestOverrides`, `inputOverrides`, `normalize` |
+| `chatStream(id, prompt, opts?)` | Streaming text generation | Prompt string or `(values) => string` | `after`, `provider/providerChain`, `requestOverrides`, `inputOverrides`, `normalize` |
+| `tts(id, input, { source, ...opts })` | Text-to-speech from prior text step | `{ voice?, format?, instructions? }` | `source`, `after`, `provider/providerChain` |
+| `transcribe(id, input, { source, ...opts })` | Speech-to-text from prior audio artifact | `{ filename?, responseFormat? }` | `source`, `after`, `provider/providerChain` |
+| `translate(id, input, { source, ...opts })` | Audio translation from prior audio artifact | `{ filename?, targetLanguage?, responseFormat? }` | `source`, `after`, `provider/providerChain` |
+| `moderate(id, {}, { source, ...opts })` | Text moderation on prior text output | `{}` | `source`, `after`, `provider/providerChain` |
+| `embed(id, input, opts?)` | Embeddings from text or prior step | `{ text?, purpose? }` | `source` (optional), `after`, `provider/providerChain` |
+| `imageGenerate(id, input, opts?)` | Image generation from prompt | `{ prompt?, params? }` | `source` (optional), `after`, `provider/providerChain` |
+| `imageAnalyze(id, input, { source, ...opts })` | Image analysis from prior image step | `{ prompt? }` | `source`, `after`, `provider/providerChain` |
+| `videoGenerate(id, input, opts?)` | Video generation from prompt | `{ prompt?, params? }` | `source` (optional), `after`, `provider/providerChain` |
+| `videoRemix(id, input, opts?)` | Video remix from source video/artifact | `{ sourceVideoId?, prompt?, params? }` | `source` (optional), `after`, `provider/providerChain` |
+| `videoDownload(id, input, opts?)` | Download/resolve video artifact | `{ videoUri?, videoId?, variant? }` | `source` (optional), `after`, `provider/providerChain` |
+| `videoAnalyze(id, input, { source, ...opts })` | Video analysis from one or more sources | `{ prompt?, params? }` | `source` (single or array), `after`, `provider/providerChain` |
+| `saveFile(id, input, { source, ...opts })` | Persist prior artifact/text to disk | `{ path: string | ({ artifact, values }) => string }` | `source`, `after` |
+| `approvalGate(id, input, opts?)` | Human/system approval checkpoint | `{ input: object | (values) => object }` | `after`, `provider/providerChain` |
+| `custom(...)` / `customAfter(...)` | Escape hatch for custom capability steps | Raw capability request/factory | Full control via raw capability + options |
+| `output(mapper)` / `aggregate(mapper)` | Final workflow output mapping | `(values/results, state?) => output` | Final output shaping |
+
+### Recommended Patterns
+
+- Prefer `Pipeline` for most workflows; use `WorkflowBuilder` only when you need raw node-level control.
+- Use stable, descriptive step IDs (`seedPrompt`, `riskCheck`, `finalSummary`) because IDs are used in templates (`{{stepId}}`) and debugging.
+- Use typed step handles (`const s = pipeline.step("seed")`) for dependencies to reduce stringly-typed wiring mistakes.
+- Use `source` for data binding and `after` only for additional ordering constraints not already implied by `source`.
+- Keep prompt templates simple; when composition gets complex, use function prompts: `(values) => string`.
+- Normalize early when downstream steps need stable shapes across providers (`normalize: "text" | "artifact" | "image"`).
+- Keep side effects (file writes, approval gates) near the tail of the graph to minimize retry duplication risk.
+- Use `providerChain` per step only when that step needs custom fallback behavior; otherwise rely on workflow defaults.
+- Use `.custom(...)`/`.customAfter(...)` as escape hatches, not the default path, to keep workflows readable.
+
+### Low-level builder (advanced)
+
+Use `WorkflowBuilder` when you need direct node-level control.
 
 ```ts
 import {
@@ -394,6 +464,22 @@ const workflow = new WorkflowBuilder<{ finalText: string }>("example-workflow")
 
 const execution = await runner.run(workflow, new MultiModalExecutionContext());
 console.log(execution.status, execution.output);
+```
+
+### DSL escape hatch
+
+`Pipeline` supports low-level integration when needed:
+
+```ts
+import { CapabilityKeys, Pipeline } from "providerplaneai";
+
+const workflow = new Pipeline("dsl-escape-hatch")
+  .chat("seed", "hello")
+  .custom("custom1", "customCapability", { input: { value: 123 } })
+  .customAfter("seed", "moderate", CapabilityKeys.ModerationCapabilityKey, (_ctx, state) => ({
+    input: { input: String(state.values.seed) }
+  }))
+  .build();
 ```
 
 ### Built-in workflow-oriented capabilities
