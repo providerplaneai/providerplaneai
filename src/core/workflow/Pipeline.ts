@@ -188,14 +188,22 @@ export interface PipelineStepOptions {
  * Step options that require a single source step binding.
  */
 export interface PipelineSourceStepOptions extends PipelineStepOptions {
-    source: PipelineStepRef | PipelineSourceBinding<unknown>;
+    source:
+        | PipelineStepRef
+        | PipelineStepRef[]
+        | PipelineSourceBinding<unknown>
+        | Array<PipelineStepRef | PipelineSourceBinding<unknown>>;
 }
 
 /**
  * Step options that optionally bind to a single source step.
  */
 export interface PipelineSourceOptionalStepOptions extends PipelineStepOptions {
-    source?: PipelineStepRef | PipelineSourceBinding<unknown>;
+    source?:
+        | PipelineStepRef
+        | PipelineStepRef[]
+        | PipelineSourceBinding<unknown>
+        | Array<PipelineStepRef | PipelineSourceBinding<unknown>>;
 }
 
 /**
@@ -213,7 +221,7 @@ export interface PipelineSourceStepsOptions extends PipelineStepOptions {
  * Source-bound step options that produce text input.
  */
 export interface PipelineTextSourceStepOptions extends PipelineSourceStepOptions {
-    source: PipelineTextSourceRef;
+    source: PipelineTextSourceRef | PipelineTextSourceRef[];
     select?: PipelineTextSelect;
 }
 
@@ -221,7 +229,7 @@ export interface PipelineTextSourceStepOptions extends PipelineSourceStepOptions
  * Optional-source step options that produce text input when source is present.
  */
 export interface PipelineTextSourceOptionalStepOptions extends PipelineSourceOptionalStepOptions {
-    source?: PipelineTextSourceRef;
+    source?: PipelineTextSourceRef | PipelineTextSourceRef[];
     select?: PipelineTextSelect;
 }
 
@@ -229,7 +237,7 @@ export interface PipelineTextSourceOptionalStepOptions extends PipelineSourceOpt
  * Source-bound step options that consume artifact-like payloads.
  */
 export interface PipelineArtifactSourceStepOptions extends PipelineSourceStepOptions {
-    source: PipelineArtifactSourceRef;
+    source: PipelineArtifactSourceRef | PipelineArtifactSourceRef[];
     select?: PipelineArtifactSelect;
 }
 
@@ -237,7 +245,7 @@ export interface PipelineArtifactSourceStepOptions extends PipelineSourceStepOpt
  * Optional-source step options that consume artifact-like payloads.
  */
 export interface PipelineArtifactSourceOptionalStepOptions extends PipelineSourceOptionalStepOptions {
-    source?: PipelineArtifactSourceRef;
+    source?: PipelineArtifactSourceRef | PipelineArtifactSourceRef[];
     select?: PipelineArtifactSelect;
 }
 
@@ -245,7 +253,7 @@ export interface PipelineArtifactSourceOptionalStepOptions extends PipelineSourc
  * Source-bound step options that consume image references.
  */
 export interface PipelineImageSourceStepOptions extends PipelineSourceStepOptions {
-    source: PipelineImageSourceRef;
+    source: PipelineImageSourceRef | PipelineImageSourceRef[];
     select?: PipelineImageSelect;
 }
 
@@ -604,15 +612,15 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     tts(id: string, input: PipelineTtsInput, opts: PipelineTextSourceStepOptions): this {
-        const sourceId = this.resolveStepRef(this.resolveBoundSourceRef(opts.source));
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts.after);
-        const sourceSelect = this.resolveBoundSelect(opts.source, opts.select) as PipelineTextSelect | undefined;
+        const sourceRefs = this.toSourceBindings(opts.source);
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds, opts.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.AudioTextToSpeechCapabilityKey,
             (_ctx: MultiModalExecutionContext, state: WorkflowState) => ({
                 input: {
-                    text: this.resolveSourceText(state.values[sourceId], state.values, sourceSelect),
+                    text: this.resolveSourceTexts(sourceRefs, state.values).join("\n\n"),
                     ...(input.voice ? { voice: input.voice } : {}),
                     ...(input.format ? { format: input.format } : {}),
                     ...(input.instructions ? { instructions: input.instructions } : {})
@@ -634,14 +642,14 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     transcribe(id: string, input: PipelineTranscribeInput, opts: PipelineArtifactSourceStepOptions): this {
-        const sourceId = this.resolveStepRef(this.resolveBoundSourceRef(opts.source));
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts.after);
-        const sourceSelect = this.resolveBoundSelect(opts.source, opts.select) as PipelineArtifactSelect | undefined;
+        const sourceRefs = this.toSourceBindings(opts.source);
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds, opts.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.AudioTranscriptionCapabilityKey,
             (_ctx: MultiModalExecutionContext, state: WorkflowState) => {
-                const audio = this.resolveSourceArtifact(state.values[sourceId], state.values, sourceSelect);
+                const audio = this.resolveFirstSourceArtifact(sourceRefs, state.values);
                 return {
                     input: {
                         file: toPipelineAudioInput(audio),
@@ -667,14 +675,14 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     translate(id: string, input: PipelineTranslateInput, opts: PipelineArtifactSourceStepOptions): this {
-        const sourceId = this.resolveStepRef(this.resolveBoundSourceRef(opts.source));
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts.after);
-        const sourceSelect = this.resolveBoundSelect(opts.source, opts.select) as PipelineArtifactSelect | undefined;
+        const sourceRefs = this.toSourceBindings(opts.source);
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds, opts.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.AudioTranslationCapabilityKey,
             (_ctx: MultiModalExecutionContext, state: WorkflowState) => {
-                const audio = this.resolveSourceArtifact(state.values[sourceId], state.values, sourceSelect);
+                const audio = this.resolveFirstSourceArtifact(sourceRefs, state.values);
                 return {
                     input: {
                         file: toPipelineAudioInput(audio),
@@ -701,15 +709,15 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     moderate(id: string, input: PipelineModerateInput, opts: PipelineTextSourceStepOptions): this {
-        const sourceId = this.resolveStepRef(this.resolveBoundSourceRef(opts.source));
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts.after);
-        const sourceSelect = this.resolveBoundSelect(opts.source, opts.select) as PipelineTextSelect | undefined;
+        const sourceRefs = this.toSourceBindings(opts.source);
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds, opts.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.ModerationCapabilityKey,
             (_ctx: MultiModalExecutionContext, state: WorkflowState) => ({
                 input: {
-                    input: this.resolveSourceText(state.values[sourceId], state.values, sourceSelect)
+                    input: this.resolveSourceTexts(sourceRefs, state.values).join("\n\n")
                 }
             }),
             {
@@ -728,9 +736,9 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     embed(id: string, input: PipelineEmbedInput, opts?: PipelineTextSourceOptionalStepOptions): this {
-        const sourceId = opts?.source ? this.resolveStepRef(this.resolveBoundSourceRef(opts.source)) : undefined;
-        const sourceSelect = this.resolveBoundSelect(opts?.source, opts?.select) as PipelineTextSelect | undefined;
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts?.after);
+        const sourceRefs = opts?.source ? this.toSourceBindings(opts.source) : [];
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds.length > 0 ? sourceIds : undefined, opts?.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.EmbedCapabilityKey,
@@ -738,7 +746,7 @@ export class Pipeline<TOutput = unknown> {
                 input: {
                     input: this.resolveTextInput(
                         input.text ??
-                            (sourceId ? this.resolveSourceText(state.values[sourceId], state.values, sourceSelect) : ""),
+                            (sourceRefs.length > 0 ? this.resolveSourceTexts(sourceRefs, state.values).join("\n\n") : ""),
                         state.values
                     ),
                     ...(input.purpose ? { purpose: input.purpose } : {})
@@ -760,9 +768,9 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     imageGenerate(id: string, input: PipelineImageGenerateInput, opts?: PipelineTextSourceOptionalStepOptions): this {
-        const sourceId = opts?.source ? this.resolveStepRef(this.resolveBoundSourceRef(opts.source)) : undefined;
-        const sourceSelect = this.resolveBoundSelect(opts?.source, opts?.select) as PipelineTextSelect | undefined;
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts?.after);
+        const sourceRefs = opts?.source ? this.toSourceBindings(opts.source) : [];
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds.length > 0 ? sourceIds : undefined, opts?.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.ImageGenerationCapabilityKey,
@@ -770,7 +778,7 @@ export class Pipeline<TOutput = unknown> {
                 input: {
                     prompt: this.resolveTextInput(
                         input.prompt ??
-                            (sourceId ? this.resolveSourceText(state.values[sourceId], state.values, sourceSelect) : ""),
+                            (sourceRefs.length > 0 ? this.resolveSourceTexts(sourceRefs, state.values).join("\n\n") : ""),
                         state.values
                     ),
                     ...(input.params ? { params: input.params } : {})
@@ -792,15 +800,15 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     imageAnalyze(id: string, input: PipelineImageAnalyzeInput, opts: PipelineImageSourceStepOptions): this {
-        const sourceId = this.resolveStepRef(this.resolveBoundSourceRef(opts.source));
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts.after);
-        const sourceSelect = this.resolveBoundSelect(opts.source, opts.select) as PipelineImageSelect | undefined;
+        const sourceRefs = this.toSourceBindings(opts.source);
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds, opts.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.ImageAnalysisCapabilityKey,
             (_ctx: MultiModalExecutionContext, state: WorkflowState) => ({
                 input: {
-                    images: [this.resolveSourceImageReference(state.values[sourceId], state.values, sourceSelect)],
+                    images: this.resolveSourceImageReferences(sourceRefs, state.values),
                     ...(input.prompt
                         ? {
                               prompt: this.resolveTextInput(input.prompt, state.values)
@@ -824,14 +832,14 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     saveFile(id: string, input: PipelineSaveFileInput, opts: PipelineArtifactSourceStepOptions): this {
-        const sourceId = this.resolveStepRef(this.resolveBoundSourceRef(opts.source));
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts.after);
-        const sourceSelect = this.resolveBoundSelect(opts.source, opts.select) as PipelineArtifactSelect | undefined;
+        const sourceRefs = this.toSourceBindings(opts.source);
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds, opts.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.SaveFileCapabilityKey,
             (_ctx: MultiModalExecutionContext, state: WorkflowState) => {
-                const artifact = this.resolveSourceArtifact(state.values[sourceId], state.values, sourceSelect) as any;
+                const artifact = this.resolveFirstSourceArtifactCandidate(sourceRefs, state.values) as any;
                 const targetPath =
                     typeof input.path === "function"
                         ? input.path({ artifact, values: state.values })
@@ -872,9 +880,9 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     videoGenerate(id: string, input: PipelineVideoGenerateInput, opts?: PipelineTextSourceOptionalStepOptions): this {
-        const sourceId = opts?.source ? this.resolveStepRef(this.resolveBoundSourceRef(opts.source)) : undefined;
-        const sourceSelect = this.resolveBoundSelect(opts?.source, opts?.select) as PipelineTextSelect | undefined;
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts?.after);
+        const sourceRefs = opts?.source ? this.toSourceBindings(opts.source) : [];
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds.length > 0 ? sourceIds : undefined, opts?.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.VideoGenerationCapabilityKey,
@@ -882,7 +890,7 @@ export class Pipeline<TOutput = unknown> {
                 input: {
                     prompt: this.resolveTextInput(
                         input.prompt ??
-                            (sourceId ? this.resolveSourceText(state.values[sourceId], state.values, sourceSelect) : ""),
+                            (sourceRefs.length > 0 ? this.resolveSourceTexts(sourceRefs, state.values).join("\n\n") : ""),
                         state.values
                     ),
                     ...(input.params ? { params: input.params } : {})
@@ -905,18 +913,17 @@ export class Pipeline<TOutput = unknown> {
      * @throws {PipelineError} When no source video id can be resolved.
      */
     videoRemix(id: string, input: PipelineVideoRemixInput, opts?: PipelineArtifactSourceOptionalStepOptions): this {
-        const sourceId = opts?.source ? this.resolveStepRef(this.resolveBoundSourceRef(opts.source)) : undefined;
-        const sourceSelect = this.resolveBoundSelect(opts?.source, opts?.select) as PipelineArtifactSelect | undefined;
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts?.after);
+        const sourceRefs = opts?.source ? this.toSourceBindings(opts.source) : [];
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds.length > 0 ? sourceIds : undefined, opts?.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.VideoRemixCapabilityKey,
             (_ctx: MultiModalExecutionContext, state: WorkflowState) => {
                 const sourceVideoId =
                     typeof input.sourceVideoId === "function" ? input.sourceVideoId(state.values) : input.sourceVideoId;
-                const sourceArtifact = sourceId
-                    ? (this.resolveSourceArtifact(state.values[sourceId], state.values, sourceSelect) as any)
-                    : undefined;
+                const sourceArtifact =
+                    sourceRefs.length > 0 ? (this.resolveFirstSourceArtifact(sourceRefs, state.values) as any) : undefined;
                 const resolvedSourceVideoId = String(sourceVideoId ?? sourceArtifact?.id ?? "");
                 if (!resolvedSourceVideoId) {
                     throw new PipelineError("videoRemix requires sourceVideoId or a valid `source` step with an artifact id.");
@@ -945,16 +952,15 @@ export class Pipeline<TOutput = unknown> {
      * @returns {this} Fluent pipeline instance.
      */
     videoDownload(id: string, input: PipelineVideoDownloadInput, opts?: PipelineArtifactSourceOptionalStepOptions): this {
-        const sourceId = opts?.source ? this.resolveStepRef(this.resolveBoundSourceRef(opts.source)) : undefined;
-        const sourceSelect = this.resolveBoundSelect(opts?.source, opts?.select) as PipelineArtifactSelect | undefined;
-        const mergedAfter = this.mergeAfterDependencies(sourceId, opts?.after);
+        const sourceRefs = opts?.source ? this.toSourceBindings(opts.source) : [];
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds.length > 0 ? sourceIds : undefined, opts?.after);
         return this.capabilityStep(
             id,
             CapabilityKeys.VideoDownloadCapabilityKey,
             (_ctx: MultiModalExecutionContext, state: WorkflowState) => {
-                const sourceArtifact = sourceId
-                    ? (this.resolveSourceArtifact(state.values[sourceId], state.values, sourceSelect) as any)
-                    : undefined;
+                const sourceArtifact =
+                    sourceRefs.length > 0 ? (this.resolveFirstSourceArtifact(sourceRefs, state.values) as any) : undefined;
                 const resolvedVideoUri =
                     input.videoUri !== undefined
                         ? this.resolveTextInput(input.videoUri, state.values)
@@ -1174,7 +1180,7 @@ export class Pipeline<TOutput = unknown> {
         // Add an adapter node that transforms raw provider output into normalized workflow output.
         this.builder.after(rawNodeId, id, (_ctx, client, _runner, state) => {
             const rawValue = state.values[rawNodeId];
-            const normalized = this.applyNormalization(normalize, rawValue, state.values);
+            const normalized = this.applyNormalization(capability, normalize, rawValue, state.values);
             const output = keepRaw ? { value: normalized, raw: rawValue } : normalized;
 
             const job = new GenericJob<undefined, unknown>(undefined, false, async () => ({
@@ -1196,12 +1202,14 @@ export class Pipeline<TOutput = unknown> {
      * Applies output normalization strategy for a step.
      *
      * @private
+     * @param {string} capability Capability key that produced the output.
      * @param {PipelineNormalizePreset | PipelineNormalizeFn} normalize Normalization strategy.
      * @param {unknown} output Raw step output.
      * @param {StepValues} values Workflow values (available for custom normalization functions).
      * @returns {unknown} Normalized output.
      */
     private applyNormalization(
+        capability: string,
         normalize: PipelineNormalizePreset | PipelineNormalizeFn,
         output: unknown,
         values: StepValues
@@ -1211,7 +1219,7 @@ export class Pipeline<TOutput = unknown> {
         }
         switch (normalize) {
             case "text":
-                return extractPipelineText(output);
+                return this.extractNormalizedText(capability, output);
             case "artifact":
                 return extractPipelineAudioArtifact(output);
             case "image":
@@ -1219,6 +1227,88 @@ export class Pipeline<TOutput = unknown> {
             default:
                 return output;
         }
+    }
+
+    /**
+     * Resolve user-facing text for built-in text-producing capabilities before
+     * falling back to the loose recursive text extractor.
+     *
+     * @private
+     * @param {string} capability Capability key that produced the output.
+     * @param {unknown} output Raw step output.
+     * @returns {string} Best-effort normalized text payload.
+     */
+    private extractNormalizedText(capability: string, output: unknown): string {
+        switch (capability) {
+            case CapabilityKeys.ChatCapabilityKey:
+            case CapabilityKeys.ChatStreamCapabilityKey:
+            case CapabilityKeys.AudioTranscriptionCapabilityKey:
+            case CapabilityKeys.AudioTranslationCapabilityKey: {
+                const strict = this.extractAssistantMessageText(output);
+                if (strict) {
+                    return strict;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        return extractPipelineText(output);
+    }
+
+    /**
+     * Extract assistant-authored text from normalized chat-like payloads.
+     *
+     * This intentionally ignores metadata/raw container fields so terminal
+     * markers such as `completed` do not leak into `normalize: "text"` output.
+     *
+     * @private
+     * @param {unknown} output Raw capability output.
+     * @returns {string} Assistant text content, if available.
+     */
+    private extractAssistantMessageText(output: unknown): string {
+        if (typeof output === "string") {
+            return output.trim();
+        }
+
+        const messages = Array.isArray(output) ? output : [output];
+        const collected: string[] = [];
+
+        for (const message of messages) {
+            if (!message || typeof message !== "object") {
+                continue;
+            }
+
+            const typedMessage = message as { role?: unknown; content?: unknown };
+            if (typedMessage.role !== undefined && typedMessage.role !== "assistant") {
+                continue;
+            }
+
+            const content = typedMessage.content;
+            if (!Array.isArray(content)) {
+                continue;
+            }
+
+            for (const part of content) {
+                if (!part || typeof part !== "object") {
+                    continue;
+                }
+                const typedPart = part as { type?: unknown; text?: unknown };
+                if (typedPart.type !== undefined && typedPart.type !== "text") {
+                    continue;
+                }
+                if (typeof typedPart.text !== "string") {
+                    continue;
+                }
+                const trimmed = typedPart.text.trim();
+                if (!trimmed) {
+                    continue;
+                }
+                collected.push(trimmed);
+            }
+        }
+
+        return collected.join("\n").trim();
     }
 
     /**
@@ -1347,6 +1437,118 @@ export class Pipeline<TOutput = unknown> {
             return select(sourceValue, values);
         }
         return extractPipelineImageReference(sourceValue);
+    }
+
+    /**
+     * Normalizes source bindings into an array for helpers that support fan-in.
+     *
+     * @private
+     * @param {T | T[]} source Source binding(s).
+     * @returns {T[]} Normalized source binding list.
+     */
+    private toSourceBindings<T>(source: T | T[]): T[] {
+        return Array.isArray(source) ? source : [source];
+    }
+
+    /**
+     * Resolves multiple source bindings into text fragments.
+     *
+     * @private
+     * @param {(PipelineTextSourceRef)[]} refs Source references.
+     * @param {StepValues} values Workflow values.
+     * @returns {string[]} Resolved non-empty text fragments.
+     */
+    private resolveSourceTexts(refs: PipelineTextSourceRef[], values: StepValues): string[] {
+        return refs
+            .map((ref) => {
+                const stepId = this.resolveStepRef(this.resolveBoundSourceRef(ref));
+                const select = this.resolveBoundSelect(ref, undefined) as PipelineTextSelect | undefined;
+                return this.resolveSourceText(values[stepId], values, select).trim();
+            })
+            .filter((text) => text.length > 0);
+    }
+
+    /**
+     * Resolves multiple source bindings into artifact values.
+     *
+     * @private
+     * @param {(PipelineArtifactSourceRef | PipelineVideoSourceRef)[]} refs Source references.
+     * @param {StepValues} values Workflow values.
+     * @returns {PipelineSourceArtifact[]} Resolved artifacts.
+     */
+    private resolveSourceArtifacts(
+        refs: Array<PipelineArtifactSourceRef | PipelineVideoSourceRef>,
+        values: StepValues
+    ): PipelineSourceArtifact[] {
+        return refs.map((ref) => {
+            const stepId = this.resolveStepRef(this.resolveBoundSourceRef(ref));
+            const select = this.resolveBoundSelect(ref, undefined) as PipelineArtifactSelect | PipelineVideoSelect | undefined;
+            return this.resolveSourceArtifact(values[stepId], values, select);
+        });
+    }
+
+    /**
+     * Resolves the first usable artifact from one or more source bindings.
+     *
+     * @private
+     * @param {(PipelineArtifactSourceRef | PipelineVideoSourceRef)[]} refs Source references.
+     * @param {StepValues} values Workflow values.
+     * @returns {PipelineSourceArtifact} First resolved artifact.
+     * @throws {PipelineError} When no usable artifact can be resolved.
+     */
+    private resolveFirstSourceArtifact(
+        refs: Array<PipelineArtifactSourceRef | PipelineVideoSourceRef>,
+        values: StepValues
+    ): PipelineSourceArtifact {
+        const artifact = this.resolveSourceArtifacts(refs, values).find((candidate) => {
+            const hasId = typeof candidate?.id === "string" && candidate.id.length > 0;
+            const hasUrl = typeof candidate?.url === "string" && candidate.url.length > 0;
+            const hasBase64 = typeof candidate?.base64 === "string" && candidate.base64.trim().length > 0;
+            return hasId || hasUrl || hasBase64;
+        });
+        if (!artifact) {
+            throw new PipelineError("Could not resolve a usable artifact from the configured `source` step(s).");
+        }
+        return artifact;
+    }
+
+    /**
+     * Resolves the first source artifact without imposing transport-field requirements.
+     *
+     * This is used by helpers such as `saveFile` that can persist text-only payloads
+     * and therefore do not require `id`, `url`, or `base64` to be present.
+     *
+     * @private
+     * @param {(PipelineArtifactSourceRef | PipelineVideoSourceRef)[]} refs Source references.
+     * @param {StepValues} values Workflow values.
+     * @returns {PipelineSourceArtifact} First resolved artifact candidate.
+     * @throws {PipelineError} When no source artifact can be resolved.
+     */
+    private resolveFirstSourceArtifactCandidate(
+        refs: Array<PipelineArtifactSourceRef | PipelineVideoSourceRef>,
+        values: StepValues
+    ): PipelineSourceArtifact {
+        const artifact = this.resolveSourceArtifacts(refs, values)[0];
+        if (!artifact) {
+            throw new PipelineError("Could not resolve an artifact from the configured `source` step(s).");
+        }
+        return artifact;
+    }
+
+    /**
+     * Resolves multiple image source bindings into canonical image references.
+     *
+     * @private
+     * @param {PipelineImageSourceRef[]} refs Source references.
+     * @param {StepValues} values Workflow values.
+     * @returns {ClientReferenceImage[]} Resolved image references.
+     */
+    private resolveSourceImageReferences(refs: PipelineImageSourceRef[], values: StepValues): ClientReferenceImage[] {
+        return refs.map((ref) => {
+            const stepId = this.resolveStepRef(this.resolveBoundSourceRef(ref));
+            const select = this.resolveBoundSelect(ref, undefined) as PipelineImageSelect | undefined;
+            return this.resolveSourceImageReference(values[stepId], values, select);
+        });
     }
 
     /**

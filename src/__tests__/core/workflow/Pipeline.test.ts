@@ -53,6 +53,20 @@ function createPipelineHarness() {
                     case CapabilityKeys.AudioTranscriptionCapabilityKey:
                     case CapabilityKeys.AudioTranslationCapabilityKey: {
                         const file = String((input as any)?.input?.file ?? "");
+                        if (file.includes("structured-transcript")) {
+                            return {
+                                output: [
+                                    {
+                                        role: "assistant",
+                                        content: [{ type: "text", text: "structured transcript" }],
+                                        metadata: { status: "completed" },
+                                        rawResponse: { outputText: "completed" }
+                                    }
+                                ] as TOutput,
+                                id: crypto.randomUUID(),
+                                metadata: { status: "completed" }
+                            };
+                        }
                         return {
                             output: `text-from:${file.slice(0, 16)}` as TOutput,
                             id: crypto.randomUUID(),
@@ -322,6 +336,29 @@ describe("Pipeline", () => {
         const execution = await runner.run(workflow, ctx);
         expect(execution.status).toBe("completed");
         expect(execution.output?.valueType).toBe("string");
+    });
+
+    it("normalizes transcription text from assistant message content without metadata noise", async () => {
+        const { runner, ctx } = createPipelineHarness();
+        const workflow = new Pipeline<{ transcript: string }>("pipeline-normalize-transcription")
+            .custom("artifactSeed", "customEcho", {
+                input: {
+                    value: {
+                        id: "artifact-structured",
+                        mimeType: "audio/mpeg",
+                        url: "structured-transcript"
+                    }
+                }
+            })
+            .transcribe("tx", { responseFormat: "text" }, { source: "artifactSeed", normalize: "text" })
+            .output((values) => ({
+                transcript: String(values.tx ?? "")
+            }))
+            .build();
+
+        const execution = await runner.run(workflow, ctx);
+        expect(execution.status).toBe("completed");
+        expect(execution.output?.transcript).toBe("structured transcript");
     });
 
     it("routes imageGenerate -> imageAnalyze -> saveFile with base64 artifact path templating", async () => {
