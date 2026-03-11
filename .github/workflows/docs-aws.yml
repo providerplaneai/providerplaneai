@@ -42,10 +42,10 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DOCS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Upload docs to S3
-        run: aws s3 sync docs/ s3://${{ vars.AWS_DOCS_BUCKET }}/ --delete
+        run: aws s3 sync docs/ s3://${{ secrets.AWS_DOCS_BUCKET }}/ --delete
 
       - name: Invalidate CloudFront cache
         if: ${{ vars.AWS_CLOUDFRONT_DISTRIBUTION_ID != '' }}
