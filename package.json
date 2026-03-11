@@ -10,9 +10,9 @@
         "prepare": "husky install",
         "clean": "rimraf dist",
         "docs": "rimraf docs && typedoc --options typedoc.json --tsconfig tsconfig.build.json",
-        "playground": "node dist/playground.js",
+        "build:dev": "npm run clean && tsc -p tsconfig.dev.json",
         "build": "npm run clean && tsc -p tsconfig.build.json",
-        "dev": "nodemon --watch src --ext ts --exec \"npm run build && npm run playground\"",
+        "dev": "nodemon --watch src --ext ts --exec \"npm run build:dev && node dist/playground.js\"",
         "lint": "eslint . --ext .ts,.tsx --no-warn-ignored",
         "lint:fix": "eslint . --ext .ts,.tsx --fix",
         "test": "npm run build && vitest run --coverage",
@@ -43,7 +43,9 @@
         "#root/*": "./dist/*"
     },
     "files": [
-        "dist"
+        "dist",
+        "README.md",
+        "CHANGELOG.md"
     ],
     "publishConfig": {
         "access": "public"
