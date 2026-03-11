@@ -284,7 +284,8 @@ export function createDefaultExecutors(): CapabilityExecutorRegistry {
     registry.register(CapabilityKeys.ApprovalGateCapabilityKey, createApprovalGateExecutor());
 
     // Register built-in save-file executor (provider-agnostic).
-    registry.register(CapabilityKeys.SaveFileCapabilityKey, createSaveFileExecutor());
+    // Security default: constrain writes to current working directory.
+    registry.register(CapabilityKeys.SaveFileCapabilityKey, createSaveFileExecutor({ baseDir: process.cwd() }));
 
     // Register default non-streaming moderation executor
     registry.register(CapabilityKeys.ModerationCapabilityKey, {

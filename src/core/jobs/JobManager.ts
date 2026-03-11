@@ -131,9 +131,25 @@ export class JobManager {
      */
     private jobQueue: QueuedJob<any, any>[] = [];
     /**
+     * O(1) membership tracking for queued job IDs.
+     */
+    private queuedJobIds = new Set<string>();
+    /**
      * Number of jobs currently running.
      */
     private runningCount: number = 0;
+    /**
+     * Whether a coalesced persistence flush has already been queued.
+     */
+    private persistFlushQueued = false;
+    /**
+     * Job IDs with snapshot state changes since the last persistence flush.
+     */
+    private dirtyJobs = new Set<string>();
+    /**
+     * Cached snapshots keyed by job id, reused across persistence flushes.
+     */
+    private snapshotCache = new Map<string, JobSnapshot<any, any>>();
 
     /**
      * Constructs a new JobManager with the given options.
@@ -301,6 +317,7 @@ export class JobManager {
         const existingStatusHandler = job.onStatusChange;
         job.onStatusChange = (status) => {
             existingStatusHandler?.(status);
+            this.markJobDirty(job.id);
             this.persist();
             this.notifySubscribers(job.id);
         };
@@ -370,6 +387,7 @@ export class JobManager {
             this.wireJob(job);
 
             this.jobs.set(job.id, job);
+            this.snapshotCache.set(job.id, snap);
         }
     }
 
@@ -386,6 +404,7 @@ export class JobManager {
         this.wireJob(job);
 
         this.jobs.set(job.id, job);
+        this.markJobDirty(job.id);
         this.persist();
     }
 
@@ -425,7 +444,7 @@ export class JobManager {
         if (job.status === "running") {
             throw new Error(`JobManager: job '${id}' is already running`);
         }
-        if (this.jobQueue.some((q) => q.job.id === id)) {
+        if (this.queuedJobIds.has(id)) {
             throw new Error(`JobManager: job '${id}' is already queued`);
         }
         // Attach chunk callback for streaming progress
@@ -434,6 +453,7 @@ export class JobManager {
         ctx.setStripBinaryPayloadsInTimeline(this.options?.stripBinaryPayloadsInSnapshotsAndTimeline ?? false);
 
         this.jobQueue.push({ job, ctx });
+        this.queuedJobIds.add(id);
         this.processQueue();
         return job;
     }
@@ -474,12 +494,13 @@ export class JobManager {
         while (this.runningCount < (this.options?.maxConcurrency ?? Infinity) && this.jobQueue.length > 0) {
             // Dequeue the next job
             const { job, ctx } = this.jobQueue.shift()!;
+            this.queuedJobIds.delete(job.id);
             this.runningCount++;
             let finalized = false;
             /**
              * Finalizes job execution, cleaning up state and triggering next jobs.
              */
-            const finalize = () => {
+            const finalize = (snapshot?: JobSnapshot<any, any>) => {
                 if (finalized) {
                     return;
                 }
@@ -489,7 +510,7 @@ export class JobManager {
                 this.controllers.delete(job.id);
                 this.runningCount--;
                 this.persist();
-                this.notifySubscribers(job.id);
+                this.notifySubscribers(job.id, snapshot);
                 this.processQueue();
             };
 
@@ -498,13 +519,22 @@ export class JobManager {
             this.controllers.set(job.id, controller);
 
             // Trigger onStart hook
-            this.options?.hooks?.onStart?.(job.toSnapshot());
+            const startSnapshot = job.toSnapshot();
+            this.options?.hooks?.onStart?.(startSnapshot);
 
             // Chunk callback for streaming progress
             const chunkCallback = (chunk: JobChunk<any>) => {
                 job.onChunk?.(chunk);
-                this.options?.hooks?.onProgress?.(chunk, job.toSnapshot());
-                this.notifySubscribers(job.id);
+                const hasProgressHook = !!this.options?.hooks?.onProgress;
+                const hasSubscribers = (this.subscribers.get(job.id)?.size ?? 0) > 0;
+                if (!hasProgressHook && !hasSubscribers) {
+                    return;
+                }
+                const progressSnapshot = job.toSnapshot();
+                this.options?.hooks?.onProgress?.(chunk, progressSnapshot);
+                if (hasSubscribers) {
+                    this.notifySubscribers(job.id, progressSnapshot);
+                }
             };
 
             // Fire and forget - job will update its own status and notify subscribers/hooks on completion/error
@@ -514,19 +544,27 @@ export class JobManager {
             // terminal signal for both streaming and non-streaming executions.
             job.getCompletionPromise()
                 .then(() => {
-                    this.options?.hooks?.onComplete?.(job.toSnapshot());
+                    const completedSnapshot = job.toSnapshot();
+                    this.options?.hooks?.onComplete?.(completedSnapshot);
+                    return completedSnapshot;
                 })
+                .then((completedSnapshot) => completedSnapshot)
                 .catch((err) => {
-                    this.options?.hooks?.onError?.(err, job.toSnapshot());
+                    const erroredSnapshot = job.toSnapshot();
+                    this.options?.hooks?.onError?.(err, erroredSnapshot);
+                    return erroredSnapshot;
                 })
-                .finally(finalize);
+                .then((terminalSnapshot) => {
+                    finalize(terminalSnapshot);
+                });
 
             // Defensive guard: if run() rejects before completionPromise settles,
             // avoid leaking a running slot.
             runPromise.catch((err) => {
                 const normalized = err instanceof Error ? err : new Error(String(err));
-                this.options?.hooks?.onError?.(normalized, job.toSnapshot());
-                finalize();
+                const erroredSnapshot = job.toSnapshot();
+                this.options?.hooks?.onError?.(normalized, erroredSnapshot);
+                finalize(erroredSnapshot);
             });
         }
     }
@@ -544,7 +582,10 @@ export class JobManager {
         }
 
         // Remove queued entries so aborted pending jobs do not execute later.
-        this.jobQueue = this.jobQueue.filter((q) => q.job.id !== id);
+        if (this.queuedJobIds.has(id)) {
+            this.jobQueue = this.jobQueue.filter((q) => q.job.id !== id);
+            this.queuedJobIds.delete(id);
+        }
 
         const controller = this.controllers.get(id);
         if (controller) {
@@ -570,9 +611,42 @@ export class JobManager {
      * Persists all jobs using the provided persistence hook, if any.
      */
     private persist() {
-        if (this.options?.persistJobs) {
-            this.options.persistJobs(this.listJobs());
+        if (!this.options?.persistJobs) {
+            return;
         }
+
+        // Coalesce frequent status transitions in the same tick into one snapshot write.
+        if (this.persistFlushQueued) {
+            return;
+        }
+        this.persistFlushQueued = true;
+        queueMicrotask(() => {
+            this.persistFlushQueued = false;
+            if (this.dirtyJobs.size === 0) {
+                return;
+            }
+
+            for (const jobId of this.dirtyJobs) {
+                const job = this.jobs.get(jobId);
+                if (!job) {
+                    this.snapshotCache.delete(jobId);
+                    continue;
+                }
+                this.snapshotCache.set(jobId, job.toSnapshot());
+            }
+
+            this.dirtyJobs.clear();
+            this.options?.persistJobs?.(Array.from(this.snapshotCache.values()));
+        });
+    }
+
+    /**
+     * Marks a job snapshot as dirty so it is refreshed on next persistence flush.
+     *
+     * @param jobId Job identifier
+     */
+    private markJobDirty(jobId: string) {
+        this.dirtyJobs.add(jobId);
     }
 
     /**
@@ -591,7 +665,7 @@ export class JobManager {
         // Immediately notify with current snapshot if job exists
         const job = this.jobs.get(jobId);
         if (job) {
-            subscriber(job.toSnapshot());
+            subscriber(this.snapshotCache.get(job.id) ?? job.toSnapshot());
         }
 
         return () => this.subscribers.get(jobId)?.delete(subscriber);
@@ -602,7 +676,7 @@ export class JobManager {
      *
      * @param jobId The job ID
      */
-    private notifySubscribers(jobId: string) {
+    private notifySubscribers(jobId: string, snapshotOverride?: JobSnapshot<any, any>) {
         const job = this.jobs.get(jobId);
         if (!job) {
             return;
@@ -612,7 +686,7 @@ export class JobManager {
             return;
         }
 
-        const snapshot = job.toSnapshot();
+        const snapshot = snapshotOverride ?? this.snapshotCache.get(job.id) ?? job.toSnapshot();
         for (const sub of subs) {
             sub(snapshot);
         }

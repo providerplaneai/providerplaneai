@@ -103,21 +103,31 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<Clie
         }
 
         const normalized: NormalizedModeration[] = response.results.map((r, index) => {
-            const categories = Object.fromEntries(Object.entries(r.categories ?? {}).map(([k, v]) => [k, Boolean(v)]));
+            const categories: Record<string, boolean> = {};
+            const flaggedCategoryNames: string[] = [];
+            const categoriesSource = (r.categories ?? {}) as unknown as Record<string, unknown>;
+            for (const key in categoriesSource) {
+                const flagged = Boolean(categoriesSource[key]);
+                categories[key] = flagged;
+                if (flagged) {
+                    flaggedCategoryNames.push(key);
+                }
+            }
 
-            const categoryScores = Object.fromEntries(Object.entries(r.category_scores ?? {}).map(([k, v]) => [k, Number(v)]));
-
-            const reason = Object.entries(categories)
-                .filter(([, flagged]) => flagged)
-                .map(([k]) => k)
-                .join(", ");
+            const categoryScoresSource = r.category_scores as unknown as Record<string, unknown> | undefined;
+            let hasCategoryScores = false;
+            const categoryScores: Record<string, number> = {};
+            for (const key in categoryScoresSource ?? {}) {
+                categoryScores[key] = Number(categoryScoresSource![key]);
+                hasCategoryScores = true;
+            }
 
             return {
                 id: crypto.randomUUID(),
                 flagged: r.flagged,
                 categories,
-                categoryScores: Object.keys(categoryScores).length ? categoryScores : undefined,
-                reason: reason || undefined,
+                categoryScores: hasCategoryScores ? categoryScores : undefined,
+                reason: flaggedCategoryNames.length > 0 ? flaggedCategoryNames.join(", ") : undefined,
                 metadata: {
                     provider: AIProvider.OpenAI,
                     model: merged.model ?? DEFAULT_OPENAI_MODERATION_MODEL,

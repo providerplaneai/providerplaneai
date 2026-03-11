@@ -172,6 +172,7 @@ export class GeminiAudioTextToSpeechCapabilityImpl
         let mimeType = fallbackMimeType;
         let chunkIndex = 0;
         const allBuffers: Buffer[] = [];
+        let allBytesTotal = 0;
         try {
             const stream = await this._client.models.generateContentStream({
                 model,
@@ -192,6 +193,7 @@ export class GeminiAudioTextToSpeechCapabilityImpl
                     mimeType = audioChunk.mimeType ?? mimeType;
                     const buffer = Buffer.from(audioChunk.base64, "base64");
                     allBuffers.push(buffer);
+                    allBytesTotal += buffer.byteLength;
 
                     for (let offset = 0; offset < buffer.byteLength; offset += batchSize) {
                         const slice = buffer.subarray(offset, Math.min(offset + batchSize, buffer.byteLength));
@@ -229,7 +231,7 @@ export class GeminiAudioTextToSpeechCapabilityImpl
                 id: responseId ?? context?.requestId ?? crypto.randomUUID(),
                 kind: "tts",
                 ...(() => {
-                    const playable = this.toPlayableAudio(Buffer.concat(allBuffers), mimeType);
+                    const playable = this.toPlayableAudio(Buffer.concat(allBuffers, allBytesTotal), mimeType);
                     return {
                         mimeType: playable.mimeType,
                         base64: playable.bytes.toString("base64")
@@ -312,8 +314,14 @@ export class GeminiAudioTextToSpeechCapabilityImpl
      */
     private concatBase64Chunks(base64Chunks: string[]): Buffer {
         // Keep decoding per chunk to avoid accidental UTF-8/base64 boundary issues.
-        const buffers = base64Chunks.map((value) => Buffer.from(value, "base64"));
-        return Buffer.concat(buffers);
+        const buffers: Buffer[] = [];
+        let total = 0;
+        for (const value of base64Chunks) {
+            const buffer = Buffer.from(value, "base64");
+            buffers.push(buffer);
+            total += buffer.byteLength;
+        }
+        return Buffer.concat(buffers, total);
     }
 
     /**

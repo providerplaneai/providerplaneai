@@ -15,8 +15,13 @@ import {
     ClientVideoExtendRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
+    assertSafeRemoteHttpUrl,
     VideoExtendCapability
 } from "#root/index.js";
+import {
+    delayWithAbort,
+    pollGeminiVideoOperationUntilDone
+} from "#root/providers/gemini/capabilities/shared/GeminiVideoUtils.js";
 
 const DEFAULT_VIDEO_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
@@ -150,48 +155,26 @@ export class GeminiVideoExtendCapabilityImpl implements VideoExtendCapability<Cl
     }
 
     private async pollUntilTerminal(operation: any, pollIntervalMs: number, maxPollMs: number, signal?: AbortSignal) {
-        const started = Date.now();
-        let current = operation;
-
-        while (!current?.done) {
-            if (signal?.aborted) {
-                throw new Error("Gemini video extension polling aborted");
-            }
-
-            if (Date.now() - started >= maxPollMs) {
-                throw new Error(`Timed out waiting for Gemini video operation '${current?.name ?? "unknown"}'`);
-            }
-
-            await this.delay(pollIntervalMs, signal);
-            current = await (this.client.operations as any).getVideosOperation({ operation: current });
-        }
-
-        return current;
+        return await pollGeminiVideoOperationUntilDone({
+            client: this.client,
+            operation,
+            pollIntervalMs,
+            maxPollMs,
+            signal,
+            abortMessage: "Gemini video extension polling aborted",
+            timeoutMessage: (operationName) => `Timed out waiting for Gemini video operation '${operationName}'`
+        });
     }
 
+    /**
+     * Backward-compatible abort-aware delay helper used by tests and internal callers.
+     *
+     * @param ms Delay duration in milliseconds.
+     * @param signal Optional abort signal.
+     * @returns Promise that resolves after delay or rejects on abort.
+     */
     private delay(ms: number, signal?: AbortSignal): Promise<void> {
-        if (ms <= 0) {
-            return Promise.resolve();
-        }
-
-        return new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(() => {
-                signal?.removeEventListener("abort", onAbort);
-                resolve();
-            }, ms);
-            const onAbort = () => {
-                clearTimeout(timer);
-                reject(new Error("Gemini video extension polling aborted"));
-            };
-
-            if (signal) {
-                if (signal.aborted) {
-                    onAbort();
-                    return;
-                }
-                signal.addEventListener("abort", onAbort, { once: true });
-            }
-        });
+        return delayWithAbort(ms, signal, "Gemini video extension polling aborted");
     }
 
     private resolveDurationSeconds(value?: number): number | undefined {
@@ -238,6 +221,7 @@ export class GeminiVideoExtendCapabilityImpl implements VideoExtendCapability<Cl
         }
 
         if (video.uri.startsWith("http://") || video.uri.startsWith("https://")) {
+            await assertSafeRemoteHttpUrl(video.uri);
             const response = await fetch(video.uri, { signal });
             if (response.ok) {
                 const bytes = Buffer.from(await response.arrayBuffer());
@@ -312,12 +296,13 @@ export class GeminiVideoExtendCapabilityImpl implements VideoExtendCapability<Cl
         }
 
         const fileName = normalizedName;
-        const downloadPath = path.join(tmpdir(), `gemini-video-${Date.now()}-${fileName}.mp4`);
-        const downloadRefs = Array.from(new Set([`files/${normalizedName}`, normalizedName]));
+        const downloadPath = path.join(tmpdir(), `gemini-video-${crypto.randomUUID()}-${fileName}.mp4`);
+        const primaryRef = `files/${normalizedName}`;
+        const secondaryRef = normalizedName;
 
         let lastError: unknown;
         try {
-            for (const ref of downloadRefs) {
+            for (const ref of secondaryRef === primaryRef ? [primaryRef] : [primaryRef, secondaryRef]) {
                 try {
                     await (this.client.files as any).download({
                         file: ref,

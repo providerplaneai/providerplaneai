@@ -1,6 +1,15 @@
 import { writeFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { AIProvider } from "#root/index.js";
+
+vi.mock("node:dns/promises", async () => {
+    const actual = await vi.importActual<typeof import("node:dns/promises")>("node:dns/promises");
+    return {
+        ...actual,
+        lookup: vi.fn().mockResolvedValue([{ address: "93.184.216.34", family: 4 }])
+    };
+});
+
 import {
     DEFAULT_GEMINI_VIDEO_MAX_POLL_MS,
     DEFAULT_GEMINI_VIDEO_POLL_INTERVAL_MS,

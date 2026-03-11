@@ -3,8 +3,7 @@
  * @description Provider implementations and capability adapters.
  */
 import { GoogleGenAI } from "@google/genai";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, access } from "node:fs/promises";
 import {
     AIProvider,
     AIRequest,
@@ -150,7 +149,7 @@ export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCap
                 return this.parseDataUrl(source);
             }
 
-            if (existsSync(source)) {
+            if (await this.pathExists(source)) {
                 const bytes = await readFile(source);
                 const mimeType = mimeHint ?? this.inferMimeFromPath(source);
                 return { base64: bytes.toString("base64"), mimeType };
@@ -246,5 +245,20 @@ export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCap
             return "audio/webm";
         }
         return "audio/mpeg";
+    }
+
+    /**
+     * Async existence check that avoids blocking the event loop.
+     *
+     * @param filePath Path to test
+     * @returns `true` when path is accessible
+     */
+    private async pathExists(filePath: string): Promise<boolean> {
+        try {
+            await access(filePath);
+            return true;
+        } catch {
+            return false;
+        }
     }
 }

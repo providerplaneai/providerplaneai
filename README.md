@@ -4,114 +4,34 @@
 [![npm downloads](https://img.shields.io/npm/dm/providerplaneai)](https://www.npmjs.com/package/providerplaneai)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/providerplaneai/providerplaneai/node.js.yml?branch=main)](https://github.com/providerplaneai/providerplaneai/actions)
+[![TypeDocs](https://img.shields.io/badge/docs-typedoc-blue)](https://www.providerplane.dev)
 
-**ProviderPlaneAI** is a job-first, provider-agnostic AI orchestration framework designed for building scalable, resilient, and observable AI applications.
+ProviderPlaneAI is a workflow-first AI orchestration framework for Node.js. It provides a provider-agnostic pipeline layer above raw model SDKs:
 
-It focuses on modern AI system challenges such as streaming, multimodal pipelines, fallback strategies, execution tracing, and asynchronous workflows while remaining extensible and production-ready.
+- Provider-agnostic orchestration across OpenAI, Anthropic, and Gemini, with additional providers planned
+- Workflow-first API with jobs available as the lower-level execution layer
+- Multimodal pipelines across text, audio, image, video, moderation, and embeddings
+- Retry, fallback, persistence, and workflow-level observability
 
-## Table of Contents
-
-- [Key Concepts](#key-concepts)
-- [Core Features](#core-features)
-- [Example Use Cases](#example-use-cases)
-- [Getting Started](#getting-started)
-- [Built-In Providers](#built-in-providers)
-- [Design Goals](#design-goals)
-- [Workflow System](#workflow-system)
-- [Development](#development)
-- [Open Source and Contributions](#open-source-and-contributions)
-- [License](#license)
-
----
-
-<a id="key-concepts"></a>
-## Key Concepts 🧠
-
-### Job-First Architecture 🧩
-
-ProviderPlaneAI treats every AI operation as a **job**. This enables:
-- Asynchronous and synchronous execution
-- Retry, rerun, and persistence support
-- Concurrency and queue control
-- Observability and lifecycle tracking
-- Streaming and non-streaming workflows under a unified model
-
-### Capability-Based Design 🔌
-
-Instead of tying your system to specific vendors, ProviderPlaneAI routes requests through **capabilities**, allowing:
-- Provider-agnostic execution
-- Clean abstraction and extensibility
-- Custom capability integration
-- Easy fallback across providers
-
-### Streaming and Multimodal Pipelines 🌊
-
-The framework natively supports:
-- Streaming responses
-- Incremental artifact generation
-- Multimodal workflows (text, images, embeddings, moderation, analysis)
-- Unified execution context and timeline tracking
-
-### Resilience and Fallback 🛡️
-
-Execution policies allow:
-- Automatic fallback across providers
-- Structured error handling
-- Robust distributed AI pipelines
-
-### Observability and Tracing 🔍
-
-ProviderPlaneAI is designed with observability in mind:
-- Execution metadata
-- Structured job snapshots
-- Streaming diagnostics
-- Timeline-based artifact tracking
-
----
-
-<a id="core-features"></a>
-## Core Features ✨
-
-- Provider-agnostic AI orchestration
-- Job-based execution model
-- Streaming and non-streaming support
-- Multimodal artifact pipelines
-- Execution policies and fallback
-- Observability and metadata tracking
-- Extensible capability system
-- Strong TypeScript typing
-- Cloud and platform-friendly architecture
-- OSS-friendly and framework-agnostic
-
----
-
-<a id="example-use-cases"></a>
-## Example Use Cases 🏗️
-
-- AI platform and infrastructure teams
-- Agent orchestration systems
-- AI product backends
-- Multimodal pipelines
-- Distributed and resilient AI services
-- Internal AI developer platforms
+See [providerplane.dev](https://www.providerplane.dev) for the full API reference, advanced workflow patterns, and configuration guides.
 
 ---
 
 <a id="getting-started"></a>
-## Getting Started 🚀
+## Getting Started
 
-### Install 📦
+### Install
 
 ```bash
 npm install providerplaneai
 ```
 
-### Runtime Requirements ✅
+### Runtime Requirements
 
 - Node.js 20+
 - TypeScript 5+
 
-### Configure Providers ⚙️
+### Configure Providers
 
 ProviderPlaneAI loads configuration via `node-config` + `dotenv`.
 
@@ -122,18 +42,9 @@ Minimal example:
 ```json
 {
   "appConfig": {
-    "maxConcurrency": 128,
-    "maxQueueSize": 1024,
-    "maxStoredResponseChunks": 1024,
-    "storeRawResponses": true,
-    "maxRawBytesPerJob": 1048576,
-    "remoteImageFetchTimeoutMs": 16384,
-    "maxRemoteImageBytes": 10485760,
     "executionPolicy": {
       "providerChain": [
-        { "providerType": "openai", "connectionName": "default" },
-        { "providerType": "gemini", "connectionName": "default" },
-        { "providerType": "anthropic", "connectionName": "default" }
+        { "providerType": "openai", "connectionName": "default" }
       ]
     }
   },
@@ -142,159 +53,228 @@ Minimal example:
       "default": {
         "type": "openai",
         "apiKeyEnvVar": "OPENAI_API_KEY_1",
-        "defaultModel": "gpt-5",
-        "defaultModels": { "chat": "gpt-5" },
-        "providerDefaults": { "providerParams": {} },
-        "models": {
-          "gpt-5": {
-            "chat": {
-              "modelParams": {},
-              "providerParams": {},
-              "generalParams": {}
-            },
-            "chatStream": {
-              "modelParams": {},
-              "providerParams": {},
-              "generalParams": { "chatStreamBatchSize": 64 }
-            }
-          }
-        }
+        "defaultModel": "gpt-5"
       }
     }
   }
 }
 ```
 
-Set environment variables referenced by `apiKeyEnvVar` (for example `OPENAI_API_KEY_1`, `GEMINI_API_KEY_1`, `ANTHROPIC_API_KEY_1`).
+Minimal `.env` for the config above:
 
-### Basic Usage 💡
+```bash
+OPENAI_API_KEY_1=your_openai_api_key
+```
+
+For full multi-provider config and environment examples covering OpenAI, Gemini, Anthropic, and Voyage, see [providerplane.dev](https://www.providerplane.dev).
+
+### Quickstart
 
 ```ts
 import {
   AIClient,
-  CapabilityKeys,
   MultiModalExecutionContext,
-  type ClientChatRequest,
-  type NormalizedChatMessage
+  Pipeline,
+  WorkflowRunner
 } from "providerplaneai";
 
 const client = new AIClient();
-
-const request: ClientChatRequest = {
-  messages: [
-    {
-      role: "user",
-      content: [{ type: "text", text: "Hello" }]
-    }
-  ]
-};
-
-const job = client.createCapabilityJob<
-  typeof CapabilityKeys.ChatCapabilityKey,
-  ClientChatRequest,
-  NormalizedChatMessage
->(CapabilityKeys.ChatCapabilityKey, { input: request });
-
+const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
 const ctx = new MultiModalExecutionContext();
-client.jobManager.runJob(job.id, ctx);
 
-const result = await job.getCompletionPromise();
-console.log(result);
+const pipeline = new Pipeline<{
+  generatedText: string;
+  transcriptText: string;
+  audioArtifactId: string;
+}>("readme-workflow-1", {});
+
+// Typed step handles keep `source` and `after` references readable and safe
+const generateText = pipeline.step("generateText");
+const tts = pipeline.step("tts");
+const transcribe = pipeline.step("transcribe");
+
+// Build a workflow: chat -> tts -> transcribe
+const workflow = pipeline
+  .chat(generateText.id, "Generate one short inspirational quote in French.", {
+    normalize: "text"
+  })
+  .tts(tts.id, { voice: "alloy", format: "mp3" }, { source: generateText })
+  .transcribe(transcribe.id, { responseFormat: "text" }, { source: tts, normalize: "text" })
+  .output((values) => ({
+    generatedText: String(values.generateText ?? ""),
+    transcriptText: String(values.transcribe ?? ""),
+    audioArtifactId: String(((values.tts as any[])?.[0]?.id ?? ""))
+  }))
+  .build();
+
+// Run the workflow
+const execution = await runner.run(workflow, ctx);
+
+console.log("Output", execution.output);
 ```
 
-### Streaming Usage 📡
-
-```ts
-import {
-  AIClient,
-  CapabilityKeys,
-  MultiModalExecutionContext,
-  type ClientChatRequest,
-  type JobChunk,
-  type NormalizedChatMessage
-} from "providerplaneai";
-
-const client = new AIClient();
-
-const request: ClientChatRequest = {
-  messages: [
-    {
-      role: "user",
-      content: [{ type: "text", text: "Stream this response" }]
-    }
-  ]
-};
-
-const job = client.createCapabilityJob<
-  typeof CapabilityKeys.ChatStreamCapabilityKey,
-  ClientChatRequest,
-  NormalizedChatMessage
->(CapabilityKeys.ChatStreamCapabilityKey, { input: request });
-
-const ctx = new MultiModalExecutionContext();
-client.jobManager.runJob(job.id, ctx, (chunk: JobChunk<NormalizedChatMessage>) => {
-  if (chunk.delta?.content?.[0]?.type === "text") {
-    process.stdout.write(chunk.delta.content[0].text);
-  }
-});
-
-await job.getCompletionPromise();
+```mermaid
+graph TD
+    n0["generateText"]
+    n1["tts"]
+    n2["transcribe"]
+    n0 --> n1
+    n1 --> n2
 ```
 
----
+For most applications, this is the right abstraction level: `Pipeline` plus `WorkflowRunner`.
+
+Use direct jobs only when you need low-level control outside a workflow DAG, are integrating with an external scheduler, or are building custom orchestration on top of the library.
 
 <a id="built-in-providers"></a>
-## Built-In Providers 🤝
+## Built-In Providers
 
-#### Current providers:
 - OpenAI
 - Anthropic
 - Gemini
 
-Additional providers will be added in the future.
-
-Providers are auto-registered from `appConfig.executionPolicy.providerChain` during `AIClient` construction.
-
----
-
-<a id="design-goals"></a>
-## Design Goals 🎯
-
-ProviderPlaneAI is built around several guiding principles:
-
-- **Abstraction without loss of control**
-- **Streaming-first and multimodal-ready**
-- **Resilient distributed execution**
-- **Clear observability and traceability**
-- **Extensibility and long-term maintainability**
-- **Production-focused architecture**
-
----
+Providers listed in `appConfig.executionPolicy.providerChain` are initialized automatically when `AIClient` is constructed.
 
 <a id="workflow-system"></a>
 ## Workflow System
 
-Workflow orchestration docs (DAG nodes, defaults, nested workflows, streaming hooks, cancellation, and resume) are available in `docs/workflows.md`.
+ProviderPlaneAI includes a DAG workflow engine for orchestrating multi-step AI workflows. `Pipeline` is the recommended authoring API. `WorkflowBuilder` remains available for advanced node-level control.
+
+### Workflow capabilities
+
+- Deterministic DAG execution with explicit dependencies
+- Parallel fan-out and fan-in
+- Single-source and multi-source step inputs via `source`
+- Conditional step execution via `when`
+- Per-step retry and timeout policies
+- Per-step provider and provider-chain overrides
+- Streaming and non-streaming workflow nodes
+- Nested workflows
+- Export to JSON, Mermaid, DOT, and D3
+
+### Core APIs
+
+- `Pipeline` for most workflows
+- `WorkflowRunner` for execution
+- `WorkflowExporter` for visualization and export
+- `WorkflowBuilder` for advanced custom graph construction
+
+### Pipeline DSL (recommended)
+
+```ts
+const client = new AIClient();
+const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+const ctx = new MultiModalExecutionContext();
+
+const pipeline = new Pipeline<{
+  generatedText: string;
+  transcriptText: string;
+  translationText: string;
+  moderationFlagged: boolean;
+}>("readme-workflow-2", {});
+
+// Typed step handles keep `source` and `after` references readable and safe
+const generateText = pipeline.step("generateText");
+const tts = pipeline.step("tts");
+const transcribe = pipeline.step("transcribe");
+const translate = pipeline.step("translate");
+const moderate = pipeline.step("moderate");
+
+// Build a workflow: chat -> tts -> transcribe + translate -> moderate
+const workflow = pipeline
+  .chat(generateText.id, "Generate one short inspirational quote in French.", { normalize: "text" })
+  .tts(tts.id, { voice: "alloy", format: "mp3" }, { source: generateText })
+  .transcribe(transcribe.id, { responseFormat: "text" }, { source: tts, normalize: "text" })
+  .translate(translate.id, { targetLanguage: "english", responseFormat: "text" }, { source: tts, normalize: "text" })
+  .moderate(moderate.id, {}, { source: [transcribe, translate] })
+  .output((values) => ({
+    generatedText: String(values.generateText ?? ""),
+    transcriptText: String(values.transcribe ?? ""),
+    translationText: String(values.translate ?? ""),
+    moderationFlagged: Boolean((values.moderate as any)?.[0]?.flagged ?? false)
+  }))
+  .build();
+
+// Run the workflow
+const execution = await runner.run(workflow, ctx);
+
+console.log("Output", execution.output);
+```
+
+Notes:
+- `source` binds step input to upstream output and can be either a single step or an array of steps.
+- `after` adds ordering dependencies when you need sequencing without data binding.
+- Typed step handles created with `pipeline.step("...")` reduce stringly-typed wiring mistakes.
+- `custom(...)` and `customAfter(...)` are escape hatches for custom capability steps without dropping to `WorkflowBuilder`.
+- If you find yourself reaching for `createCapabilityJob` in application code, you are usually below the preferred abstraction level.
+
+```mermaid
+graph TD
+    n0["generateText"]
+    n1["tts"]
+    n2["transcribe"]
+    n3["translate"]
+    n4["moderate"]
+    n0 --> n1
+    n1 --> n2
+    n1 --> n3
+    n2 --> n4
+    n3 --> n4
+```
+
+For the full `Pipeline` method reference and step-by-step DSL documentation, see [providerplane.dev](https://www.providerplane.dev).
+
+### Built-in workflow-oriented capabilities
+
+- `approvalGate`
+- `saveFile`
+
+These are registered by default and are intended for workflow authoring rather than provider-specific model calls.
+
+### Advanced workflow APIs
+
+- Use `WorkflowBuilder` when you need direct node functions or full control over graph construction.
+- Use `WorkflowExporter` to render workflows as Mermaid, DOT, D3, or JSON.
+- Keep advanced builder/export usage in docs and internal tooling; use `Pipeline` for the common path.
 
 ---
 
 <a id="development"></a>
-## Development 🛠️
+## Development
 
 ```bash
 npm run build
 npm run test
 npm run lint
+npm run perf:quick
 ```
 
-### Git Hooks 🪝
+### Integration testing
+
+- Deterministic integration tests:
+  - `npm run test:integration`
+- Provider-backed live integration tests:
+  - `RUN_WORKFLOW_LIVE_INTEGRATION=1 npm run test:integration:live`
+  - requires `OPENAI_API_KEY_1`, `GEMINI_API_KEY_1`, and `ANTHROPIC_API_KEY_1`
+
+Performance artifacts are generated under `scripts/perf/results` as both JSON and Markdown:
+- `npm run perf:quick` (5 cold-import runs)
+- `npm run perf` (20 cold-import runs)
+- `npm run perf:full` (30 cold-import runs)
+- `npm run perf:ci` (30 runs + CI threshold checks; exits non-zero on regression)
+
+### Publishing notes
+
+Published tarballs intentionally exclude local development entry files and other non-runtime artifacts. Release packaging is constrained through both the TypeScript release build config and the `files` allowlist in `package.json`.
+
+### Git hooks
 We use Husky to enforce linting and tests.
 Please do not bypass hooks unless absolutely necessary.
 
 ---
 
 <a id="open-source-and-contributions"></a>
-## Open Source and Contributions 🌍
+## Open Source and Contributions
 
 ProviderPlaneAI is open source and designed to support real-world engineering teams. Contributions, feedback, and discussion are welcome.
 
@@ -303,6 +283,6 @@ If you are interested in contributing or collaborating, feel free to open an iss
 ---
 
 <a id="license"></a>
-## License 📄
+## License
 
 MIT

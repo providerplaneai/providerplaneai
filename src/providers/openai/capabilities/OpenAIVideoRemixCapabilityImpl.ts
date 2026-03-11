@@ -14,6 +14,7 @@ import {
     NormalizedVideo,
     VideoRemixCapability
 } from "#root/index.js";
+import { delayWithAbort, pollOpenAIVideoUntilTerminal } from "#root/providers/openai/capabilities/shared/OpenAIVideoUtils.js";
 /**
  * Default polling cadence when no request/config override is provided.
  */
@@ -90,7 +91,18 @@ export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<Clie
         const variant = input.params?.downloadVariant ?? "video";
 
         // For non-poll flows, return the initial operation payload directly.
-        const video = pollUntilComplete ? await this.pollUntilTerminal(created.id, pollIntervalMs, maxPollMs, signal) : created;
+        const video = pollUntilComplete
+            ? await pollOpenAIVideoUntilTerminal({
+                  videoId: created.id,
+                  pollIntervalMs,
+                  maxPollMs,
+                  signal,
+                  retrieve: (videoId, retrieveOptions) => this.client.videos.retrieve(videoId, retrieveOptions),
+                  getStatus: (video) => video.status,
+                  delay: (ms, abortSignal) => delayWithAbort(ms, abortSignal, "Video remix polling aborted"),
+                  abortMessage: "Video remix polling aborted"
+              })
+            : created;
 
         if (video.status === "failed") {
             throw new Error(
@@ -147,67 +159,6 @@ export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<Clie
     }
 
     /**
-     * Polls the OpenAI video job until it reaches a terminal state.
-     *
-     * @param videoId OpenAI video job id to poll.
-     * @param pollIntervalMs Delay between retrieve calls.
-     * @param maxPollMs Maximum total polling duration before timeout.
-     * @param signal Optional abort signal.
-     * @returns Final video object in `completed` or `failed` state.
-     * @throws Error when aborted or timed out.
-     */
-    private async pollUntilTerminal(videoId: string, pollIntervalMs: number, maxPollMs: number, signal?: AbortSignal) {
-        const started = Date.now();
-        while (true) {
-            if (signal?.aborted) {
-                throw new Error("Video remix polling aborted");
-            }
-
-            const video = await this.client.videos.retrieve(videoId, { signal });
-            if (video.status === "completed" || video.status === "failed") {
-                return video;
-            }
-
-            if (Date.now() - started >= maxPollMs) {
-                throw new Error(`Timed out waiting for video job '${videoId}' to complete`);
-            }
-
-            await this.delay(pollIntervalMs, signal);
-        }
-    }
-
-    /**
-     * Abort-aware sleep utility used by polling loops.
-     *
-     * @param ms Delay in milliseconds.
-     * @param signal Optional abort signal.
-     * @returns Promise that resolves after delay or rejects on abort.
-     */
-    private delay(ms: number, signal?: AbortSignal): Promise<void> {
-        if (ms <= 0) {
-            return Promise.resolve();
-        }
-
-        return new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(() => {
-                signal?.removeEventListener("abort", onAbort);
-                resolve();
-            }, ms);
-            const onAbort = () => {
-                clearTimeout(timer);
-                reject(new Error("Video remix polling aborted"));
-            };
-            if (signal) {
-                if (signal.aborted) {
-                    onAbort();
-                    return;
-                }
-                signal.addEventListener("abort", onAbort, { once: true });
-            }
-        });
-    }
-
-    /**
      * Parses OpenAI size format (`{width}x{height}`) into numeric dimensions.
      *
      * @param size Raw size string from provider payload.
@@ -221,6 +172,17 @@ export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<Clie
             width: Number.isFinite(width) ? width : undefined,
             height: Number.isFinite(height) ? height : undefined
         };
+    }
+
+    /**
+     * Backward-compatible abort-aware delay helper used by tests and internal callers.
+     *
+     * @param ms Delay duration in milliseconds.
+     * @param signal Optional abort signal.
+     * @returns Promise that resolves after delay or rejects on abort.
+     */
+    private delay(ms: number, signal?: AbortSignal): Promise<void> {
+        return delayWithAbort(ms, signal, "Video remix polling aborted");
     }
 
     /**

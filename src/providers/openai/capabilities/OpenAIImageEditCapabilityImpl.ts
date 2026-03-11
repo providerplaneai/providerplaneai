@@ -261,20 +261,29 @@ export class OpenAIImageEditCapabilityImpl
         executionContext: MultiModalExecutionContext
     ): { content: any[]; masks: ClientReferenceImage[] } {
         const content: any[] = [];
-        const timelineImages = executionContext.getTimeline().flatMap((t) => t.artifacts?.images ?? []);
+        const timeline = executionContext.getTimeline();
 
         let baseImage: ClientReferenceImage | undefined = input.referenceImages?.find((i) => i.role === "subject");
-        if (!baseImage && timelineImages.length) {
-            const last = timelineImages[timelineImages.length - 1];
-            // Multi-turn fallback: reuse latest timeline image as subject when omitted.
-            baseImage = {
-                id: last.id,
-                base64: last.base64,
-                url: last.url,
-                mimeType: last.mimeType,
-                role: "subject",
-                sourceType: "base64"
-            };
+        if (!baseImage) {
+            // Reverse scan avoids full timeline flatten/allocation on hot paths.
+            for (let i = timeline.length - 1; i >= 0; i--) {
+                const images = timeline[i]?.artifacts?.images;
+                if (!images || images.length === 0) {
+                    continue;
+                }
+
+                const last = images[images.length - 1];
+                // Multi-turn fallback: reuse latest timeline image as subject when omitted.
+                baseImage = {
+                    id: last.id,
+                    base64: last.base64,
+                    url: last.url,
+                    mimeType: last.mimeType,
+                    role: "subject",
+                    sourceType: "base64"
+                };
+                break;
+            }
         }
 
         if (!baseImage) {

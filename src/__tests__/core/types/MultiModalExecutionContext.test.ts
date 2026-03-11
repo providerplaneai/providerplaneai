@@ -117,6 +117,30 @@ describe("MultiModalExecutionContext", () => {
         expect(ctx.getLatestImageAnalysis()).toEqual([analysis]);
     });
 
+    it("yieldArtifacts coalesces consecutive streamChunk events", () => {
+        const ctx = new MultiModalExecutionContext();
+        const first = { id: "a1", description: "first" };
+        const second = { id: "a2", description: "second" };
+
+        ctx.yieldArtifacts({ imageAnalysis: [first] as any });
+        const firstEventId = (ctx.getTimeline()[0] as any).id;
+        ctx.yieldArtifacts({ imageAnalysis: [second] as any });
+
+        expect(ctx.getTimeline()).toHaveLength(1);
+        expect((ctx.getTimeline()[0] as any).id).toBe(firstEventId);
+        expect((ctx.getTimeline()[0] as any).action).toBe("streamChunk");
+        expect(ctx.getLatestImageAnalysis()).toEqual([first, second]);
+    });
+
+    it("yieldArtifacts skips empty artifact payloads", () => {
+        const ctx = new MultiModalExecutionContext();
+        ctx.yieldArtifacts({ images: [] as any, tts: [] as any });
+        expect(ctx.getTimeline()).toHaveLength(0);
+
+        ctx.yieldArtifacts({ images: "invalid" as any, transcript: undefined as any });
+        expect(ctx.getTimeline()).toHaveLength(0);
+    });
+
     it("strips base64/data-url fields when timeline sanitization is enabled", () => {
         const ctx = new MultiModalExecutionContext();
         ctx.setStripBinaryPayloadsInTimeline(true);

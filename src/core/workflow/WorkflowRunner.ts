@@ -108,10 +108,28 @@ export interface WorkflowRunnerOptions {
  * @public
  */
 export class WorkflowRunner {
+    /**
+     * Minimum interval between persisted in-progress snapshots for the same workflow.
+     * Terminal snapshots are always persisted immediately.
+     */
+    private static readonly RUNNING_SNAPSHOT_PERSIST_MIN_INTERVAL_MS = 250;
+
     private readonly jobManager: JobManager;
     private readonly client: AIClient;
     private readonly hooks?: WorkflowRunnerHooks;
     private readonly persistence?: WorkflowRunnerPersistence;
+    /**
+     * Tracks last persisted timestamp per workflow for throttled running snapshots.
+     */
+    private readonly lastRunningSnapshotPersistAt = new Map<string, number>();
+    /**
+     * Caches deterministic node ordering by workflow id/version.
+     */
+    private readonly orderedNodeCache = new Map<string, readonly WorkflowNode[]>();
+    /**
+     * Tracks workflow objects already validated in this runner instance.
+     */
+    private readonly validatedWorkflows = new WeakSet<Workflow<any>>();
 
     /**
      * Creates a workflow runner.
@@ -285,8 +303,7 @@ export class WorkflowRunner {
                 .map((r) => [r.stepId, r.outputs[0] as unknown] as const)
         );
         const nodeMap = new Map(workflow.nodes.map((node) => [node.id, node] as const));
-        // Deterministic ready-node ordering improves repeatability in tests and logs.
-        const orderedNodes = Array.from(nodeMap.values()).sort((a, b) => a.id.localeCompare(b.id));
+        const orderedNodes = this.getOrderedNodes(workflow);
         const activeJobIds = new Set<string>();
         const inFlightNodes = new Map<
             string,
@@ -471,6 +488,17 @@ export class WorkflowRunner {
         if (!this.persistence?.persistWorkflowExecution) {
             return;
         }
+        const isTerminal = execution.status === "completed" || execution.status === "error" || execution.status === "aborted";
+        if (!isTerminal) {
+            const now = Date.now();
+            const lastPersistedAt = this.lastRunningSnapshotPersistAt.get(execution.workflowId) ?? 0;
+            if (now - lastPersistedAt < WorkflowRunner.RUNNING_SNAPSHOT_PERSIST_MIN_INTERVAL_MS) {
+                return;
+            }
+            this.lastRunningSnapshotPersistAt.set(execution.workflowId, now);
+        } else {
+            this.lastRunningSnapshotPersistAt.delete(execution.workflowId);
+        }
         // Snapshot shape is intentionally self-contained so it can be used as
         // the sole source of truth during resume.
         const snapshot: WorkflowExecutionSnapshot<TOutput> = {
@@ -583,6 +611,7 @@ export class WorkflowRunner {
         const maxAttempts = Math.max(retry?.attempts ?? 1, 1);
         const backoffMs = Math.max(retry?.backoffMs ?? 0, 0);
         const attemptMetrics: WorkflowStepAttemptMetric[] = [];
+        let totalAttemptDurationMs = 0;
 
         let lastError: Error | undefined;
 
@@ -632,6 +661,7 @@ export class WorkflowRunner {
                     durationMs: endTime - attemptStartTime,
                     status: "completed"
                 });
+                totalAttemptDurationMs += endTime - attemptStartTime;
 
                 return {
                     stepId: node.id,
@@ -643,17 +673,18 @@ export class WorkflowRunner {
                     attemptCount: attemptMetrics.length,
                     attempts: attemptMetrics,
                     retryCount: Math.max(attemptMetrics.length - 1, 0),
-                    totalAttemptDurationMs: attemptMetrics.reduce((sum, metric) => sum + metric.durationMs, 0)
+                    totalAttemptDurationMs
                 };
             } catch (err) {
                 lastError = err instanceof Error ? err : new Error(String(err));
                 const attemptEndedAt = Date.now();
+                const attemptDurationMs = attemptEndedAt - attemptStartTime;
                 attemptMetrics.push({
                     attempt,
                     jobId,
                     startedAt: attemptStartTime,
                     endedAt: attemptEndedAt,
-                    durationMs: attemptEndedAt - attemptStartTime,
+                    durationMs: attemptDurationMs,
                     status: signal?.aborted
                         ? "aborted"
                         : this.isTimeoutError(lastError)
@@ -664,6 +695,7 @@ export class WorkflowRunner {
                     errorName: lastError.name,
                     errorMessage: lastError.message
                 });
+                totalAttemptDurationMs += attemptDurationMs;
 
                 if (jobId && (signal?.aborted || this.isTimeoutError(lastError))) {
                     try {
@@ -712,6 +744,10 @@ export class WorkflowRunner {
      * @throws {WorkflowError} On duplicates, missing dependencies, or cycles
      */
     private validateWorkflow(workflow: Workflow<any>) {
+        if (this.validatedWorkflows.has(workflow)) {
+            return;
+        }
+
         const ids = new Set<string>();
 
         for (const node of workflow.nodes) {
@@ -730,6 +766,7 @@ export class WorkflowRunner {
         }
 
         this.validateNoCycles(workflow);
+        this.validatedWorkflows.add(workflow);
     }
 
     /**
@@ -769,6 +806,24 @@ export class WorkflowRunner {
         for (const node of workflow.nodes) {
             visit(node.id);
         }
+    }
+
+    /**
+     * Returns cached deterministic workflow node order for scheduling.
+     *
+     * @param workflow Workflow definition
+     * @returns Node list sorted by node id
+     */
+    private getOrderedNodes(workflow: Workflow<any>): readonly WorkflowNode[] {
+        const cacheKey = `${workflow.id}@${workflow.version ?? "default"}`;
+        const cached = this.orderedNodeCache.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        const ordered = [...workflow.nodes].sort((a, b) => a.id.localeCompare(b.id));
+        this.orderedNodeCache.set(cacheKey, ordered);
+        return ordered;
     }
 
     /**

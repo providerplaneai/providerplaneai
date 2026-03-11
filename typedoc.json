@@ -2,6 +2,7 @@
     "out": "docs",
     "entryPoints": ["src/core", "src/client", "src/providers", "src/capabilities"],
     "entryPointStrategy": "expand",
+    "highlightLanguages": ["ts", "js", "bash", "json", "mermaid"],
     "blockTags": [
         "@defaultValue",
         "@description",
@@ -23,6 +24,7 @@
         "src/workflow1.ts",
         "src/job1.ts",
         "src/job2.ts",
-        "src/playground.ts"
+        "src/playground.ts",
+        "scripts/**",
     ]
 }

@@ -110,6 +110,18 @@ export class OpenAIImageAnalysisCapabilityImpl
         parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
     };
 
+    private static readonly IMAGE_ANALYSIS_TOOLS = [
+        {
+            ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
+            parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
+        }
+    ] as const;
+
+    private static readonly IMAGE_ANALYSIS_TOOL_CHOICE = {
+        type: "function" as const,
+        name: "image_analysis"
+    };
+
     /**
      * @param provider Parent provider instance
      * @param client Initialized OpenAI SDK client
@@ -163,33 +175,14 @@ export class OpenAIImageAnalysisCapabilityImpl
         // Ensures all relevant config is passed to the API
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisCapabilityKey, options);
 
-        // Build input payload for OpenAI API
-        // Each image is encoded as a data URI and added to the content array
-        const content: any[] = [];
-        for (const img of images) {
-            content.push({ type: "input_image", image_url: ensureDataUri(img.base64!, img.mimeType) });
-        }
-
-        // Add instruction text to guide the model's output
-        content.push({
-            type: "input_text",
-            text: input.prompt ?? "Analyze the provided image(s) and return structured results."
-        });
+        const content = this.buildContent(images, input.prompt);
 
         const response = await this.client.responses.create(
             {
                 model: merged.model ?? DEFAULT_OPENAI_IMAGE_ANALYSIS_MODEL,
                 input: [{ role: "user", content }],
-                tools: [
-                    {
-                        ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
-                        parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
-                    }
-                ],
-                tool_choice: {
-                    type: "function",
-                    name: "image_analysis"
-                },
+                tools: OpenAIImageAnalysisCapabilityImpl.IMAGE_ANALYSIS_TOOLS as any,
+                tool_choice: OpenAIImageAnalysisCapabilityImpl.IMAGE_ANALYSIS_TOOL_CHOICE,
                 ...(merged.modelParams ?? {}),
                 ...(merged.providerParams ?? {})
             },
@@ -269,21 +262,7 @@ export class OpenAIImageAnalysisCapabilityImpl
         // Merge general, provider, model, and request-level options
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisStreamCapabilityKey, options);
 
-        // Build content payload for OpenAI API
-        // Each image is encoded as a data URI and added to the content array
-        const content: any[] = [];
-        for (const img of images) {
-            content.push({
-                type: "input_image",
-                image_url: ensureDataUri(img.base64!, img.mimeType)
-            });
-        }
-
-        // Add instruction text to guide the model's output
-        content.push({
-            type: "input_text",
-            text: input.prompt ?? "Analyze the provided image(s) and return structured results."
-        });
+        const content = this.buildContent(images, input.prompt);
 
         let responseId: string | undefined;
         try {
@@ -291,16 +270,8 @@ export class OpenAIImageAnalysisCapabilityImpl
                 {
                     model: merged.model ?? DEFAULT_OPENAI_IMAGE_ANALYSIS_MODEL,
                     input: [{ role: "user", content }],
-                    tools: [
-                        {
-                            ...OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_TOOL,
-                            parameters: OpenAIImageAnalysisCapabilityImpl.OPENAI_IMAGE_ANALYSIS_SCHEMA
-                        }
-                    ],
-                    tool_choice: {
-                        type: "function",
-                        name: "image_analysis"
-                    },
+                    tools: OpenAIImageAnalysisCapabilityImpl.IMAGE_ANALYSIS_TOOLS as any,
+                    tool_choice: OpenAIImageAnalysisCapabilityImpl.IMAGE_ANALYSIS_TOOL_CHOICE,
                     ...(merged.modelParams ?? {}),
                     ...(merged.providerParams ?? {})
                 },
@@ -380,14 +351,41 @@ export class OpenAIImageAnalysisCapabilityImpl
 
     private normalizeAnalyses(payload: NormalizedImageAnalysis | NormalizedImageAnalysis[]): NormalizedImageAnalysis[] {
         const items = Array.isArray(payload) ? payload : payload ? [payload] : [];
+        const normalized: NormalizedImageAnalysis[] = [];
+        for (const item of items) {
+            const tags =
+                Array.isArray(item.tags) && item.tags.length > 0
+                    ? item.tags.filter((tag): tag is string => Boolean(tag))
+                    : undefined;
+            const objects =
+                Array.isArray(item.objects) && item.objects.length > 0
+                    ? item.objects.map((o) => ({ label: o.label }))
+                    : undefined;
+            const text =
+                Array.isArray(item.text) && item.text.length > 0 ? item.text.map((t) => ({ text: t.text })) : undefined;
 
-        return items.map((item) => ({
-            id: item.id ?? crypto.randomUUID(),
-            description: item.description,
-            tags: item.tags?.filter(Boolean),
-            objects: item.objects?.map((o) => ({ label: o.label })),
-            text: item.text?.map((t) => ({ text: t.text })),
-            safety: item.safety ? { flagged: Boolean(item.safety.flagged) } : undefined
-        }));
+            normalized.push({
+                id: item.id ?? crypto.randomUUID(),
+                description: item.description,
+                tags,
+                objects,
+                text,
+                safety: item.safety ? { flagged: Boolean(item.safety.flagged) } : undefined
+            });
+        }
+        return normalized;
+    }
+
+    private buildContent(images: { base64?: string; mimeType?: string }[], prompt?: string): any[] {
+        const content = new Array(images.length + 1);
+        for (let i = 0; i < images.length; i++) {
+            const img = images[i];
+            content[i] = { type: "input_image", image_url: ensureDataUri(img.base64!, img.mimeType) };
+        }
+        content[images.length] = {
+            type: "input_text",
+            text: prompt ?? "Analyze the provided image(s) and return structured results."
+        };
+        return content;
     }
 }

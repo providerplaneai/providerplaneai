@@ -4,8 +4,7 @@
  */
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, access } from "node:fs/promises";
 import {
     AIProvider,
     AIRequest,
@@ -19,6 +18,7 @@ import {
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_AUDIO_TRANSLATION_MODEL = "whisper-1";
+const ENGLISH_TARGET_ALIASES = new Set(["en", "eng", "english", "en-us", "en-gb"]);
 
 /**
  * OpenAI audio translation capability implementation.
@@ -129,14 +129,7 @@ export class OpenAIAudioTranslationCapabilityImpl implements AudioTranslationCap
      * @returns `true` when hint is an English variant
      */
     private isEnglishTarget(value: string): boolean {
-        const normalized = value.trim().toLowerCase();
-        return (
-            normalized === "en" ||
-            normalized === "eng" ||
-            normalized === "english" ||
-            normalized === "en-us" ||
-            normalized === "en-gb"
-        );
+        return ENGLISH_TARGET_ALIASES.has(value.trim().toLowerCase());
     }
 
     /**
@@ -205,11 +198,15 @@ export class OpenAIAudioTranslationCapabilityImpl implements AudioTranslationCap
                 return await toFile(parsed.bytes, fileName, { type: mimeTypeHint ?? parsed.mimeType });
             }
 
-            if (existsSync(source)) {
+            if (await this.pathExists(source)) {
                 // Local file flow: read bytes from disk and preserve basename as default filename.
                 const bytes = await readFile(source);
                 const fileName = filenameHint ?? this.fileNameFromPath(source);
                 return await toFile(bytes, fileName, mimeTypeHint ? { type: mimeTypeHint } : undefined);
+            }
+
+            if (source.startsWith("http://") || source.startsWith("https://")) {
+                throw new Error("String audio input must be a data URL or local file path");
             }
 
             throw new Error("String audio input must be a data URL or local file path");
@@ -266,5 +263,20 @@ export class OpenAIAudioTranslationCapabilityImpl implements AudioTranslationCap
         const normalized = filePath.replace(/\\/g, "/");
         const name = normalized.split("/").pop();
         return name && name.length > 0 ? name : "audio-input";
+    }
+
+    /**
+     * Async existence check that avoids blocking the event loop.
+     *
+     * @param filePath Path to test
+     * @returns `true` when path is accessible
+     */
+    private async pathExists(filePath: string): Promise<boolean> {
+        try {
+            await access(filePath);
+            return true;
+        } catch {
+            return false;
+        }
     }
 }

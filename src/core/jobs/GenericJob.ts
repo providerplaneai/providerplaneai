@@ -18,6 +18,22 @@ import {
     TimelineArtifacts
 } from "#root/index.js";
 
+const TIMELINE_ARTIFACT_KEYS: (keyof TimelineArtifacts)[] = [
+    "chat",
+    "images",
+    "masks",
+    "imageAnalysis",
+    "videoAnalysis",
+    "transcript",
+    "translation",
+    "embeddings",
+    "moderation",
+    "tts",
+    "video",
+    "files",
+    "custom"
+];
+
 /**
  * GenericJob manages the lifecycle, execution, and state of an AI job, supporting streaming and non-streaming modes.
  * Handles input, output, error, status, artifacts, and raw response management, with hooks for orchestration.
@@ -364,7 +380,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
             artifacts = (sanitizeTimelineArtifacts(artifacts) ?? {}) as TimelineArtifacts;
         }
 
-        for (const key of Object.keys(artifacts) as (keyof TimelineArtifacts)[]) {
+        for (const key of TIMELINE_ARTIFACT_KEYS) {
             const incoming = artifacts[key];
             if (!incoming || incoming.length === 0) {
                 continue;
@@ -402,7 +418,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     private rebuildArtifactSeen() {
         this.artifactSeen.clear();
 
-        for (const key of Object.keys(this.artifacts) as (keyof TimelineArtifacts)[]) {
+        for (const key of TIMELINE_ARTIFACT_KEYS) {
             const arr = this.artifacts[key];
             if (!arr || arr.length === 0) {
                 continue;

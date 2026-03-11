@@ -4,8 +4,7 @@
  */
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, access } from "node:fs/promises";
 import {
     AIProvider,
     AIRequest,
@@ -418,11 +417,15 @@ export class OpenAIAudioTranscriptionCapabilityImpl
                 return await toFile(parsed.bytes, fileName, { type: mimeTypeHint ?? parsed.mimeType });
             }
 
-            if (existsSync(source)) {
+            if (await this.pathExists(source)) {
                 // Local path path: read bytes and infer upload filename from basename.
                 const bytes = await readFile(source);
                 const fileName = filenameHint ?? this.fileNameFromPath(source);
                 return await toFile(bytes, fileName, mimeTypeHint ? { type: mimeTypeHint } : undefined);
+            }
+
+            if (source.startsWith("http://") || source.startsWith("https://")) {
+                throw new Error("String audio input must be a data URL or local file path");
             }
 
             throw new Error("String audio input must be a data URL or local file path");
@@ -482,6 +485,21 @@ export class OpenAIAudioTranscriptionCapabilityImpl
         const normalized = filePath.replace(/\\/g, "/");
         const name = normalized.split("/").pop();
         return name && name.length > 0 ? name : "audio-input";
+    }
+
+    /**
+     * Async existence check that avoids blocking the event loop.
+     *
+     * @param filePath Path to test
+     * @returns `true` when path is accessible
+     */
+    private async pathExists(filePath: string): Promise<boolean> {
+        try {
+            await access(filePath);
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     /**

@@ -2,7 +2,7 @@
     "type": "module",
     "name": "providerplaneai",
     "version": "0.2.0",
-    "description": "Multi-provider AI abstraction layer for Node.js applications.",
+    "description": "Multi-provider AI orchestration layer for Node.js applications.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "license": "MIT",
@@ -10,14 +10,20 @@
         "prepare": "husky install",
         "clean": "rimraf dist",
         "docs": "rimraf docs && typedoc --options typedoc.json --tsconfig tsconfig.build.json",
-        "playground": "node dist/playground.js",
+        "build:dev": "npm run clean && tsc -p tsconfig.dev.json",
         "build": "npm run clean && tsc -p tsconfig.build.json",
-        "dev": "nodemon --watch src --ext ts --exec \"npm run build && npm run playground\"",
+        "dev": "nodemon --watch src --ext ts --exec \"npm run build:dev && node dist/playground.js\"",
         "lint": "eslint . --ext .ts,.tsx --no-warn-ignored",
         "lint:fix": "eslint . --ext .ts,.tsx --fix",
-        "test": "vitest run --coverage",
+        "test": "npm run build && vitest run --coverage",
         "test:watch": "vitest",
-        "test:workflow": "./node_modules/.bin/vitest run src/__tests__/core/workflow"
+        "test:workflow": "./node_modules/.bin/vitest run src/__tests__/core/workflow",
+        "test:integration": "./node_modules/.bin/vitest run -c vitest.integration.config.ts",
+        "test:integration:live": "RUN_WORKFLOW_LIVE_INTEGRATION=1 ./node_modules/.bin/vitest run -c vitest.integration.config.ts",
+        "perf": "npm run build && node scripts/perf/run.js",
+        "perf:quick": "npm run build && node scripts/perf/run.js --runs 5",
+        "perf:full": "npm run build && node scripts/perf/run.js --runs 30",
+        "perf:ci": "npm run build && node scripts/perf/run.js --runs 30 --ci"
     },
     "repository": {
         "type": "git",
@@ -37,7 +43,9 @@
         "#root/*": "./dist/*"
     },
     "files": [
-        "dist"
+        "dist",
+        "README.md",
+        "CHANGELOG.md"
     ],
     "publishConfig": {
         "access": "public"

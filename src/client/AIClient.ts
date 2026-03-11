@@ -51,6 +51,22 @@ import {
     expectArrayForCapability
 } from "#root/index.js";
 
+const TIMELINE_ARTIFACT_KEYS: (keyof TimelineArtifacts)[] = [
+    "chat",
+    "images",
+    "masks",
+    "imageAnalysis",
+    "videoAnalysis",
+    "transcript",
+    "translation",
+    "embeddings",
+    "moderation",
+    "tts",
+    "video",
+    "files",
+    "custom"
+];
+
 /**
  * Main orchestrator for ProviderPlaneAI consumers.
  *
@@ -115,6 +131,10 @@ export class AIClient {
      * @private
      */
     private _jobManager: JobManager;
+    /**
+     * Cached default provider chain from loaded app config.
+     */
+    private readonly defaultProviderChain: ProviderRef[];
 
     /**
      * Constructs a new AIClient instance.
@@ -126,6 +146,7 @@ export class AIClient {
         // Load application configuration from files and environment variables
         const appConfig = loadAppConfig();
         this.appConfig = appConfig;
+        this.defaultProviderChain = appConfig.appConfig?.executionPolicy?.providerChain ?? [];
         // Extract core app-level options for job manager wiring
         const configuredMaxConcurrency = appConfig.appConfig?.maxConcurrency;
         const configuredMaxQueueSize = appConfig.appConfig?.maxQueueSize;
@@ -179,7 +200,7 @@ export class AIClient {
         this.executors = executors ?? createDefaultExecutors();
 
         // Auto-register providers declared in appConfig.executionPolicy.providerChain.
-        for (const provider of appConfig?.appConfig?.executionPolicy?.providerChain || []) {
+        for (const provider of this.defaultProviderChain) {
             const { connectionName, providerType } = provider;
             if (providerType === AIProvider.OpenAI) {
                 this.registerProvider(new OpenAIProvider(), AIProvider.OpenAI, connectionName);
@@ -516,7 +537,9 @@ export class AIClient {
                         output: finalOutput,
                         id: finalInternalChunk?.id ?? latestChunkId,
                         rawResponse: finalInternalChunk?.raw ?? latestChunkRaw,
-                        multimodalArtifacts: Object.keys(mergedArtifacts).length ? mergedArtifacts : fallbackArtifacts,
+                        multimodalArtifacts: this.hasAnyTimelineArtifacts(mergedArtifacts)
+                            ? mergedArtifacts
+                            : fallbackArtifacts,
                         metadata: {
                             ...(mergedMetadata ?? {}),
                             ...(finalInternalChunk?.metadata ?? {})
@@ -586,7 +609,7 @@ export class AIClient {
         providerChain?: ProviderRef[]
     ): Promise<AIResponse<TRes>> {
         // Use chain from config if none explicitly provided
-        const chain: ProviderRef[] = providerChain ?? this.appConfig.appConfig?.executionPolicy?.providerChain ?? [];
+        const chain = providerChain ?? this.defaultProviderChain;
         if (!chain.length) {
             throw new ExecutionPolicyError(`No provider chain defined in execution policy for capability: ${capability}`);
         }
@@ -596,6 +619,7 @@ export class AIClient {
 
         const errors: ProviderAttemptResult[] = [];
         const attempts: ProviderAttemptResult[] = [];
+        const sanitizedAttempts: Record<string, unknown>[] = [];
 
         // Metrics hook: execution start
         this.lifecycleHooks?.onExecutionStart?.(capability, chain);
@@ -645,10 +669,11 @@ export class AIClient {
                     ...this.extractAttemptUsage(result.metadata, result.rawResponse)
                 };
                 attempts.push(success);
+                sanitizedAttempts.push(this.sanitizeAttemptForMetadata(success));
                 this.lifecycleHooks?.onAttemptSuccess?.(success);
                 this.lifecycleHooks?.onExecutionEnd?.(capability, chain);
 
-                return this.withProviderAttemptsMetadata(result, attempts);
+                return this.withProviderAttemptsMetadata(result, sanitizedAttempts);
             } catch (err) {
                 // Handle provider failure, record error and fire hooks
                 const failure: ProviderAttemptResult = {
@@ -660,6 +685,7 @@ export class AIClient {
 
                 errors.push(failure);
                 attempts.push(failure);
+                sanitizedAttempts.push(this.sanitizeAttemptForMetadata(failure));
                 // Metrics hook: provider attempt failed
                 this.lifecycleHooks?.onAttemptFailure?.(failure);
             }
@@ -704,7 +730,7 @@ export class AIClient {
         providerChain?: ProviderRef[]
     ): AsyncGenerator<AIResponseChunk<TRes>> {
         // Use provider chain from config if none explicitly provided
-        const chain = providerChain ?? this.appConfig.appConfig?.executionPolicy?.providerChain ?? [];
+        const chain = providerChain ?? this.defaultProviderChain;
         if (!chain.length) {
             // Fail-fast if no provider chain is defined
             throw new ExecutionPolicyError(`No provider chain defined for ${capability}`);
@@ -716,6 +742,7 @@ export class AIClient {
         // Track errors and attempts for diagnostics and reporting
         const errors: ProviderAttemptResult[] = [];
         const attempts: ProviderAttemptResult[] = [];
+        const sanitizedAttempts: Record<string, unknown>[] = [];
         // Metrics hook: execution start
         this.lifecycleHooks?.onExecutionStart?.(capability, chain);
 
@@ -726,6 +753,15 @@ export class AIClient {
             let chunkIndex = 0;
             let chunksEmitted = 0;
             let pendingChunk: AIResponseChunk<TRes> | undefined;
+            const emitChunkMetrics = (): void => {
+                this.lifecycleHooks?.onChunkEmitted?.({
+                    capability,
+                    providerType,
+                    connectionName,
+                    chunkIndex,
+                    chunkTimeMs: Date.now() - startTime
+                });
+            };
 
             // Build attempt context for metrics and hooks
             const attemptCtx: ProviderAttemptContext = {
@@ -779,13 +815,7 @@ export class AIClient {
                     // providerAttempts metadata without replaying earlier chunks.
                     if (pendingChunk) {
                         yield pendingChunk;
-                        this.lifecycleHooks?.onChunkEmitted?.({
-                            capability,
-                            providerType,
-                            connectionName,
-                            chunkIndex,
-                            chunkTimeMs: Date.now() - startTime
-                        });
+                        emitChunkMetrics();
                         chunkIndex++;
                         chunksEmitted++;
                     }
@@ -808,6 +838,7 @@ export class AIClient {
                     ...this.extractAttemptUsage(latestChunkMetadata ?? pendingChunk?.metadata, pendingChunk?.raw)
                 };
                 attempts.push(success);
+                sanitizedAttempts.push(this.sanitizeAttemptForMetadata(success));
                 this.lifecycleHooks?.onAttemptSuccess?.(success);
 
                 // Yield the final buffered chunk, attaching provider attempt metadata
@@ -816,18 +847,12 @@ export class AIClient {
                         ...pendingChunk,
                         metadata: {
                             ...(pendingChunk.metadata ?? {}),
-                            providerAttempts: attempts.map((a) => this.sanitizeAttemptForMetadata(a))
+                            providerAttempts: sanitizedAttempts
                         }
                     };
 
                     yield chunkWithAttempts;
-                    this.lifecycleHooks?.onChunkEmitted?.({
-                        capability,
-                        providerType,
-                        connectionName,
-                        chunkIndex,
-                        chunkTimeMs: Date.now() - startTime
-                    });
+                    emitChunkMetrics();
                 }
 
                 // Metrics hook: execution end
@@ -838,13 +863,7 @@ export class AIClient {
                 // We buffer one chunk to allow final-chunk metadata augmentation on success paths.
                 if (pendingChunk) {
                     yield pendingChunk;
-                    this.lifecycleHooks?.onChunkEmitted?.({
-                        capability,
-                        providerType,
-                        connectionName,
-                        chunkIndex,
-                        chunkTimeMs: Date.now() - startTime
-                    });
+                    emitChunkMetrics();
                     chunkIndex++;
                     chunksEmitted++;
                     pendingChunk = undefined;
@@ -861,6 +880,7 @@ export class AIClient {
 
                 errors.push(failure);
                 attempts.push(failure);
+                sanitizedAttempts.push(this.sanitizeAttemptForMetadata(failure));
                 this.lifecycleHooks?.onAttemptFailure?.(failure);
             }
         }
@@ -879,12 +899,15 @@ export class AIClient {
      * @param attempts The list of provider attempt results.
      * @returns The AIResponse with providerAttempts metadata included.
      */
-    private withProviderAttemptsMetadata<TRes>(result: AIResponse<TRes>, attempts: ProviderAttemptResult[]): AIResponse<TRes> {
+    private withProviderAttemptsMetadata<TRes>(
+        result: AIResponse<TRes>,
+        sanitizedAttempts: Record<string, unknown>[]
+    ): AIResponse<TRes> {
         return {
             ...result,
             metadata: {
                 ...(result.metadata ?? {}),
-                providerAttempts: attempts.map((a) => this.sanitizeAttemptForMetadata(a))
+                providerAttempts: sanitizedAttempts
             }
         };
     }
@@ -1193,7 +1216,7 @@ export class AIClient {
      * @param next The next TimelineArtifacts object to merge in.
      */
     private mergeTimelineArtifacts(target: TimelineArtifacts, next: TimelineArtifacts) {
-        for (const key of Object.keys(next) as (keyof TimelineArtifacts)[]) {
+        for (const key of TIMELINE_ARTIFACT_KEYS) {
             const incoming = next[key];
             if (!incoming || incoming.length === 0) {
                 continue;
@@ -1205,6 +1228,22 @@ export class AIClient {
 
             (target[key] as unknown[]).push(...incoming);
         }
+    }
+
+    /**
+     * Returns true when any timeline artifact bucket contains items.
+     *
+     * @param artifacts Timeline artifacts object
+     * @returns `true` when at least one bucket is non-empty
+     */
+    private hasAnyTimelineArtifacts(artifacts: TimelineArtifacts): boolean {
+        for (const key of TIMELINE_ARTIFACT_KEYS) {
+            const values = artifacts[key];
+            if (Array.isArray(values) && values.length > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
