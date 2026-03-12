@@ -26,8 +26,7 @@ import {
 export function loadAppConfig(): AppConfig {
     dotenv.config({ quiet: true }); // load .env variables
 
-    // Load config from node-config (already merges default + NODE_ENV json)
-    const rawConfig = config.util.toObject();
+    const rawConfig = config.has("providerplane") ? config.get("providerplane") : {};
 
     // Top-level load as partial to allow for further processing/validation.
     const parsed = rawConfig as AppConfig;

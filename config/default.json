@@ -1,212 +1,213 @@
 {
-    "appConfig": {
-        "maxConcurrency": 128,
-        "maxQueueSize": 1024,
-        "maxRemoteImageBytes": 10485760,
-        "maxStoredResponseChunks": 1024,
-        "storeRawResponses": true,
-        "stripBinaryPayloadsInSnapshotsAndTimeline": true,
-        "maxRawBytesPerJob": 1048576,
-        "remoteImageFetchTimeoutMs": 16384,
-        "executionPolicy": {
-            "providerChain": [
-                {
-                    "providerType": "openai",
-                    "connectionName": "default"
+    "providerplane": {
+        "appConfig": {
+            "maxConcurrency": 128,
+            "maxQueueSize": 1024,
+            "maxRemoteImageBytes": 10485760,
+            "maxStoredResponseChunks": 1024,
+            "storeRawResponses": true,
+            "stripBinaryPayloadsInSnapshotsAndTimeline": true,
+            "maxRawBytesPerJob": 1048576,
+            "remoteImageFetchTimeoutMs": 16384,
+            "executionPolicy": {
+                "providerChain": [
+                    {
+                        "providerType": "openai",
+                        "connectionName": "default"
+                    },
+                    {
+                        "providerType": "gemini",
+                        "connectionName": "default"
+                    },
+                    {
+                        "providerType": "anthropic",
+                        "connectionName": "default"
+                    }
+                ]
+            }
+        },
+        "providers": {
+            "openai": {
+                "default": {
+                    "type": "openai",
+                    "apiKeyEnvVar": "OPENAI_API_KEY_1",
+                    "defaultModel": "gpt-5",
+                    "defaultModels": {
+                        "chat": "gpt-5",
+                        "embed": "text-embedding-3-large",
+                        "imageGeneration": "gpt-4.1",
+                        "imageGenerationStream": "gpt-4.1",
+                        "imageEdit": "gpt-4.1",
+                        "imageEditStream": "gpt-4.1",
+                        "imageAnalysis": "gpt-4.1",
+                        "imageAnalyzeStream": "gpt-4.1",
+                        "audioTranscription": "gpt-4o-transcribe",
+                        "audioTranscriptionStream": "gpt-4o-transcribe",
+                        "audioTranslation": "whisper-1",
+                        "audioTts": "gpt-4o-mini-tts",
+                        "audioTtsStream": "gpt-4o-mini-tts",
+                        "videoGeneration": "sora-2",
+                        "videoDownload": "sora-2",
+                        "videoRemix": "sora-2",
+                        "moderation": "omni-moderation-latest"
+                    },
+                    "models": {
+                        "gpt-5": {
+                            "chatStream": {
+                                "generalParams": {
+                                    "chatStreamBatchSize": 64
+                                }
+                            }
+                        },
+                        "text-embedding-3-large": {
+                            "embed": {
+                                "modelParams": {
+                                    "encodingFormat": "float",
+                                    "dimensions": 3072
+                                }
+                            }
+                        },
+                        "gpt-4o-transcribe": {
+                            "audioTranscription": {
+                                "modelParams": {
+                                    "language": "en"
+                                },
+                                "generalParams": {
+                                    "audioStreamBatchSize": 64
+                                }
+                            },
+                            "audioTranscriptionStream": {
+                                "modelParams": {
+                                    "language": "en"
+                                },
+                                "generalParams": {
+                                    "audioStreamBatchSize": 64
+                                }
+                            }
+                        },
+                        "whisper-1": {
+                            "audioTranslation": {
+                                "modelParams": {
+                                    "response_format": "json"
+                                }
+                            }
+                        },
+                        "gpt-4o-mini-tts": {
+                            "audioTts": {
+                                "modelParams": {
+                                    "voice": "alloy"
+                                }
+                            },
+                            "audioTtsStream": {
+                                "modelParams": {
+                                    "voice": "alloy"
+                                },
+                                "generalParams": {
+                                    "audioStreamBatchSize": 4096
+                                }
+                            }
+                        },
+                        "sora-2": {
+                            "videoGeneration": {
+                                "modelParams": {
+                                    "seconds": "8",
+                                    "size": "1280x720"
+                                },
+                                "generalParams": {
+                                    "pollIntervalMs": 2000,
+                                    "maxPollMs": 300000
+                                }
+                            },
+                            "videoDownload": {
+                                "generalParams": {
+                                    "downloadTimeoutMs": 30000
+                                }
+                            },
+                            "videoRemix": {
+                                "generalParams": {
+                                    "pollIntervalMs": 2000,
+                                    "maxPollMs": 300000
+                                }
+                            }
+                        }
+                    }
                 },
-                {
-                    "providerType": "gemini",
-                    "connectionName": "default"
-                },
-                {
-                    "providerType": "anthropic",
-                    "connectionName": "default"
+                "fallback": {
+                    "type": "openai",
+                    "apiKeyEnvVar": "OPENAI_API_KEY_2"
                 }
-            ]
-        }
-    },
-    "providers": {
-        "openai": {
-            "default": {
-                "type": "openai",
-                "apiKeyEnvVar": "OPENAI_API_KEY_1",
-                "defaultModel": "gpt-5",
-                "defaultModels": {
-                    "chat": "gpt-5",
-                    "embed": "text-embedding-3-large",
-                    "imageGeneration": "gpt-4.1",
-                    "imageGenerationStream": "gpt-4.1",
-                    "imageEdit": "gpt-4.1",
-                    "imageEditStream": "gpt-4.1",
-                    "imageAnalysis": "gpt-4.1",
-                    "imageAnalyzeStream": "gpt-4.1",
-                    "audioTranscription": "gpt-4o-transcribe",
-                    "audioTranscriptionStream": "gpt-4o-transcribe",
-                    "audioTranslation": "whisper-1",
-                    "audioTts": "gpt-4o-mini-tts",
-                    "audioTtsStream": "gpt-4o-mini-tts",
-                    "videoGeneration": "sora-2",
-                    "videoDownload": "sora-2",
-                    "videoRemix": "sora-2",
-                    "moderation": "omni-moderation-latest"
-                },
-                "models": {
-                    "gpt-5": {
-                        "chatStream": {
-                            "generalParams": {
-                                "chatStreamBatchSize": 64
-                            }
-                        }
+            },
+            "anthropic": {
+                "default": {
+                    "type": "anthropic",
+                    "apiKeyEnvVar": "ANTHROPIC_API_KEY_1",
+                    "defaultModel": "claude-sonnet-4-5-20250929",
+                    "defaultModels": {
+                        "chat": "claude-sonnet-4-5-20250929",
+                        "embed": "voyage-3",
+                        "moderation": "claude-sonnet-4-5-20250929",
+                        "imageAnalysis": "claude-sonnet-4-5-20250929",
+                        "imageAnalyzeStream": "claude-sonnet-4-5-20250929"
                     },
-                    "text-embedding-3-large": {
-                        "embed": {
-                            "modelParams": {
-                                "encodingFormat": "float",
-                                "dimensions": 3072
-                            }
-                        }
-                    },
-                    "gpt-4o-transcribe": {
-                        "audioTranscription": {
-                            "modelParams": {
-                                "language": "en"
+                    "models": {
+                        "claude-sonnet-4-5-20250929": {
+                            "chat": {
+                                "modelParams": {
+                                    "max_tokens": 1024
+                                }
                             },
-                            "generalParams": {
-                                "audioStreamBatchSize": 64
-                            }
-                        },
-                        "audioTranscriptionStream": {
-                            "modelParams": {
-                                "language": "en"
+                            "chatStream": {
+                                "modelParams": {
+                                    "max_tokens": 1024
+                                },
+                                "generalParams": {
+                                    "chatStreamBatchSize": 64
+                                }
                             },
-                            "generalParams": {
-                                "audioStreamBatchSize": 64
-                            }
-                        }
-                    },
-                    "whisper-1": {
-                        "audioTranslation": {
-                            "modelParams": {
-                                "response_format": "json"
-                            }
-                        }
-                    },
-                    "gpt-4o-mini-tts": {
-                        "audioTts": {
-                            "modelParams": {
-                                "voice": "alloy"
-                            }
-                        },
-                        "audioTtsStream": {
-                            "modelParams": {
-                                "voice": "alloy"
+                            "imageAnalysis": {
+                                "modelParams": {
+                                    "max_tokens": 1024
+                                },
+                                "generalParams": {
+                                    "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
+                                }
                             },
-                            "generalParams": {
-                                "audioStreamBatchSize": 4096
-                            }
-                        }
-                    },
-                    "sora-2": {
-                        "videoGeneration": {
-                            "modelParams": {
-                                "seconds": "8",
-                                "size": "1280x720"
-                            },
-                            "generalParams": {
-                                "pollIntervalMs": 2000,
-                                "maxPollMs": 300000
-                            }
-                        },
-                        "videoDownload": {
-                            "generalParams": {
-                                "downloadTimeoutMs": 30000
-                            }
-                        },
-                        "videoRemix": {
-                            "generalParams": {
-                                "pollIntervalMs": 2000,
-                                "maxPollMs": 300000
+                            "imageAnalyzeStream": {
+                                "modelParams": {
+                                    "max_tokens": 1024
+                                },
+                                "generalParams": {
+                                    "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
+                                }
                             }
                         }
                     }
                 }
             },
-            "fallback": {
-                "type": "openai",
-                "apiKeyEnvVar": "OPENAI_API_KEY_2"
-            }
-        },
-        "anthropic": {
-            "default": {
-                "type": "anthropic",
-                "apiKeyEnvVar": "ANTHROPIC_API_KEY_1",
-                "defaultModel": "claude-sonnet-4-5-20250929",
-                "defaultModels": {
-                    "chat": "claude-sonnet-4-5-20250929",
-                    "embed": "voyage-3",
-                    "moderation": "claude-sonnet-4-5-20250929",
-                    "imageAnalysis": "claude-sonnet-4-5-20250929",
-                    "imageAnalyzeStream": "claude-sonnet-4-5-20250929"
-                },
-                "models": {
-                    "claude-sonnet-4-5-20250929": {
-                        "chat": {
-                            "modelParams": {
-                                "max_tokens": 1024
-                            }
-                        },
-                        "chatStream": {
-                            "modelParams": {
-                                "max_tokens": 1024
-                            },
-                            "generalParams": {
-                                "chatStreamBatchSize": 64
-                            }
-                        },
-                        "imageAnalysis": {
-                            "modelParams": {
-                                "max_tokens": 1024
-                            },
-                            "generalParams": {
-                                "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
-                            }
-                        },
-                        "imageAnalyzeStream": {
-                            "modelParams": {
-                                "max_tokens": 1024
-                            },
-                            "generalParams": {
-                                "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "gemini": {
-            "default": {
-                "type": "gemini",
-                "apiKeyEnvVar": "GEMINI_API_KEY_1",
-                "defaultModel": "gemini-2.5-flash-lite",
-                "defaultModels": {
-                    "chat": "gemini-2.5-flash-lite",
-                    "embed": "gemini-embedding-001",
-                    "moderation": "gemini-2.5-flash-lite",
-                    "imageGeneration": "imagen-4.0-generate-001",
-                    "imageGenerationStream": "imagen-4.0-generate-001",
-                    "imageAnalysis": "gemini-2.5-pro",
-                    "imageAnalyzeStream": "gemini-2.5-pro",
-                    "audioTranscription": "gemini-2.5-flash",
-                    "audioTranscriptionStream": "gemini-2.5-flash",
-                    "audioTranslation": "gemini-2.5-flash",
-                    "audioTts": "gemini-2.5-flash-preview-tts",
-                    "audioTtsStream": "gemini-2.5-flash-preview-tts",
-                    "videoGeneration": "veo-3.1-generate-preview",
-                    "videoExtend": "veo-3.1-generate-preview",
-                    "videoDownload": "veo-3.1-generate-preview",
-                    "videoAnalysis": "gemini-2.5-pro"
-                },
-                "models": {
+            "gemini": {
+                "default": {
+                    "type": "gemini",
+                    "apiKeyEnvVar": "GEMINI_API_KEY_1",
+                    "defaultModel": "gemini-2.5-flash-lite",
+                    "defaultModels": {
+                        "chat": "gemini-2.5-flash-lite",
+                        "embed": "gemini-embedding-001",
+                        "moderation": "gemini-2.5-flash-lite",
+                        "imageGeneration": "imagen-4.0-generate-001",
+                        "imageGenerationStream": "imagen-4.0-generate-001",
+                        "imageAnalysis": "gemini-2.5-pro",
+                        "imageAnalyzeStream": "gemini-2.5-pro",
+                        "audioTranscription": "gemini-2.5-flash",
+                        "audioTranscriptionStream": "gemini-2.5-flash",
+                        "audioTranslation": "gemini-2.5-flash",
+                        "audioTts": "gemini-2.5-flash-preview-tts",
+                        "audioTtsStream": "gemini-2.5-flash-preview-tts",
+                        "videoGeneration": "veo-3.1-generate-preview",
+                        "videoExtend": "veo-3.1-generate-preview",
+                        "videoDownload": "veo-3.1-generate-preview",
+                        "videoAnalysis": "gemini-2.5-pro"
+                    },
+                    "models": {
                     "gemini-2.5-flash-lite": {
                         "chat": {
                             "modelParams": {
@@ -282,4 +283,5 @@
             }
         }
     }
+}
 }

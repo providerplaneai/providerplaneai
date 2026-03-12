@@ -237,7 +237,7 @@ function getImageFetchLimits(): {
     remoteImageFetchTimeoutMs: number;
     maxRemoteImageBytes: number;
 } {
-    const raw = config.util.toObject() as { appConfig?: Record<string, unknown> };
+    const raw = (config.has("providerplane") ? config.get("providerplane") : {}) as { appConfig?: Record<string, unknown> };
     const appConfig = raw.appConfig ?? {};
 
     const remoteImageFetchTimeoutMs = toNonNegativeInteger(

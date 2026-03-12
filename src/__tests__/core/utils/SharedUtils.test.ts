@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const configState = vi.hoisted(() => ({ appConfig: {} as Record<string, unknown> }));
-const configToObjectMock = vi.hoisted(() => vi.fn(() => ({ appConfig: configState.appConfig })));
+const configHasMock = vi.hoisted(() => vi.fn((key: string) => key === "providerplane"));
+const configGetMock = vi.hoisted(() => vi.fn(() => ({ appConfig: configState.appConfig })));
 const lookupMock = vi.hoisted(() => vi.fn());
 
 vi.mock("config", () => ({
     default: {
-        util: {
-            toObject: configToObjectMock
-        }
+        has: configHasMock,
+        get: configGetMock
     }
 }));
 
@@ -49,7 +49,8 @@ describe("SharedUtils", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         configState.appConfig = { remoteImageFetchTimeoutMs: 5000 };
-        configToObjectMock.mockImplementation(() => ({ appConfig: configState.appConfig }));
+        configHasMock.mockImplementation((key: string) => key === "providerplane");
+        configGetMock.mockImplementation(() => ({ appConfig: configState.appConfig }));
         lookupMock.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
     });
 
@@ -287,7 +288,7 @@ describe("SharedUtils", () => {
     });
 
     it("resolveImageToBytes handles missing appConfig by using default limits", async () => {
-        configToObjectMock.mockImplementationOnce(() => ({} as any));
+        configGetMock.mockImplementationOnce(() => ({} as any));
         await expect(resolveImageToBytes("data:image/png;base64,QQ==")).resolves.toEqual(Buffer.from("A"));
     });
 

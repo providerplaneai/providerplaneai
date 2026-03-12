@@ -35,25 +35,27 @@ npm install providerplaneai
 
 ProviderPlaneAI loads configuration via `node-config` + `dotenv`.
 
-Create `config/default.json` (or environment-specific config files) with `appConfig` and `providers`.
+Create `config/default.json` (or environment-specific config files) with a `providerplane` section containing `appConfig` and `providers`.
 
 Minimal example:
 
 ```json
 {
-  "appConfig": {
-    "executionPolicy": {
-      "providerChain": [
-        { "providerType": "openai", "connectionName": "default" }
-      ]
-    }
-  },
-  "providers": {
-    "openai": {
-      "default": {
-        "type": "openai",
-        "apiKeyEnvVar": "OPENAI_API_KEY_1",
-        "defaultModel": "gpt-5"
+  "providerplane": {
+    "appConfig": {
+      "executionPolicy": {
+        "providerChain": [
+          { "providerType": "openai", "connectionName": "default" }
+        ]
+      }
+    },
+    "providers": {
+      "openai": {
+        "default": {
+          "type": "openai",
+          "apiKeyEnvVar": "OPENAI_API_KEY_1",
+          "defaultModel": "gpt-5"
+        }
       }
     }
   }
