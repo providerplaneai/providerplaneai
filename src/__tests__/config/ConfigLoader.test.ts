@@ -28,7 +28,12 @@ describe('ConfigLoader - error and env cases', () => {
 
     it("loads default config and injects API keys from env when missing", async () => {
         const defaultCfg = loadDefaultConfig();
-        await vi.doMock('config', () => ({ default: { util: { toObject: () => defaultCfg } } }));
+        await vi.doMock('config', () => ({
+            default: {
+                has: (key: string) => key === "providerplane",
+                get: (key: string) => key === "providerplane" ? defaultCfg.providerplane : undefined
+            }
+        }));
         await vi.doMock('dotenv', () => ({ default: { config: () => {} } }));
 
         process.env.OPENAI_API_KEY_1 = "openai-test-key";
@@ -52,7 +57,12 @@ describe('ConfigLoader - error and env cases', () => {
 
     it("ensures providers have models", async () => {
         const defaultCfg = loadDefaultConfig();
-        await vi.doMock('config', () => ({ default: { util: { toObject: () => defaultCfg } } }));
+        await vi.doMock('config', () => ({
+            default: {
+                has: (key: string) => key === "providerplane",
+                get: (key: string) => key === "providerplane" ? defaultCfg.providerplane : undefined
+            }
+        }));
         await vi.doMock('dotenv', () => ({ default: { config: () => {} } }));
 
         const { loadAppConfig } = await import('../../core/config/ConfigLoader.js');
@@ -63,7 +73,8 @@ describe('ConfigLoader - error and env cases', () => {
     it('throws when no providers defined', async () => {
         await vi.doMock('config', () => ({
             default: {
-                util: { toObject: () => ({}) }
+                has: () => false,
+                get: () => undefined
             }
         }));
 
@@ -81,7 +92,8 @@ describe('ConfigLoader - error and env cases', () => {
     it("throws when connection missing apiKeyEnvVar", async () => {
         await vi.doMock('config', () => ({
             default: {
-                util: { toObject: () => ({ providers: { openai: { default: {} } } }) }
+                has: (key: string) => key === "providerplane",
+                get: (key: string) => key === "providerplane" ? { providers: { openai: { default: {} } } } : undefined
             }
         }));
 
@@ -95,7 +107,10 @@ describe('ConfigLoader - error and env cases', () => {
     it('throws when api key env var not set', async () => {
         await vi.doMock('config', () => ({
             default: {
-                util: { toObject: () => ({ providers: { openai: { default: { apiKeyEnvVar: 'MISSING_KEY' } } } }) }
+                has: (key: string) => key === "providerplane",
+                get: (key: string) => key === "providerplane"
+                    ? { providers: { openai: { default: { apiKeyEnvVar: 'MISSING_KEY' } } } }
+                    : undefined
             }
         }));
 
@@ -109,7 +124,12 @@ describe('ConfigLoader - error and env cases', () => {
 
     it('injects apiKey from env for mocked config', async () => {
         const mockCfg = { appConfig: { foo: 'bar' }, providers: { openai: { default: { apiKeyEnvVar: 'MY_KEY', other: 'x', defaultModels: {}, models: {} } } } };
-        await vi.doMock('config', () => ({ default: { util: { toObject: () => mockCfg } } }));
+        await vi.doMock('config', () => ({
+            default: {
+                has: (key: string) => key === "providerplane",
+                get: (key: string) => key === "providerplane" ? mockCfg : undefined
+            }
+        }));
 
         await vi.doMock('dotenv', () => ({ default: { config: () => { } } }));
 
