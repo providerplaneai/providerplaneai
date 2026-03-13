@@ -16,6 +16,10 @@
                         "connectionName": "default"
                     },
                     {
+                        "providerType": "openai",
+                        "connectionName": "fallback"
+                    },                    
+                    {
                         "providerType": "gemini",
                         "connectionName": "default"
                     },
@@ -134,7 +138,27 @@
                 },
                 "fallback": {
                     "type": "openai",
-                    "apiKeyEnvVar": "OPENAI_API_KEY_2"
+                    "apiKeyEnvVar": "OPENAI_API_KEY_2",
+                    "defaultModel": "gpt-5",
+                    "defaultModels": {
+                        "chat": "gpt-5",
+                        "embed": "text-embedding-3-large",
+                        "imageGeneration": "gpt-4.1",
+                        "imageGenerationStream": "gpt-4.1",
+                        "imageEdit": "gpt-4.1",
+                        "imageEditStream": "gpt-4.1",
+                        "imageAnalysis": "gpt-4.1",
+                        "imageAnalyzeStream": "gpt-4.1",
+                        "audioTranscription": "gpt-4o-transcribe",
+                        "audioTranscriptionStream": "gpt-4o-transcribe",
+                        "audioTranslation": "whisper-1",
+                        "audioTts": "gpt-4o-mini-tts",
+                        "audioTtsStream": "gpt-4o-mini-tts",
+                        "videoGeneration": "sora-2",
+                        "videoDownload": "sora-2",
+                        "videoRemix": "sora-2",
+                        "moderation": "omni-moderation-latest"
+                    }                                        
                 }
             },
             "anthropic": {
@@ -208,74 +232,75 @@
                         "videoAnalysis": "gemini-2.5-pro"
                     },
                     "models": {
-                    "gemini-2.5-flash-lite": {
-                        "chat": {
-                            "modelParams": {
-                                "max_tokens": 1024
+                        "gemini-2.5-flash-lite": {
+                            "chat": {
+                                "modelParams": {
+                                    "max_tokens": 1024
+                                }
+                            },
+                            "chatStream": {
+                                "modelParams": {
+                                    "max_tokens": 1024
+                                },
+                                "generalParams": {
+                                    "chatStreamBatchSize": 64
+                                }
                             }
                         },
-                        "chatStream": {
-                            "modelParams": {
-                                "max_tokens": 1024
+                        "gemini-2.5-flash": {
+                            "audioTranscription": {
+                                "generalParams": {
+                                    "audioStreamBatchSize": 64
+                                }
                             },
-                            "generalParams": {
-                                "chatStreamBatchSize": 64
-                            }
-                        }
-                    },
-                    "gemini-2.5-flash": {
-                        "audioTranscription": {
-                            "generalParams": {
-                                "audioStreamBatchSize": 64
+                            "audioTranscriptionStream": {
+                                "generalParams": {
+                                    "audioStreamBatchSize": 64
+                                }
                             }
                         },
-                        "audioTranscriptionStream": {
-                            "generalParams": {
-                                "audioStreamBatchSize": 64
-                            }
-                        }
-                    },
-                    "gemini-2.5-flash-preview-tts": {
-                        "audioTtsStream": {
-                            "generalParams": {
-                                "audioStreamBatchSize": 4096
-                            }
-                        }
-                    },
-                    "veo-3.1-generate-preview": {
-                        "videoGeneration": {
-                            "modelParams": {
-                                "durationSeconds": 8,
-                                "aspectRatio": "16:9"
-                            },
-                            "generalParams": {
-                                "pollIntervalMs": 2000,
-                                "maxPollMs": 300000
+                        "gemini-2.5-flash-preview-tts": {
+                            "audioTtsStream": {
+                                "generalParams": {
+                                    "audioStreamBatchSize": 4096
+                                }
                             }
                         },
-                        "videoExtend": {
-                            "modelParams": {
-                                "durationSeconds": 8
+                        "veo-3.1-generate-preview": {
+                            "videoGeneration": {
+                                "modelParams": {
+                                    "durationSeconds": 8,
+                                    "aspectRatio": "16:9"
+                                },
+                                "generalParams": {
+                                    "pollIntervalMs": 2000,
+                                    "maxPollMs": 300000
+                                }
                             },
-                            "generalParams": {
-                                "pollIntervalMs": 2000,
-                                "maxPollMs": 300000
+                            "videoExtend": {
+                                "modelParams": {
+                                    "durationSeconds": 8
+                                },
+                                "generalParams": {
+                                    "pollIntervalMs": 2000,
+                                    "maxPollMs": 300000
+                                }
+                            },
+                            "videoDownload": {
+                                "generalParams": {
+                                    "downloadTimeoutMs": 30000
+                                }
                             }
                         },
-                        "videoDownload": {
-                            "generalParams": {
-                                "downloadTimeoutMs": 30000
-                            }
-                        }
-                    },
-                    "gemini-2.5-pro": {
-                        "videoAnalysis": {
-                            "modelParams": {
-                                "temperature": 0
-                            },
-                            "generalParams": {
-                                "defaultPrompt": "Analyze this video and provide a concise summary, key events, important entities, and any visible text.",
-                                "defaultVideoMimeType": "video/mp4"
+                        "gemini-2.5-pro": {
+                            "videoAnalysis": {
+                                "modelParams": {
+                                    "temperature": 0
+                                },
+                                "generalParams": {
+                                    "defaultPrompt": "Analyze this video and provide a concise summary, key events, important entities, and any visible text.",
+                                    "defaultVideoMimeType": "video/mp4"
+                                }
                             }
                         }
                     }
@@ -283,5 +308,4 @@
             }
         }
     }
-}
 }

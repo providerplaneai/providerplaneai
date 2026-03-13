@@ -28,8 +28,39 @@ function makeProvider(
     };
 }
 
+function disableDefaultProviderChain(root: any) {
+    const config = JSON.parse(JSON.stringify(root.loadAppConfig()));
+    if (config?.appConfig?.executionPolicy) {
+        config.appConfig.executionPolicy.providerChain = [];
+    }
+    vi.spyOn(root, "loadAppConfig").mockReturnValue(config);
+}
+
+type CapabilityKeyName =
+    | "ChatCapabilityKey"
+    | "EmbedCapabilityKey"
+    | "ModerationCapabilityKey"
+    | "ImageGenerationCapabilityKey"
+    | "ImageAnalysisCapabilityKey"
+    | "ImageEditCapabilityKey"
+    | "AudioTranscriptionCapabilityKey"
+    | "AudioTranslationCapabilityKey"
+    | "AudioTextToSpeechCapabilityKey"
+    | "VideoGenerationCapabilityKey"
+    | "VideoDownloadCapabilityKey"
+    | "VideoExtendCapabilityKey"
+    | "VideoAnalysisCapabilityKey"
+    | "VideoRemixCapabilityKey"
+    | "ChatStreamCapabilityKey"
+    | "ImageGenerationStreamCapabilityKey"
+    | "ImageAnalysisStreamCapabilityKey"
+    | "ImageEditStreamCapabilityKey"
+    | "AudioTranscriptionStreamCapabilityKey"
+    | "AudioTextToSpeechStreamCapabilityKey";
+
 describe("AIClient", () => {
     beforeEach(() => {
+        vi.restoreAllMocks();
         vi.clearAllMocks();
     });
 
@@ -70,7 +101,8 @@ describe("AIClient", () => {
 
     it("setLifecycleHooks can only be called once", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         client.setLifecycleHooks({});
 
         expect(() => client.setLifecycleHooks({})).toThrow("Lifecycle hooks already set");
@@ -78,8 +110,10 @@ describe("AIClient", () => {
 
     it("registerProvider initializes uninitialized provider and sets client executors", async () => {
         const { AIClient, root } = await loadClient();
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
         const executors = new root.CapabilityExecutorRegistry();
-        const client = new AIClient(new root.JobManager(), executors);
+        const client = new AIClient(jobManager, executors);
         const provider = makeProvider();
 
         client.registerProvider(provider, root.AIProvider.OpenAI, "fallback");
@@ -91,7 +125,9 @@ describe("AIClient", () => {
 
     it("registerProvider does not call init if provider is already initialized", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const provider = makeProvider(() => false, true);
 
         client.registerProvider(provider, root.AIProvider.OpenAI, "fallback");
@@ -101,7 +137,9 @@ describe("AIClient", () => {
 
     it("registerProvider throws DuplicateProviderRegistrationError for duplicate registration", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const providerA = makeProvider();
         const providerB = makeProvider();
 
@@ -114,7 +152,8 @@ describe("AIClient", () => {
 
     it("registerProvider throws ExecutionPolicyError when provider connection config is missing", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const provider = makeProvider();
 
         expect(() => client.registerProvider(provider, root.AIProvider.OpenAI, "missing")).toThrow(root.ExecutionPolicyError);
@@ -122,14 +161,17 @@ describe("AIClient", () => {
 
     it("getProvider throws for unknown provider type", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
 
         expect(() => client.getProvider("unknown-provider" as AIProviderType)).toThrow("No providers registered for unknown-provider");
     });
 
     it("findProvidersByCapability returns only providers that support the capability", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const cap = "custom:search";
 
         const supporting = makeProvider((c) => c === cap);
@@ -142,7 +184,9 @@ describe("AIClient", () => {
 
     it("registerCapabilityExecutor propagates executor map to registered providers and blocks duplicates", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const provider = makeProvider();
         const capability = "custom:ingest";
 
@@ -163,7 +207,8 @@ describe("AIClient", () => {
 
     it("createCapabilityJob respects addToManager and stores capability/providerChain metadata in snapshot", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:workflow";
         const providerChain: ProviderRef[] = [{ providerType: root.AIProvider.OpenAI, connectionName: "default" }];
 
@@ -177,18 +222,19 @@ describe("AIClient", () => {
             providerChain
         });
 
-        const baseJobCount = client.jobManager.listJobs().length;
-        expect(client.jobManager.listJobs().length).toBe(baseJobCount);
+        const baseJobCount = jobManager.listJobs().length;
+        expect(jobManager.listJobs().length).toBe(baseJobCount);
         expect(detachedJob.toSnapshot().capability).toBe(capability);
         expect(detachedJob.toSnapshot().providerChain).toEqual(providerChain);
 
         client.createCapabilityJob(capability as any, { input: { step: 2 } } as any);
-        expect(client.jobManager.listJobs().length).toBe(baseJobCount + 1);
+        expect(jobManager.listJobs().length).toBe(baseJobCount + 1);
     });
 
     it("createCapabilityJob non-streaming builds fallback multimodal artifacts when result has output only", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager);
         const executeWithPolicySpy = vi.spyOn(client as any, "executeWithPolicy").mockResolvedValue({
             output: [{ vector: [1, 2, 3] }],
             metadata: { source: "test" }
@@ -207,7 +253,8 @@ describe("AIClient", () => {
 
     it("createCapabilityJob non-streaming preserves multimodalArtifacts returned from policy result", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         vi.spyOn(client as any, "executeWithPolicy").mockResolvedValue({
             output: "ignored-for-custom",
             multimodalArtifacts: { custom: [{ id: "artifact-1" }] }
@@ -228,7 +275,8 @@ describe("AIClient", () => {
 
     it("createCapabilityJob streaming emits delta/final chunks and uses final chunk id/raw/metadata", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const customCap = "custom:stream-job";
         const streamExec: StreamingExecutor<any, unknown, string> = {
             streaming: true as const,
@@ -257,7 +305,8 @@ describe("AIClient", () => {
 
     it("createCapabilityJob streaming errors when stream completes without final output", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const customCap = "custom:stream-no-final";
         const streamExec: StreamingExecutor<any, unknown, string> = {
             streaming: true as const,
@@ -320,7 +369,8 @@ describe("AIClient", () => {
 
     it("createCapabilityJob streaming builds fallback artifacts when stream returns final output without artifacts", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager);
 
         vi.spyOn(client as any, "executeWithPolicyStream").mockImplementation(async function* () {
             yield { output: { role: "assistant", content: [] }, id: "chat-final" };
@@ -340,10 +390,193 @@ describe("AIClient", () => {
     });
 });
 
+describe("AIClient direct capability helpers", () => {
+    it.each([
+        {
+            method: "chat",
+            capability: "ChatCapabilityKey" as CapabilityKeyName,
+            providerMethod: "chat"
+        },
+        {
+            method: "embeddings",
+            capability: "EmbedCapabilityKey" as CapabilityKeyName,
+            providerMethod: "embed"
+        },
+        {
+            method: "moderation",
+            capability: "ModerationCapabilityKey" as CapabilityKeyName,
+            providerMethod: "moderation"
+        },
+        {
+            method: "generateImage",
+            capability: "ImageGenerationCapabilityKey" as CapabilityKeyName,
+            providerMethod: "generateImage"
+        },
+        {
+            method: "analyzeImage",
+            capability: "ImageAnalysisCapabilityKey" as CapabilityKeyName,
+            providerMethod: "analyzeImage"
+        },
+        {
+            method: "editImage",
+            capability: "ImageEditCapabilityKey" as CapabilityKeyName,
+            providerMethod: "editImage"
+        },
+        {
+            method: "transcribeAudio",
+            capability: "AudioTranscriptionCapabilityKey" as CapabilityKeyName,
+            providerMethod: "transcribeAudio"
+        },
+        {
+            method: "translateAudio",
+            capability: "AudioTranslationCapabilityKey" as CapabilityKeyName,
+            providerMethod: "translateAudio"
+        },
+        {
+            method: "tts",
+            capability: "AudioTextToSpeechCapabilityKey" as CapabilityKeyName,
+            providerMethod: "textToSpeech"
+        },
+        {
+            method: "generateVideo",
+            capability: "VideoGenerationCapabilityKey" as CapabilityKeyName,
+            providerMethod: "generateVideo"
+        },
+        {
+            method: "downloadVideo",
+            capability: "VideoDownloadCapabilityKey" as CapabilityKeyName,
+            providerMethod: "downloadVideo"
+        },
+        {
+            method: "extendVideo",
+            capability: "VideoExtendCapabilityKey" as CapabilityKeyName,
+            providerMethod: "extendVideo"
+        },
+        {
+            method: "analyzeVideo",
+            capability: "VideoAnalysisCapabilityKey" as CapabilityKeyName,
+            providerMethod: "analyzeVideo"
+        },
+        {
+            method: "remixVideo",
+            capability: "VideoRemixCapabilityKey" as CapabilityKeyName,
+            providerMethod: "remixVideo"
+        }
+    ])("routes $method through $providerMethod", async ({ method, capability, providerMethod }) => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
+        const request = { input: { hello: "world" } };
+        const context = new root.MultiModalExecutionContext();
+        const providerChain: ProviderRef[] = [{ providerType: root.AIProvider.OpenAI, connectionName: "default" }];
+        const providerMethodSpy = vi.fn(async () => ({ output: [{ ok: true }] }));
+        const getCapabilitySpy = vi.fn(() => ({ [providerMethod]: providerMethodSpy }));
+
+        const executeWithPolicySpy = vi.spyOn(client, "executeWithPolicy").mockImplementation(
+            async (_capability, _request, _context, execute: any, _providerChain) => {
+                const provider = { getCapability: getCapabilitySpy };
+                return execute(provider as any, _context, undefined);
+            }
+        );
+
+        await client[method](request, context, providerChain);
+
+        expect(executeWithPolicySpy).toHaveBeenCalledWith(
+            root.CapabilityKeys[capability],
+            request,
+            context,
+            expect.any(Function),
+            providerChain
+        );
+        expect(getCapabilitySpy).toHaveBeenCalledWith(root.CapabilityKeys[capability]);
+        expect(providerMethodSpy).toHaveBeenCalledWith(request, context, undefined);
+    });
+
+    it.each([
+        {
+            method: "chatStream",
+            capability: "ChatStreamCapabilityKey" as CapabilityKeyName,
+            providerMethod: "chatStream"
+        },
+        {
+            method: "generateImageStream",
+            capability: "ImageGenerationStreamCapabilityKey" as CapabilityKeyName,
+            providerMethod: "generateImageStream"
+        },
+        {
+            method: "analyzeImageStream",
+            capability: "ImageAnalysisStreamCapabilityKey" as CapabilityKeyName,
+            providerMethod: "analyzeImageStream"
+        },
+        {
+            method: "editImageStream",
+            capability: "ImageEditStreamCapabilityKey" as CapabilityKeyName,
+            providerMethod: "editImageStream"
+        },
+        {
+            method: "transcribeAudioStream",
+            capability: "AudioTranscriptionStreamCapabilityKey" as CapabilityKeyName,
+            providerMethod: "transcribeAudioStream"
+        },
+        {
+            method: "ttsStream",
+            capability: "AudioTextToSpeechStreamCapabilityKey" as CapabilityKeyName,
+            providerMethod: "textToSpeechStream"
+        }
+    ])("routes $method through $providerMethod", async ({ method, capability, providerMethod }) => {
+        const { AIClient, root } = await loadClient();
+        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
+        const request = { input: { hello: "world" } };
+        const context = new root.MultiModalExecutionContext();
+        const providerChain: ProviderRef[] = [{ providerType: root.AIProvider.OpenAI, connectionName: "default" }];
+        const providerMethodSpy = vi.fn(async function* () {
+            yield { output: [{ ok: true }] };
+        });
+        const getCapabilitySpy = vi.fn(() => ({ [providerMethod]: providerMethodSpy }));
+
+        const executeWithPolicyStreamSpy = vi.spyOn(client, "executeWithPolicyStream").mockImplementation(
+            async function* (_capability, _request, _context, execute: any, _providerChain) {
+                const provider = { getCapability: getCapabilitySpy };
+                yield* execute(provider as any, _context, undefined);
+            }
+        );
+
+        const chunks: any[] = [];
+        for await (const chunk of client[method](request, context, providerChain)) {
+            chunks.push(chunk);
+        }
+
+        expect(executeWithPolicyStreamSpy).toHaveBeenCalledWith(
+            root.CapabilityKeys[capability],
+            request,
+            context,
+            expect.any(Function),
+            providerChain
+        );
+        expect(getCapabilitySpy).toHaveBeenCalledWith(root.CapabilityKeys[capability]);
+        if (method === "generateImageStream") {
+            expect(providerMethodSpy).toHaveBeenCalledWith(request, context);
+        } else {
+            expect(providerMethodSpy).toHaveBeenCalledWith(request, context, undefined);
+        }
+        expect(chunks).toEqual([{ output: [{ ok: true }] }]);
+    });
+
+    it("throws when createCapabilityJob is used without an initialized JobManager", async () => {
+        const { AIClient } = await loadClient();
+        const client = new AIClient();
+
+        expect(() =>
+            client.createCapabilityJob("custom:no-manager" as any, { input: { hello: "world" } } as any, { addToManager: false })
+        ).toThrow("AIClient: JobManager is not initialized");
+    });
+});
+
 describe("AIClient private policy execution", () => {
     it("executeWithPolicy returns first successful result and appends providerAttempts metadata", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:policy";
         const ctx = new root.MultiModalExecutionContext();
 
@@ -379,7 +612,8 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicy throws ExecutionPolicyError when provider chain is empty", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const ctx = new root.MultiModalExecutionContext();
 
         await expect(
@@ -389,7 +623,9 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicy falls back to later provider when earlier attempt fails", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:policy-fallback";
         const ctx = new root.MultiModalExecutionContext();
 
@@ -415,7 +651,9 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicy preserves structured errorCode in sanitized providerAttempts metadata", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const ctx = new root.MultiModalExecutionContext();
         const capability = "custom:audio-code";
 
@@ -443,7 +681,9 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicy throws AllProvidersFailedError when all attempts fail", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:policy-all-fail";
         const ctx = new root.MultiModalExecutionContext();
 
@@ -466,7 +706,9 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicyStream yields chunks and annotates final chunk with providerAttempts metadata", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:stream";
         const ctx = new root.MultiModalExecutionContext();
 
@@ -494,7 +736,8 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicyStream throws ExecutionPolicyError when provider chain is empty", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const ctx = new root.MultiModalExecutionContext();
 
         const collect = async () => {
@@ -514,7 +757,9 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicyStream falls back mid-stream and preserves emitted chunks", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:stream-fallback";
         const ctx = new root.MultiModalExecutionContext();
 
@@ -550,7 +795,9 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicyStream throws AllProvidersFailedError when all stream attempts fail", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        disableDefaultProviderChain(root);
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:stream-all-fail";
         const ctx = new root.MultiModalExecutionContext();
 
@@ -580,7 +827,8 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicy skips providers without capability and succeeds on next provider", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:skip-no-cap";
         const ctx = new root.MultiModalExecutionContext();
 
@@ -606,7 +854,8 @@ describe("AIClient private policy execution", () => {
 
     it("executeWithPolicyStream skips providers without capability and handles chunk-level errors with fallback", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry());
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const capability = "custom:stream-skip-and-error";
         const ctx = new root.MultiModalExecutionContext();
 
@@ -652,12 +901,13 @@ describe("AIClient private helpers", () => {
     it("constructor without injected JobManager initializes internal manager", async () => {
         const { AIClient } = await loadClient();
         const client = new AIClient();
-        expect(client.jobManager).toBeDefined();
+        expect(client.jobManager).not.toBeDefined();
     });
 
     it("createExecutionSignal reuses caller signal when no timeout and forwards abort", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry()) as any;
 
         const directController = new AbortController();
         const same = client.createExecutionSignal({ input: {}, signal: directController.signal });
@@ -682,7 +932,8 @@ describe("AIClient private helpers", () => {
     it("createExecutionSignal enforces timeout abort", async () => {
         vi.useFakeTimers();
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry()) as any;
         const signal: AbortSignal = client.createExecutionSignal({ input: {}, timeoutMs: 5 });
 
         expect(signal.aborted).toBe(false);
@@ -693,7 +944,8 @@ describe("AIClient private helpers", () => {
 
     it("helper methods cover modality, usage extraction, context application, artifact building, and artifact merge", async () => {
         const { AIClient, root } = await loadClient();
-        const client = new AIClient(new root.JobManager(), new root.CapabilityExecutorRegistry()) as any;
+        const jobManager = new root.JobManager();
+        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry()) as any;
 
         expect(client.modalityForCapability(root.CapabilityKeys.EmbedCapabilityKey)).toBe("embedding");
         expect(client.modalityForCapability(root.CapabilityKeys.ChatCapabilityKey)).toBe("chat");
