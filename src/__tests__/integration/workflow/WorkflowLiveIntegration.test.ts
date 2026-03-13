@@ -8,6 +8,7 @@ import {
     AllProvidersFailedError,
     CapabilityKeys,
     GenericJob,
+    JobManager,
     MultiModalExecutionContext,
     WorkflowBuilder,
     WorkflowRunner,
@@ -45,16 +46,16 @@ function createManagedJob<TOutput>(
     streaming = false
 ): GenericJob<void, TOutput> {
     const job = new GenericJob<void, TOutput>(undefined, streaming, executor);
-    client.jobManager.addJob(job);
+    client.jobManager!.addJob(job);
     return job;
 }
 
 describe("Workflow Integration (deterministic)", () => {
     it("emits onNodeChunk for streaming nodes at workflow level", async () => {
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         const seen: string[] = [];
         const runner = new WorkflowRunner({
-            jobManager: client.jobManager,
+            jobManager: client.jobManager!,
             client,
             hooks: {
                 onNodeChunk: (_wf, nodeId, chunk) => {
@@ -87,10 +88,10 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("forwards nested child workflow streaming to parent runner hooks", async () => {
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         const seenNodeIds: string[] = [];
         const runner = new WorkflowRunner({
-            jobManager: client.jobManager,
+            jobManager: client.jobManager!,
             client,
             hooks: {
                 onNodeChunk: (_wf, nodeId, chunk) => {
@@ -126,8 +127,8 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("runs parallel fanout + aggregate deterministically", async () => {
-        const client = new AIClient();
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const client = new AIClient(new JobManager());
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
 
         const workflow = new WorkflowBuilder<{ a: string; b: string; c: string }>("integration-fanout")
             .node("a", (_ctx, nodeClient) =>
@@ -149,8 +150,8 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("skips downstream step based on previous step output", async () => {
-        const client = new AIClient();
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const client = new AIClient(new JobManager());
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
 
         const workflow = new WorkflowBuilder<{ seed: string }>("integration-conditional-skip")
             .node("seed", (_ctx, nodeClient) =>
@@ -182,8 +183,8 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("executes nested workflow as a node and returns nested output", async () => {
-        const client = new AIClient();
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const client = new AIClient(new JobManager());
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
 
         const child = new WorkflowBuilder<{ child: string }>("integration-child")
             .node("childStep", (_ctx, nodeClient) =>
@@ -207,12 +208,12 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("resumes from persisted snapshot after forced failure", async () => {
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         let failStep2 = true;
         let persisted: any | undefined;
 
         const runner = new WorkflowRunner({
-            jobManager: client.jobManager,
+            jobManager: client.jobManager!,
             client,
             persistence: {
                 persistWorkflowExecution: async (snapshot) => {
@@ -252,9 +253,9 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("retries transient node failures and succeeds within attempt budget", async () => {
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         let attempts = 0;
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
 
         const workflow = new WorkflowBuilder<{ out: string }>("integration-retry")
             .node(
@@ -279,8 +280,8 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("times out long-running node and surfaces timeout error", async () => {
-        const client = new AIClient();
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const client = new AIClient(new JobManager());
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
 
         const workflow = new WorkflowBuilder<{ out: string }>("integration-timeout")
             .node(
@@ -304,10 +305,10 @@ describe("Workflow Integration (deterministic)", () => {
         const outputDir = await mkdtemp(path.join(tmpdir(), "workflow-integration-save-"));
         const outputPath = path.join(outputDir, "approved.txt");
 
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         const approvalExecutor = createApprovalGateExecutor();
         const saveFileExecutor = createSaveFileExecutor({ allowAbsolutePath: true, autoCreateDir: true });
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
 
         const workflow = new WorkflowBuilder<{ path: string; status: string }>("integration-builtins")
             .node("approval", (_ctx, nodeClient) =>
@@ -356,7 +357,7 @@ describe("Workflow Integration (deterministic)", () => {
 
     it("runs a multi-step multi-modal non-streaming workflow with provider-chain fallback", async () => {
         const attempts: Array<{ kind: "success" | "failure"; capability: string; attemptIndex: number }> = [];
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         client.setLifecycleHooks({
             onAttemptFailure: (attempt) =>
                 attempts.push({
@@ -421,7 +422,7 @@ describe("Workflow Integration (deterministic)", () => {
             }
         });
 
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
         const fallbackChain: ProviderRef[] = [
             { providerType: "openai", connectionName: "missing-connection" },
             { providerType: "gemini", connectionName: "default" },
@@ -479,7 +480,7 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("runs mixed streaming + non-streaming multi-provider workflow with fallback", async () => {
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         const streamedDeltas: string[] = [];
 
         const streamKey = "customIntegrationStreamDraft";
@@ -524,7 +525,7 @@ describe("Workflow Integration (deterministic)", () => {
         });
 
         const runner = new WorkflowRunner({
-            jobManager: client.jobManager,
+            jobManager: client.jobManager!,
             client,
             hooks: {
                 onNodeChunk: (_workflowId, nodeId, chunk) => {
@@ -578,8 +579,8 @@ describe("Workflow Integration (deterministic)", () => {
     });
 
     it("runs conditional branching with fan-out/fan-in and validates skip behavior across modes", async () => {
-        const client = new AIClient();
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const client = new AIClient(new JobManager());
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
 
         let enableFanout = true;
 
@@ -675,9 +676,9 @@ describeProviderLive("Workflow Integration (provider-backed)", () => {
     it("runs a minimal real-provider workflow smoke test", async () => {
         const providerChain: ProviderRef[] = [{ providerType: "openai", connectionName: "default" }];
 
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         const runner = new WorkflowRunner({
-            jobManager: client.jobManager,
+            jobManager: client.jobManager!,
             client
         });
 
@@ -735,7 +736,7 @@ describeProviderLive("Workflow Integration (provider-backed)", () => {
 
     it("falls back across provider chain when first provider connection fails", async () => {
         const attempts: Array<{ kind: "success" | "failure"; attemptIndex: number }> = [];
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         client.setLifecycleHooks({
             onAttemptFailure: (attempt) =>
                 attempts.push({
@@ -749,7 +750,7 @@ describeProviderLive("Workflow Integration (provider-backed)", () => {
                 })
         });
 
-        const runner = new WorkflowRunner({ jobManager: client.jobManager, client });
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
         const workflow = new WorkflowBuilder<{ text: string }>("live-fallback")
             .capabilityNode(
                 "ask",
@@ -808,9 +809,9 @@ describeProviderLive("Workflow Integration (provider-backed)", () => {
         const providerChain: ProviderRef[] = [{ providerType: "openai", connectionName: "default" }];
         const chunkDeltas: string[] = [];
 
-        const client = new AIClient();
+        const client = new AIClient(new JobManager());
         const runner = new WorkflowRunner({
-            jobManager: client.jobManager,
+            jobManager: client.jobManager!,
             client,
             hooks: {
                 onNodeChunk: (_workflowId, nodeId, chunk) => {

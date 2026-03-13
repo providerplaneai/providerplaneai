@@ -48,7 +48,21 @@ import {
     JobLifecycleHooks,
     readNumber,
     expectObjectForCapability,
-    expectArrayForCapability
+    expectArrayForCapability,
+    ClientAudioTranscriptionRequest,
+    ClientAudioTranslationRequest,
+    ClientChatRequest,
+    ClientTextToSpeechRequest,
+    ClientEmbeddingRequest,
+    ClientImageAnalysisRequest,
+    ClientImageEditRequest,
+    ClientImageGenerationRequest,
+    ClientModerationRequest,
+    ClientVideoAnalysisRequest,
+    ClientVideoDownloadRequest,
+    ClientVideoExtendRequest,
+    ClientVideoGenerationRequest,
+    ClientVideoRemixRequest
 } from "#root/index.js";
 
 const TIMELINE_ARTIFACT_KEYS: (keyof TimelineArtifacts)[] = [
@@ -130,7 +144,7 @@ export class AIClient {
      * Job manager instance for managing job execution and lifecycle.
      * @private
      */
-    private _jobManager: JobManager;
+    private _jobManager?: JobManager;
     /**
      * Cached default provider chain from loaded app config.
      */
@@ -183,16 +197,6 @@ export class AIClient {
                 jobManager.setMaxRawBytesPerJob(configuredMaxRawBytesPerJob);
             }
             this._jobManager = jobManager;
-        } else {
-            // Otherwise, create a new JobManager using config values
-            this._jobManager = new JobManager({
-                maxConcurrency: configuredMaxConcurrency,
-                maxQueueSize: configuredMaxQueueSize,
-                maxStoredResponseChunks: configuredMaxStoredResponseChunks,
-                storeRawResponses: configuredStoreRawResponses,
-                stripBinaryPayloadsInSnapshotsAndTimeline: configuredStripBinaryPayloadsInSnapshotsAndTimeline,
-                maxRawBytesPerJob: configuredMaxRawBytesPerJob
-            });
         }
 
         // Register capability executors first so auto-registered providers receive the full executor map.
@@ -390,6 +394,7 @@ export class AIClient {
     /**
      * Advanced access to the job manager.
      * Most consumers should create jobs via {@link createCapabilityJob} and execute via this manager.
+     *
      * @returns The JobManager instance.
      */
     public get jobManager() {
@@ -397,6 +402,11 @@ export class AIClient {
         return this._jobManager;
     }
 
+    /**
+     * Returns the resolved ProviderPlane application configuration.
+     *
+     * @returns The loaded application configuration after `node-config` and environment resolution.
+     */
     public getConfig(): AppConfig {
         return this.appConfig;
     }
@@ -439,6 +449,11 @@ export class AIClient {
             lifecycleHooks?: JobLifecycleHooks<TOutput>;
         }
     ): GenericJob<AIRequest<TInput>, TOutput> {
+        if (!this._jobManager) {
+            throw new Error(
+                "AIClient: JobManager is not initialized. Please provide a JobManager instance when constructing AIClient"
+            );
+        }
         // Look up executor for capability
         // Determine streaming mode for job
         // Resolve chunk/raw retention options (job > manager > config)
@@ -1300,5 +1315,560 @@ export class AIClient {
             default:
                 return undefined;
         }
+    }
+
+    /**
+     * Executes a non-streaming chat request against the configured provider chain.
+     *
+     * @param request The chat request payload to send to the selected provider.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized chat response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async chat(
+        request: AIRequest<ClientChatRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedChatMessage>> {
+        return this.executeWithPolicy<typeof CapabilityKeys.ChatCapabilityKey, ClientChatRequest, NormalizedChatMessage>(
+            CapabilityKeys.ChatCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) => provider.getCapability(CapabilityKeys.ChatCapabilityKey).chat(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Executes a streaming chat request against the configured provider chain.
+     *
+     * Streaming is exposed as an `AsyncGenerator` of normalized response chunks. The client does not
+     * buffer or reshape chunks beyond provider normalization.
+     *
+     * @param request The chat request payload to stream to the selected provider.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns An async generator yielding normalized chat chunks from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async *chatStream(
+        request: AIRequest<ClientChatRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage>> {
+        yield* this.executeWithPolicyStream<
+            typeof CapabilityKeys.ChatStreamCapabilityKey,
+            ClientChatRequest,
+            NormalizedChatMessage
+        >(
+            CapabilityKeys.ChatStreamCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.ChatStreamCapabilityKey).chatStream(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Generates embeddings through the configured provider chain.
+     *
+     * @param request The embedding request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized embedding response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async embeddings(
+        request: AIRequest<ClientEmbeddingRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedEmbedding[]>> {
+        return this.executeWithPolicy<typeof CapabilityKeys.EmbedCapabilityKey, ClientEmbeddingRequest, NormalizedEmbedding[]>(
+            CapabilityKeys.EmbedCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) => provider.getCapability(CapabilityKeys.EmbedCapabilityKey).embed(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Runs moderation through the configured provider chain.
+     *
+     * @param request The moderation request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized moderation response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async moderation(
+        request: AIRequest<ClientModerationRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedModeration[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.ModerationCapabilityKey,
+            ClientModerationRequest,
+            NormalizedModeration[]
+        >(
+            CapabilityKeys.ModerationCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.ModerationCapabilityKey).moderation(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Generates images through the configured provider chain.
+     *
+     * @param request The image-generation request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized image-generation response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async generateImage(
+        request: AIRequest<ClientImageGenerationRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedImage[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.ImageGenerationCapabilityKey,
+            ClientImageGenerationRequest,
+            NormalizedImage[]
+        >(
+            CapabilityKeys.ImageGenerationCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.ImageGenerationCapabilityKey).generateImage(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Streams generated images through the configured provider chain.
+     *
+     * @param request The image-generation request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns An async generator yielding normalized image-generation chunks from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async *generateImageStream(
+        request: AIRequest<ClientImageGenerationRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
+        yield* this.executeWithPolicyStream<
+            typeof CapabilityKeys.ImageGenerationStreamCapabilityKey,
+            ClientImageGenerationRequest,
+            NormalizedImage[]
+        >(
+            CapabilityKeys.ImageGenerationStreamCapabilityKey,
+            request,
+            context,
+            (provider, ctx) =>
+                provider.getCapability(CapabilityKeys.ImageGenerationStreamCapabilityKey).generateImageStream(request, ctx),
+            providerChain
+        );
+    }
+
+    /**
+     * Analyzes images through the configured provider chain.
+     *
+     * @param request The image-analysis request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized image-analysis response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async analyzeImage(
+        request: AIRequest<ClientImageAnalysisRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedImageAnalysis[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.ImageAnalysisCapabilityKey,
+            ClientImageAnalysisRequest,
+            NormalizedImageAnalysis[]
+        >(
+            CapabilityKeys.ImageAnalysisCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.ImageAnalysisCapabilityKey).analyzeImage(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Streams image analysis through the configured provider chain.
+     *
+     * @param request The image-analysis request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns An async generator yielding normalized image-analysis chunks from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async *analyzeImageStream(
+        request: AIRequest<ClientImageAnalysisRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>> {
+        yield* this.executeWithPolicyStream<
+            typeof CapabilityKeys.ImageAnalysisStreamCapabilityKey,
+            ClientImageAnalysisRequest,
+            NormalizedImageAnalysis[]
+        >(
+            CapabilityKeys.ImageAnalysisStreamCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider
+                    .getCapability(CapabilityKeys.ImageAnalysisStreamCapabilityKey)
+                    .analyzeImageStream(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Edits images through the configured provider chain.
+     *
+     * @param request The image-edit request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized image-edit response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async editImage(
+        request: AIRequest<ClientImageEditRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedImage[]>> {
+        return this.executeWithPolicy<typeof CapabilityKeys.ImageEditCapabilityKey, ClientImageEditRequest, NormalizedImage[]>(
+            CapabilityKeys.ImageEditCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.ImageEditCapabilityKey).editImage(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Streams image edits through the configured provider chain.
+     *
+     * @param request The image-edit request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns An async generator yielding normalized image-edit chunks from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async *editImageStream(
+        request: AIRequest<ClientImageEditRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): AsyncGenerator<AIResponseChunk<NormalizedImage[]>> {
+        yield* this.executeWithPolicyStream<
+            typeof CapabilityKeys.ImageEditStreamCapabilityKey,
+            ClientImageEditRequest,
+            NormalizedImage[]
+        >(
+            CapabilityKeys.ImageEditStreamCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.ImageEditStreamCapabilityKey).editImageStream(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Transcribes audio through the configured provider chain.
+     *
+     * @param request The audio-transcription request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized transcription response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async transcribeAudio(
+        request: AIRequest<ClientAudioTranscriptionRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedChatMessage[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.AudioTranscriptionCapabilityKey,
+            ClientAudioTranscriptionRequest,
+            NormalizedChatMessage[]
+        >(
+            CapabilityKeys.AudioTranscriptionCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.AudioTranscriptionCapabilityKey).transcribeAudio(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Streams audio transcription through the configured provider chain.
+     *
+     * @param request The audio-transcription request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns An async generator yielding normalized transcription chunks from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async *transcribeAudioStream(
+        request: AIRequest<ClientAudioTranscriptionRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage[]>> {
+        yield* this.executeWithPolicyStream<
+            typeof CapabilityKeys.AudioTranscriptionStreamCapabilityKey,
+            ClientAudioTranscriptionRequest,
+            NormalizedChatMessage[]
+        >(
+            CapabilityKeys.AudioTranscriptionStreamCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider
+                    .getCapability(CapabilityKeys.AudioTranscriptionStreamCapabilityKey)
+                    .transcribeAudioStream(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Translates audio through the configured provider chain.
+     *
+     * @param request The audio-translation request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized audio-translation response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async translateAudio(
+        request: AIRequest<ClientAudioTranslationRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedChatMessage[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.AudioTranslationCapabilityKey,
+            ClientAudioTranslationRequest,
+            NormalizedChatMessage[]
+        >(
+            CapabilityKeys.AudioTranslationCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.AudioTranslationCapabilityKey).translateAudio(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Generates text-to-speech audio through the configured provider chain.
+     *
+     * @param request The text-to-speech request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized text-to-speech response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async tts(
+        request: AIRequest<ClientTextToSpeechRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedAudio[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.AudioTextToSpeechCapabilityKey,
+            ClientTextToSpeechRequest,
+            NormalizedAudio[]
+        >(
+            CapabilityKeys.AudioTextToSpeechCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.AudioTextToSpeechCapabilityKey).textToSpeech(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Streams text-to-speech audio through the configured provider chain.
+     *
+     * @param request The text-to-speech request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns An async generator yielding normalized text-to-speech chunks from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async *ttsStream(
+        request: AIRequest<ClientTextToSpeechRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): AsyncGenerator<AIResponseChunk<NormalizedAudio[]>> {
+        yield* this.executeWithPolicyStream<
+            typeof CapabilityKeys.AudioTextToSpeechStreamCapabilityKey,
+            ClientTextToSpeechRequest,
+            NormalizedAudio[]
+        >(
+            CapabilityKeys.AudioTextToSpeechStreamCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider
+                    .getCapability(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey)
+                    .textToSpeechStream(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Generates video through the configured provider chain.
+     *
+     * @param request The video-generation request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized video-generation response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async generateVideo(
+        request: AIRequest<ClientVideoGenerationRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedVideo[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.VideoGenerationCapabilityKey,
+            ClientVideoGenerationRequest,
+            NormalizedVideo[]
+        >(
+            CapabilityKeys.VideoGenerationCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.VideoGenerationCapabilityKey).generateVideo(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Downloads generated video assets through the configured provider chain.
+     *
+     * @param request The video-download request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized video-download response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async downloadVideo(
+        request: AIRequest<ClientVideoDownloadRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedVideo[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.VideoDownloadCapabilityKey,
+            ClientVideoDownloadRequest,
+            NormalizedVideo[]
+        >(
+            CapabilityKeys.VideoDownloadCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.VideoDownloadCapabilityKey).downloadVideo(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Extends an existing video through the configured provider chain.
+     *
+     * @param request The video-extension request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized video-extension response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async extendVideo(
+        request: AIRequest<ClientVideoExtendRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedVideo[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.VideoExtendCapabilityKey,
+            ClientVideoExtendRequest,
+            NormalizedVideo[]
+        >(
+            CapabilityKeys.VideoExtendCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.VideoExtendCapabilityKey).extendVideo(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Analyzes video through the configured provider chain.
+     *
+     * @param request The video-analysis request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized video-analysis response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async analyzeVideo(
+        request: AIRequest<ClientVideoAnalysisRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedVideoAnalysis[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.VideoAnalysisCapabilityKey,
+            ClientVideoAnalysisRequest,
+            NormalizedVideoAnalysis[]
+        >(
+            CapabilityKeys.VideoAnalysisCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.VideoAnalysisCapabilityKey).analyzeVideo(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Remixes video through the configured provider chain.
+     *
+     * @param request The video-remix request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized video-remix response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async remixVideo(
+        request: AIRequest<ClientVideoRemixRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedVideo[]>> {
+        return this.executeWithPolicy<
+            typeof CapabilityKeys.VideoRemixCapabilityKey,
+            ClientVideoRemixRequest,
+            NormalizedVideo[]
+        >(
+            CapabilityKeys.VideoRemixCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) =>
+                provider.getCapability(CapabilityKeys.VideoRemixCapabilityKey).remixVideo(request, ctx, signal),
+            providerChain
+        );
     }
 }
