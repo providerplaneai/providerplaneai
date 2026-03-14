@@ -17,10 +17,10 @@
     radial-gradient(circle at 50% 72%, rgba(122, 44, 255, 0.18), transparent 30%),
     linear-gradient(135deg, #fbf8ff 0%, #f2ecff 46%, #fff7fd 100%);
   --pp-hero-dark:
-    radial-gradient(circle at 18% 18%, rgba(89, 236, 255, 0.22), transparent 26%),
-    radial-gradient(circle at 82% 22%, rgba(255, 79, 216, 0.18), transparent 24%),
-    radial-gradient(circle at 50% 72%, rgba(122, 44, 255, 0.22), transparent 30%),
-    linear-gradient(135deg, #06030d 0%, #0d081b 48%, #14061a 100%);
+    radial-gradient(circle at 18% 18%, rgba(89, 236, 255, 0.16), transparent 30%),
+    radial-gradient(circle at 82% 22%, rgba(255, 79, 216, 0.13), transparent 28%),
+    radial-gradient(circle at 50% 72%, rgba(122, 44, 255, 0.16), transparent 34%),
+    linear-gradient(135deg, #0a0714 0%, #120b22 48%, #18091f 100%);
 }
 
 @media (prefers-color-scheme: light) {
@@ -190,6 +190,67 @@ pre {
 pre code,
 pre code span {
   background: transparent !important;
+}
+
+pre > button {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid rgba(109, 53, 232, 0.48);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(86, 57, 154, 1), rgba(53, 35, 95, 1));
+  color: #ffffff;
+  box-shadow:
+    0 14px 30px rgba(53, 39, 95, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+pre > button:hover,
+pre > button:focus-visible {
+  background:
+    linear-gradient(135deg, rgba(104, 69, 186, 1), rgba(65, 43, 118, 1));
+  border-color: rgba(155, 104, 255, 0.58);
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] pre > button {
+  border-color: rgba(142, 112, 255, 0.26);
+  background:
+    linear-gradient(135deg, rgba(22, 14, 44, 0.96), rgba(12, 8, 25, 1));
+  color: #f7f2ff;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+:root[data-theme="dark"] pre > button:hover,
+:root[data-theme="dark"] pre > button:focus-visible {
+  background:
+    linear-gradient(135deg, rgba(40, 27, 75, 0.98), rgba(20, 14, 42, 1));
+  border-color: rgba(155, 104, 255, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="os"] pre > button {
+    border-color: rgba(142, 112, 255, 0.26);
+    background:
+      linear-gradient(135deg, rgba(22, 14, 44, 0.96), rgba(12, 8, 25, 1));
+    color: #f7f2ff;
+    box-shadow:
+      0 10px 24px rgba(0, 0, 0, 0.42),
+      0 0 0 1px rgba(255, 255, 255, 0.03);
+  }
+
+  :root[data-theme="os"] pre > button:hover,
+  :root[data-theme="os"] pre > button:focus-visible {
+    background:
+      linear-gradient(135deg, rgba(40, 27, 75, 0.98), rgba(20, 14, 42, 1));
+    border-color: rgba(155, 104, 255, 0.4);
+  }
 }
 
 :root[data-theme="dark"] pre,
