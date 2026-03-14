@@ -91,6 +91,14 @@ body {
   font-family: Georgia, "Times New Roman", serif;
 }
 
+.tsd-page-title {
+  display: none;
+}
+
+footer {
+  display: none;
+}
+
 pre,
 .tsd-signature {
   border-radius: 16px;
@@ -189,6 +197,15 @@ pre {
 
 pre code,
 pre code span {
+  background: transparent !important;
+}
+
+p code,
+li code,
+td code,
+blockquote code,
+.tsd-comment code,
+.tsd-typography code {
   background: transparent !important;
 }
 
