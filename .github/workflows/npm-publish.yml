@@ -8,6 +8,17 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      dispatch_only:
+        description: "Skip npm publish and only trigger the providerplane-web release workflow"
+        required: false
+        default: true
+        type: boolean
+      release_tag:
+        description: "Release tag to send in the repository_dispatch payload when testing manually"
+        required: false
+        default: "manual-test"
+        type: string
 
 permissions:
   contents: read
@@ -43,12 +54,13 @@ jobs:
         run: npm run test
 
       - name: Publish to npm (Trusted Publishing)
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dispatch_only }}
         run: npm publish --provenance --access public
 
       - name: Trigger providerplane-web .dev build
         env:
           DISPATCH_TOKEN: ${{ secrets.PROVIDERPLANE_WEB_DISPATCH_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
         run: |
           python3 - <<'PY2'
           import json
