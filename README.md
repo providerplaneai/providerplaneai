@@ -251,36 +251,7 @@ npm run lint
 npm run perf:quick
 ```
 
-### Integration testing
-
-- Deterministic integration tests:
-  - `npm run test:integration`
-- Provider-backed live integration tests:
-  - `RUN_WORKFLOW_LIVE_INTEGRATION=1 npm run test:integration:live`
-  - requires `OPENAI_API_KEY_1`, `GEMINI_API_KEY_1`, and `ANTHROPIC_API_KEY_1`
-
-Performance artifacts are generated under `scripts/perf/results` as both JSON and Markdown:
-- `npm run perf:quick` (5 cold-import runs)
-- `npm run perf` (20 cold-import runs)
-- `npm run perf:full` (30 cold-import runs)
-- `npm run perf:ci` (30 runs + CI threshold checks; exits non-zero on regression)
-
-### Publishing notes
-
-Published tarballs intentionally exclude local development entry files and other non-runtime artifacts. Release packaging is constrained through both the TypeScript release build config and the `files` allowlist in `package.json`.
-
-### Git hooks
-We use Husky to enforce linting and tests.
-Please do not bypass hooks unless absolutely necessary.
-
----
-
-<a id="open-source-and-contributions"></a>
-## Open Source and Contributions
-
-ProviderPlaneAI is open source and designed to support real-world engineering teams. Contributions, feedback, and discussion are welcome.
-
-If you are interested in contributing or collaborating, feel free to open an issue or discussion.
+For integration testing, PR title conventions, release workflow notes, and contribution guidance, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ---
 
