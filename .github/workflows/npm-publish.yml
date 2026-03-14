@@ -61,7 +61,7 @@ jobs:
       - name: Test
         run: npm run test
 
-      - name: Generate docs and API reference JSON
+      - name: Generate docs
         run: npm run docs
 
       - name: Publish to npm (Trusted Publishing)
@@ -84,13 +84,11 @@ jobs:
               raise SystemExit("Missing PROVIDERPLANE_WEB_DISPATCH_TOKEN secret")
 
           changelog = Path("CHANGELOG.md").read_text()
-          reference_json = Path("docs/reference.json").read_text()
           body = json.dumps({
               "event_type": "providerplane_release",
               "client_payload": {
                   "tag": os.environ.get("RELEASE_TAG", ""),
-                  "changelog": changelog,
-                  "reference_json": reference_json
+                  "changelog": changelog
               }
           }).encode("utf-8")
 
@@ -108,4 +106,3 @@ jobs:
           with urlopen(req) as resp:
               print(f"repository_dispatch status={resp.status}")
           PY2
-
