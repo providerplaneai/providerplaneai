@@ -91,6 +91,145 @@ body {
   font-family: Georgia, "Times New Roman", serif;
 }
 
+.tsd-page-toolbar {
+  background: transparent;
+  border-bottom: 1px solid rgba(109, 53, 232, 0.14);
+  box-shadow: 0 10px 24px rgba(53, 39, 95, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.tsd-toolbar-contents {
+  min-height: 48px;
+}
+
+.tsd-page-toolbar .title {
+  color: #23173d;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+
+.tsd-page-toolbar .title:hover,
+.tsd-page-toolbar .title:focus-visible {
+  color: #6d35e8;
+}
+
+#tsd-search-trigger,
+#tsd-toolbar-menu-trigger {
+  border: 1px solid rgba(109, 53, 232, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #23173d;
+  box-shadow: 0 10px 22px rgba(53, 39, 95, 0.08);
+}
+
+#tsd-search-trigger:hover,
+#tsd-search-trigger:focus-visible,
+#tsd-toolbar-menu-trigger:hover,
+#tsd-toolbar-menu-trigger:focus-visible {
+  border-color: rgba(109, 53, 232, 0.3);
+  background: rgba(255, 255, 255, 0.88);
+  color: #6d35e8;
+}
+
+#tsd-search {
+  border: 1px solid rgba(109, 53, 232, 0.14);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(89, 236, 255, 0.16), transparent 30%),
+    radial-gradient(circle at top right, rgba(255, 79, 216, 0.1), transparent 28%),
+    rgba(251, 248, 255, 0.96);
+  box-shadow: 0 24px 60px rgba(53, 39, 95, 0.18);
+  color: #23173d;
+}
+
+:root[data-theme="dark"] .tsd-page-toolbar {
+  background: transparent;
+  border-bottom-color: rgba(142, 112, 255, 0.16);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
+}
+
+:root[data-theme="dark"] .tsd-page-toolbar .title {
+  color: #f3efff;
+}
+
+:root[data-theme="dark"] .tsd-page-toolbar .title:hover,
+:root[data-theme="dark"] .tsd-page-toolbar .title:focus-visible {
+  color: #8e70ff;
+}
+
+:root[data-theme="dark"] #tsd-search-trigger,
+:root[data-theme="dark"] #tsd-toolbar-menu-trigger {
+  border-color: rgba(142, 112, 255, 0.22);
+  background: rgba(26, 19, 48, 0.82);
+  color: #f3efff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="dark"] #tsd-search-trigger:hover,
+:root[data-theme="dark"] #tsd-search-trigger:focus-visible,
+:root[data-theme="dark"] #tsd-toolbar-menu-trigger:hover,
+:root[data-theme="dark"] #tsd-toolbar-menu-trigger:focus-visible {
+  border-color: rgba(155, 104, 255, 0.34);
+  background: rgba(36, 25, 68, 0.94);
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] #tsd-search {
+  border-color: rgba(142, 112, 255, 0.18);
+  background:
+    radial-gradient(circle at top left, rgba(89, 236, 255, 0.12), transparent 30%),
+    radial-gradient(circle at top right, rgba(255, 79, 216, 0.08), transparent 28%),
+    rgba(12, 8, 25, 0.96);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+  color: #f3efff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="os"] .tsd-page-toolbar {
+    background: transparent;
+    border-bottom-color: rgba(142, 112, 255, 0.16);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
+  }
+
+  :root[data-theme="os"] .tsd-page-toolbar .title {
+    color: #f3efff;
+  }
+
+  :root[data-theme="os"] .tsd-page-toolbar .title:hover,
+  :root[data-theme="os"] .tsd-page-toolbar .title:focus-visible {
+    color: #8e70ff;
+  }
+
+  :root[data-theme="os"] #tsd-search-trigger,
+  :root[data-theme="os"] #tsd-toolbar-menu-trigger {
+    border-color: rgba(142, 112, 255, 0.22);
+    background: rgba(26, 19, 48, 0.82);
+    color: #f3efff;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  }
+
+  :root[data-theme="os"] #tsd-search-trigger:hover,
+  :root[data-theme="os"] #tsd-search-trigger:focus-visible,
+  :root[data-theme="os"] #tsd-toolbar-menu-trigger:hover,
+  :root[data-theme="os"] #tsd-toolbar-menu-trigger:focus-visible {
+    border-color: rgba(155, 104, 255, 0.34);
+    background: rgba(36, 25, 68, 0.94);
+    color: #ffffff;
+  }
+
+  :root[data-theme="os"] #tsd-search {
+    border-color: rgba(142, 112, 255, 0.18);
+    background:
+      radial-gradient(circle at top left, rgba(89, 236, 255, 0.12), transparent 30%),
+      radial-gradient(circle at top right, rgba(255, 79, 216, 0.08), transparent 28%),
+      rgba(12, 8, 25, 0.96);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+    color: #f3efff;
+  }
+}
+
 .tsd-page-title {
   display: none;
 }
