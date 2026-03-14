@@ -4,16 +4,16 @@
 [![npm downloads](https://img.shields.io/npm/dm/providerplaneai)](https://www.npmjs.com/package/providerplaneai)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/providerplaneai/providerplaneai/node.js.yml?branch=main)](https://github.com/providerplaneai/providerplaneai/actions)
-[![TypeDocs](https://img.shields.io/badge/docs-typedoc-blue)](https://www.providerplane.dev)
+[![Documentation](https://img.shields.io/badge/docs-providerplane.dev-blue)](https://www.providerplane.dev)
 
-ProviderPlaneAI is a workflow-first AI orchestration framework for Node.js. It provides a provider-agnostic pipeline layer above raw model SDKs:
+ProviderPlaneAI is a workflow-first AI orchestration framework for Node.js. It provides a provider-agnostic workflow layer above raw model SDKs:
 
 - Provider-agnostic orchestration across OpenAI, Anthropic, and Gemini, with additional providers planned
 - Workflow-first API with jobs available as the lower-level execution layer
-- Multimodal pipelines across text, audio, image, video, moderation, and embeddings
+- Multimodal workflows across text, audio, image, video, moderation, and embeddings
 - Retry, fallback, persistence, and workflow-level observability
 
-See [providerplane.dev](https://www.providerplane.dev) for the full API reference, advanced workflow patterns, and configuration guides.
+See [providerplane.dev](https://www.providerplane.dev) for guides, examples, configuration, changelog, and API reference. See [providerplane.ai](https://www.providerplane.ai) for the main project site.
 
 ---
 
@@ -124,7 +124,7 @@ graph TD
     n1 --> n2
 ```
 
-For most applications, this is the right abstraction level: `Pipeline` plus `WorkflowRunner`.
+For most applications, this is the right abstraction level: the workflow layer via `Pipeline` plus `WorkflowRunner`.
 
 Use direct jobs only when you need low-level control outside a workflow DAG, are integrating with an external scheduler, or are building custom orchestration on top of the library.
 
