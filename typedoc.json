@@ -1,5 +1,7 @@
 {
     "out": "docs",
+    "json": "docs/reference.json",
+    "customCss": "typedoc.custom.css",
     "entryPoints": ["src/core", "src/client", "src/providers", "src/capabilities"],
     "entryPointStrategy": "expand",
     "highlightLanguages": ["ts", "js", "bash", "json", "mermaid"],

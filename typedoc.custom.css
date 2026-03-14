@@ -1,0 +1,205 @@
+:root {
+  --pp-code-shadow-light:
+    0 18px 44px rgba(53, 39, 95, 0.08);
+  --pp-code-shadow-dark:
+    0 24px 58px rgba(0, 0, 0, 0.46);
+  --pp-code-surface-dark:
+    radial-gradient(circle at top left, rgba(89, 236, 255, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 79, 216, 0.1), transparent 26%),
+    #1a1330;
+  --pp-code-surface-dark-lighter:
+    radial-gradient(circle at top left, rgba(89, 236, 255, 0.14), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 79, 216, 0.12), transparent 26%),
+    #241944;
+  --pp-hero-light:
+    radial-gradient(circle at 18% 18%, rgba(89, 236, 255, 0.28), transparent 28%),
+    radial-gradient(circle at 82% 22%, rgba(255, 79, 216, 0.22), transparent 24%),
+    radial-gradient(circle at 50% 72%, rgba(122, 44, 255, 0.18), transparent 30%),
+    linear-gradient(135deg, #fbf8ff 0%, #f2ecff 46%, #fff7fd 100%);
+  --pp-hero-dark:
+    radial-gradient(circle at 18% 18%, rgba(89, 236, 255, 0.22), transparent 26%),
+    radial-gradient(circle at 82% 22%, rgba(255, 79, 216, 0.18), transparent 24%),
+    radial-gradient(circle at 50% 72%, rgba(122, 44, 255, 0.22), transparent 30%),
+    linear-gradient(135deg, #06030d 0%, #0d081b 48%, #14061a 100%);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="os"] {
+    --color-background: #f7f4fb;
+    --color-background-secondary: #fbf8ff;
+    --color-background-active: #efe8ff;
+    --color-text: #23173d;
+    --color-contrast-text: #23173d;
+    --color-text-aside: #665a81;
+    --color-link: #3987ff;
+  }
+
+  :root[data-theme="os"] body {
+    background: var(--pp-hero-light);
+    background-attachment: fixed;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="os"] {
+    --color-background: #0a0812;
+    --color-background-secondary: #120b25;
+    --color-background-active: #241b40;
+    --color-text: #f3efff;
+    --color-contrast-text: #f3efff;
+    --color-text-aside: #b3a8cb;
+    --color-link: #6c97ff;
+  }
+
+  :root[data-theme="os"] body {
+    background: var(--pp-hero-dark);
+    background-attachment: fixed;
+  }
+}
+
+:root[data-theme="light"] {
+  --color-background: #f7f4fb;
+  --color-background-secondary: #fbf8ff;
+  --color-background-active: #efe8ff;
+  --color-text: #23173d;
+  --color-contrast-text: #23173d;
+  --color-text-aside: #665a81;
+  --color-link: #3987ff;
+}
+
+:root[data-theme="dark"] {
+  --color-background: #0a0812;
+  --color-background-secondary: #120b25;
+  --color-background-active: #241b40;
+  --color-text: #f3efff;
+  --color-contrast-text: #f3efff;
+  --color-text-aside: #b3a8cb;
+  --color-link: #6c97ff;
+}
+
+:root[data-theme="light"] body {
+  background: var(--pp-hero-light);
+  background-attachment: fixed;
+}
+
+:root[data-theme="dark"] body {
+  background: var(--pp-hero-dark);
+  background-attachment: fixed;
+}
+
+body {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+pre,
+.tsd-signature {
+  border-radius: 16px;
+  box-shadow: var(--pp-code-shadow-light);
+}
+
+pre {
+  --hl-0: #d2a8ff;
+  --hl-1: #e6edf3;
+  --hl-2: #a5d6ff;
+  --hl-3: #79c0ff;
+  --hl-4: #79c0ff;
+  --hl-5: #ff7b72;
+  --hl-6: #ff7b72;
+  --hl-7: #ffa657;
+  --hl-8: #7ee787;
+  --hl-9: #8b949e;
+  --hl-10: #79c0ff;
+  background: var(--pp-code-surface-dark) !important;
+  border: 0;
+  color: #ebe8ff;
+}
+
+.tsd-signature {
+  background: var(--pp-code-surface-dark) !important;
+  border: 0;
+  color: #ebe8ff;
+}
+
+:root[data-theme="dark"] pre {
+  --hl-0: #d2a8ff;
+  --hl-1: #e6edf3;
+  --hl-2: #a5d6ff;
+  --hl-3: #79c0ff;
+  --hl-4: #79c0ff;
+  --hl-5: #ff7b72;
+  --hl-6: #ff7b72;
+  --hl-7: #ffa657;
+  --hl-8: #7ee787;
+  --hl-9: #8b949e;
+  --hl-10: #79c0ff;
+  background: var(--pp-code-surface-dark-lighter) !important;
+  color: #ebe8ff;
+}
+
+:root[data-theme="dark"] .tsd-signature {
+  background: var(--pp-code-surface-dark-lighter) !important;
+  color: #ebe8ff;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="os"] pre {
+    --hl-0: #d2a8ff;
+    --hl-1: #e6edf3;
+    --hl-2: #a5d6ff;
+    --hl-3: #79c0ff;
+    --hl-4: #79c0ff;
+    --hl-5: #ff7b72;
+    --hl-6: #ff7b72;
+    --hl-7: #ffa657;
+    --hl-8: #7ee787;
+    --hl-9: #8b949e;
+    --hl-10: #79c0ff;
+    background: var(--pp-code-surface-dark) !important;
+    color: #ebe8ff;
+  }
+
+  :root[data-theme="os"] .tsd-signature {
+    background: var(--pp-code-surface-dark) !important;
+    color: #ebe8ff;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="os"] pre {
+    --hl-0: #d2a8ff;
+    --hl-1: #e6edf3;
+    --hl-2: #a5d6ff;
+    --hl-3: #79c0ff;
+    --hl-4: #79c0ff;
+    --hl-5: #ff7b72;
+    --hl-6: #ff7b72;
+    --hl-7: #ffa657;
+    --hl-8: #7ee787;
+    --hl-9: #8b949e;
+    --hl-10: #79c0ff;
+    background: var(--pp-code-surface-dark-lighter) !important;
+    color: #ebe8ff;
+  }
+
+  :root[data-theme="os"] .tsd-signature {
+    background: var(--pp-code-surface-dark-lighter) !important;
+    color: #ebe8ff;
+  }
+}
+
+pre code,
+pre code span {
+  background: transparent !important;
+}
+
+:root[data-theme="dark"] pre,
+:root[data-theme="dark"] .tsd-signature {
+  box-shadow: var(--pp-code-shadow-dark);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="os"] pre,
+  :root[data-theme="os"] .tsd-signature {
+    box-shadow: var(--pp-code-shadow-dark);
+  }
+}
