@@ -72,6 +72,7 @@ jobs:
         env:
           DISPATCH_TOKEN: ${{ secrets.PROVIDERPLANE_WEB_DISPATCH_TOKEN }}
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          LIBRARY_REF: ${{ github.ref_name }}
         run: |
           python3 - <<'PY2'
           import json
@@ -88,6 +89,7 @@ jobs:
               "event_type": "providerplane_release",
               "client_payload": {
                   "tag": os.environ.get("RELEASE_TAG", ""),
+                  "library_ref": os.environ.get("LIBRARY_REF", ""),
                   "changelog": changelog
               }
           }).encode("utf-8")
