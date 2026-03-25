@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.2.1] - 2026-03-24
+
+### Fixed
+
+- Brought the release process back in sync with npm publishing behavior and updated npm settings after GitHub Actions publish issues.
+
 ### Added
 
 - Automated changelog and release PR generation via Release Please.
@@ -28,4 +35,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Live workflow failures caused by non-array chat message content in OpenAI chat path.
 - Streaming smoke test aggregation when workflow step output is a structured message object.
-
