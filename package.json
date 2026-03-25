@@ -1,7 +1,7 @@
 {
     "type": "module",
     "name": "providerplaneai",
-    "version": "0.2.0-alpha3",
+    "version": "0.2.0-alpha4",
     "description": "Multi-provider AI orchestration layer for Node.js applications.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
