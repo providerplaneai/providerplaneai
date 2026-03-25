@@ -1,7 +1,7 @@
 {
     "type": "module",
     "name": "providerplaneai",
-    "version": "0.2.0-alpha5",
+    "version": "0.2.0-alpha6",
     "description": "Multi-provider AI orchestration layer for Node.js applications.",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -49,8 +49,7 @@
         "CHANGELOG.md"
     ],
     "publishConfig": {
-        "access": "public",
-        "provenance": true
+        "access": "public"
     },
     "overrides": {
         "gaxios": {
