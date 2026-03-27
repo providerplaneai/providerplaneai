@@ -12,6 +12,10 @@
             "executionPolicy": {
                 "providerChain": [
                     {
+                        "providerType": "mistral",
+                        "connectionName": "default"
+                    },                    
+                    {
                         "providerType": "openai",
                         "connectionName": "default"
                     },
@@ -31,6 +35,103 @@
             }
         },
         "providers": {
+            "mistral": {
+                "default": {
+                    "type": "mistral",
+                    "apiKeyEnvVar": "MISTRAL_API_KEY_1",
+                    "defaultModel": "mistral-small-latest",
+                    "defaultModels": {
+                        "chat": "mistral-small-latest",
+                        "embed": "mistral-embed",
+                        "moderation": "mistral-moderation-latest",
+                        "imageAnalysis": "mistral-small-latest",
+                        "imageAnalyzeStream": "mistral-small-latest",
+                        "audioTranscription": "voxtral-mini-latest",
+                        "audioTranscriptionStream": "voxtral-mini-latest",
+                        "audioTts": "voxtral-mini-tts-2603",
+                        "audioTtsStream": "voxtral-mini-tts-2603"
+                    },
+                    "models": {
+                        "mistral-small-latest": {
+                            "chat": {
+                                "modelParams": {
+                                    "maxTokens": 1024
+                                }
+                            },
+                            "chatStream": {
+                                "modelParams": {
+                                    "maxTokens": 1024
+                                },
+                                "generalParams": {
+                                    "chatStreamBatchSize": 64
+                                }
+                            },
+                            "imageAnalysis": {
+                                "modelParams": {
+                                    "maxTokens": 1024
+                                }
+                            },
+                            "imageAnalyzeStream": {
+                                "modelParams": {
+                                    "maxTokens": 1024
+                                }
+                            }
+                        },
+                        "codestral-latest": {
+                            "chat": {
+                                "modelParams": {
+                                    "maxTokens": 1024
+                                }
+                            },
+                            "chatStream": {
+                                "modelParams": {
+                                    "maxTokens": 1024
+                                },
+                                "generalParams": {
+                                    "chatStreamBatchSize": 64
+                                }
+                            }
+                        },
+                        "mistral-embed": {
+                            "embed": {
+                                "modelParams": {
+                                }
+                            }
+                        },
+                        "mistral-moderation-latest": {
+                            "moderation": {
+                                "modelParams": {}
+                            }
+                        },
+                        "voxtral-mini-latest": {
+                            "audioTranscription": {
+                                "modelParams": {}
+                            },
+                            "audioTranscriptionStream": {
+                                "modelParams": {},
+                                "generalParams": {
+                                    "audioStreamBatchSize": 64
+                                }
+                            }
+                        },
+                        "voxtral-mini-tts-2603": {
+                            "audioTts": {
+                                "modelParams": {
+                                    "voiceId": "replace-with-mistral-voice-id"
+                                }
+                            },
+                            "audioTtsStream": {
+                                "modelParams": {
+                                    "voiceId": "replace-with-mistral-voice-id"
+                                },
+                                "generalParams": {
+                                    "audioStreamBatchSize": 65536
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "openai": {
                 "default": {
                     "type": "openai",

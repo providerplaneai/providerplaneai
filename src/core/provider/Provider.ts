@@ -13,7 +13,8 @@ import { ProviderConnectionConfig } from "#root/index.js";
 export const AIProvider = {
     OpenAI: "openai",
     Anthropic: "anthropic",
-    Gemini: "gemini"
+    Gemini: "gemini",
+    Mistral: "mistral"
 } as const;
 
 /**

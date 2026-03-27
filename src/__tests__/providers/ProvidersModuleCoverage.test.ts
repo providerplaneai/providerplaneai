@@ -7,6 +7,7 @@ describe("providers module coverage", () => {
         vi.doUnmock("#root/providers/openai/OpenAIProvider.js");
         vi.doUnmock("#root/providers/anthropic/AnthropicProvider.js");
         vi.doUnmock("#root/providers/gemini/GeminiProvider.js");
+        vi.doUnmock("#root/providers/mistral/MistralProvider.js");
 
         const modules = await Promise.all([
             import("#root/providers/openai/capabilities/index.js"),
@@ -39,10 +40,17 @@ describe("providers module coverage", () => {
             import("#root/providers/gemini/capabilities/GeminiVideoGenerationCapabilityImpl.js"),
             import("#root/providers/gemini/capabilities/GeminiVideoAnalysisCapabilityImpl.js"),
             import("#root/providers/gemini/capabilities/GeminiVideoExtendCapabilityImpl.js"),
-            import("#root/providers/gemini/capabilities/GeminiVideoDownloadCapabilityImpl.js")
+            import("#root/providers/gemini/capabilities/GeminiVideoDownloadCapabilityImpl.js"),
+            import("#root/providers/mistral/capabilities/index.js"),
+            import("#root/providers/mistral/capabilities/MistralAudioTextToSpeechCapabilityImpl.js"),
+            import("#root/providers/mistral/capabilities/MistralAudioTranscriptionCapabilityImpl.js"),
+            import("#root/providers/mistral/capabilities/MistralChatCapabilityImpl.js"),
+            import("#root/providers/mistral/capabilities/MistralEmbedCapabilityImpl.js"),
+            import("#root/providers/mistral/capabilities/MistralModerationCapabilityImpl.js"),
+            import("#root/providers/mistral/capabilities/MistralImageAnalysisCapabilityImpl.js")
         ]);
 
-        expect(modules).toHaveLength(31);
+        expect(modules).toHaveLength(38);
         for (const mod of modules) {
             expect(mod).toBeTruthy();
         }

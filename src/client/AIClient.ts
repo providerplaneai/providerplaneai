@@ -21,6 +21,7 @@ import {
     DuplicateProviderRegistrationError,
     ExecutionPolicyError,
     GeminiProvider,
+    MistralProvider,
     NormalizedImage,
     NormalizedImageAnalysis,
     OpenAIProvider,
@@ -212,6 +213,8 @@ export class AIClient {
                 this.registerProvider(new AnthropicProvider(), AIProvider.Anthropic, connectionName);
             } else if (providerType === AIProvider.Gemini) {
                 this.registerProvider(new GeminiProvider(), AIProvider.Gemini, connectionName);
+            } else if (providerType === AIProvider.Mistral) {
+                this.registerProvider(new MistralProvider(), AIProvider.Mistral, connectionName);
             } else {
                 throw new Error(`Invalid provider: ${providerType}`);
             }

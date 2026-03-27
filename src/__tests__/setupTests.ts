@@ -77,6 +77,31 @@ vi.mock('#root/providers/gemini/GeminiProvider.js', () => ({
     })
 }));
 
+// Fully mock MistralProvider
+vi.mock('#root/providers/mistral/MistralProvider.js', () => ({
+    MistralProvider: vi.fn(function () {
+        const providerInstance = {
+            isInitialized: () => true,
+            init: vi.fn(),
+            registerCapabilities: vi.fn(),
+            setClientExecutors: vi.fn(),
+            hasCapability: vi.fn(() => true),
+            getCapability: vi.fn((cap: keyof typeof providerInstance) => providerInstance[cap] || vi.fn()),
+            chat: vi.fn().mockResolvedValue({ output: 'mocked', metadata: { status: 'completed' } }),
+            chatStream: vi.fn().mockImplementation(async function* () {
+                yield { output: 'mocked', metadata: { status: 'completed' } };
+            }),
+            embed: vi.fn().mockResolvedValue({ output: [0.1, 0.2, 0.3], metadata: { status: 'completed' } }),
+            moderation: vi.fn().mockResolvedValue({ output: { flagged: false }, metadata: { status: 'completed' } }),
+            analyzeImage: vi.fn().mockResolvedValue({ output: [{ text: 'image description', objects: [] }], metadata: { status: 'completed' } }),
+            analyzeImageStream: vi.fn().mockImplementation(async function* () {
+                yield { output: [{ label: 'cat', confidence: 0.99 }], metadata: { status: 'completed' } };
+            })
+        };
+        return providerInstance;
+    })
+}));
+
 // Mock #root/index.js utility/context methods
 vi.mock('#root/index.js', async (importOriginal) => {
     const actual = await importOriginal();
