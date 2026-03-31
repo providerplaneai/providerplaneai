@@ -34,22 +34,19 @@ import {
 const DEFAULT_MISTRAL_CHAT_MODEL = "mistral-small-latest";
 
 /**
- * MistralChatCapabilityImpl: adapts Mistral chat completions into ProviderPlaneAI's
- * normalized chat response and chunk shapes.
+ * Adapts Mistral chat completions into ProviderPlaneAI's normalized chat response
+ * and stream chunk shapes.
  *
- * Current v1 behavior:
- * - supports text and image input parts
- * - normalizes non-stream and stream responses into `NormalizedChatMessage`
- * - batches stream deltas using `chatStreamBatchSize`
- * - keeps provider-specific SDK event details local to this adapter
+ * Supports text and image inputs, batches streamed text deltas using
+ * `chatStreamBatchSize`, and emits a terminal error chunk for non-abort
+ * streaming failures while keeping Mistral SDK event details local to the adapter.
  *
  * @public
  * @description Provider capability implementation for MistralChatCapabilityImpl.
  */
-export class MistralChatCapabilityImpl
-    implements
-        ChatCapability<ClientChatRequest, NormalizedChatMessage>,
-        ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
+export class MistralChatCapabilityImpl implements
+    ChatCapability<ClientChatRequest, NormalizedChatMessage>,
+    ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
 {
     /**
      * Creates a new Mistral chat capability adapter.
@@ -73,14 +70,14 @@ export class MistralChatCapabilityImpl
      * - attach provider/model/token metadata for observability
      *
      * @param {AIRequest<ClientChatRequest>} request Unified chat request envelope.
-     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {MultiModalExecutionContext} [_ctx] Optional execution context. Unused directly in this adapter.
      * @param {AbortSignal} [signal] Optional cancellation signal.
      * @throws {Error} When input messages are empty or the request is already aborted.
      * @returns {Promise<AIResponse<NormalizedChatMessage>>} Provider-normalized assistant message response.
      */
     async chat(
         request: AIRequest<ClientChatRequest>,
-        _executionContext?: MultiModalExecutionContext,
+        _ctx?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedChatMessage>> {
         this.provider.ensureInitialized();
@@ -94,10 +91,12 @@ export class MistralChatCapabilityImpl
         }
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.ChatCapabilityKey, options);
+        const model = merged.model ?? DEFAULT_MISTRAL_CHAT_MODEL;
+        const completionRequest = this.buildChatCompletionRequest(model, input.messages, merged.modelParams);
         // Keep the SDK call narrow: merged model/provider params are the only
         // provider-specific escape hatches that should leak into the request.
         const response = await this.client.chat.complete(
-            this.buildChatCompletionRequest(merged.model ?? DEFAULT_MISTRAL_CHAT_MODEL, input.messages, merged.modelParams),
+            completionRequest,
             { signal, ...(merged.providerParams ?? {}) }
         );
 
@@ -108,7 +107,7 @@ export class MistralChatCapabilityImpl
         const metadata = {
             ...(context?.metadata ?? {}),
             provider: AIProvider.Mistral,
-            model: merged.model ?? response.model ?? DEFAULT_MISTRAL_CHAT_MODEL,
+            model,
             status: "completed",
             requestId: context?.requestId,
             ...this.extractUsage(response.usage)
@@ -135,16 +134,17 @@ export class MistralChatCapabilityImpl
      * - accumulate provider deltas into larger buffered chunks
      * - expose both `delta` and accumulated `output` in normalized chunk form
      * - preserve final token usage when Mistral includes it late in the stream
+     * - emit one terminal error chunk on provider/runtime failures
      *
      * @param {AIRequest<ClientChatRequest>} request Unified streaming chat request envelope.
-     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {MultiModalExecutionContext} [_ctx] Optional execution context. Unused directly in this adapter.
      * @param {AbortSignal} [signal] Optional cancellation signal.
      * @throws {Error} When input messages are empty.
      * @returns {AsyncGenerator<AIResponseChunk<NormalizedChatMessage>>} Async stream of normalized chat chunks.
      */
     async *chatStream(
         request: AIRequest<ClientChatRequest>,
-        _executionContext?: MultiModalExecutionContext,
+        _ctx?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage>> {
         this.provider.ensureInitialized();
@@ -163,30 +163,53 @@ export class MistralChatCapabilityImpl
         let buffer = "";
         let latestUsage: UsageInfo | undefined;
 
-        // The SDK exposes a typed async event stream. We still treat event payloads
-        // defensively because provider event unions can evolve across SDK releases.
-        const stream = await this.client.chat.stream(
-            this.buildChatCompletionStreamRequest(model, input.messages, merged.modelParams),
-            { signal, ...(merged.providerParams ?? {}) }
-        );
-
-        for await (const event of stream as AsyncIterable<CompletionEvent>) {
+        try {
             if (signal?.aborted) {
                 return;
             }
 
-            responseId ??= event?.data?.id;
-            latestUsage = event?.data?.usage ?? latestUsage;
-            const deltaText = this.extractMessageText(event?.data?.choices?.[0]?.delta?.content);
-            if (!deltaText) {
-                continue;
+            // The SDK exposes a typed async event stream. We still treat event payloads
+            // defensively because provider event unions can evolve across SDK releases.
+            const stream = await this.client.chat.stream(
+                this.buildChatCompletionRequest(model, input.messages, merged.modelParams),
+                { signal, ...(merged.providerParams ?? {}) }
+            );
+
+            for await (const event of stream as AsyncIterable<CompletionEvent>) {
+                if (signal?.aborted) {
+                    return;
+                }
+
+                // Response id and usage can arrive late in the stream, so keep the
+                // latest seen values and attach them to subsequent normalized chunks.
+                responseId ??= event?.data?.id;
+                latestUsage = event?.data?.usage ?? latestUsage;
+                const deltaText = this.extractMessageText(event?.data?.choices?.[0]?.delta?.content);
+                if (!deltaText) {
+                    continue;
+                }
+
+                // Batch small provider deltas into larger updates for smoother downstream rendering.
+                buffer += deltaText;
+                accumulatedText += deltaText;
+
+                if (buffer.length >= batchSize) {
+                    yield this.createChunk(
+                        buffer,
+                        accumulatedText,
+                        responseId,
+                        context,
+                        model,
+                        "incomplete",
+                        false,
+                        undefined,
+                        latestUsage
+                    );
+                    buffer = "";
+                }
             }
 
-            // Batch small provider deltas into larger updates for smoother downstream rendering.
-            buffer += deltaText;
-            accumulatedText += deltaText;
-
-            if (buffer.length >= batchSize) {
+            if (buffer.length > 0 || accumulatedText.length > 0) {
                 yield this.createChunk(
                     buffer,
                     accumulatedText,
@@ -198,25 +221,20 @@ export class MistralChatCapabilityImpl
                     undefined,
                     latestUsage
                 );
-                buffer = "";
             }
-        }
 
-        if (buffer.length > 0 || accumulatedText.length > 0) {
-            yield this.createChunk(
-                buffer,
-                accumulatedText,
-                responseId,
-                context,
-                model,
-                "incomplete",
-                false,
-                undefined,
-                latestUsage
-            );
-        }
+            // Emit one terminal completion chunk even when the final provider event
+            // only closes the stream and does not carry any additional text.
+            yield this.createChunk("", accumulatedText, responseId, context, model, "completed", true, undefined, latestUsage);
+        } catch (err) {
+            if (signal?.aborted) {
+                return;
+            }
 
-        yield this.createChunk("", accumulatedText, responseId, context, model, "completed", true, undefined, latestUsage);
+            // Surface provider/runtime failures as one terminal error chunk so stream
+            // consumers do not hang waiting for completion.
+            yield this.createChunk("", "", responseId, context, model, "error", true, err, latestUsage);
+        }
     }
 
     /**
@@ -244,6 +262,7 @@ export class MistralChatCapabilityImpl
         error?: unknown,
         usage?: UsageInfo
     ): AIResponseChunk<NormalizedChatMessage> {
+        // Keep the wrapper metadata and the normalized delta/output message metadata aligned.
         const metadata = {
             ...(context?.metadata ?? {}),
             provider: AIProvider.Mistral,
@@ -296,6 +315,9 @@ export class MistralChatCapabilityImpl
     /**
      * Flattens Mistral message content into plain text.
      *
+     * Mistral may surface assistant content as either a bare string or a typed
+     * chunk array; this helper keeps the normalized chat surface text-only.
+     *
      * @param {string | Array<ContentChunk> | null | undefined} content Provider message content.
      * @returns {string} Flattened text content.
      */
@@ -316,34 +338,6 @@ export class MistralChatCapabilityImpl
     }
 
     /**
-     * Converts provider-agnostic client messages into Mistral message payloads.
-     *
-     * @param {ClientChatMessage[]} messages Provider-agnostic chat messages.
-     * @returns {ChatCompletionRequestMessage[]} SDK-compatible Mistral message payloads.
-     */
-    private buildMessages(messages: ClientChatMessage[]): ChatCompletionRequestMessage[] {
-        return messages.map((message) => {
-            switch (message.role) {
-                case "system":
-                    return <SystemMessage>{
-                        role: "system",
-                        content: this.buildSystemContent(message.content)
-                    };
-                case "user":
-                    return <UserMessage>{
-                        role: "user",
-                        content: this.buildContent(message.content)
-                    };
-                case "assistant":
-                    return <AssistantMessage & { role: "assistant" }>{
-                        role: "assistant",
-                        content: this.buildContent(message.content)
-                    };
-            }
-        });
-    }
-
-    /**
      * Converts ProviderPlane message parts into Mistral chat content parts.
      *
      * Current v1 support:
@@ -355,6 +349,7 @@ export class MistralChatCapabilityImpl
      * @returns {Array<ContentChunk> | string} SDK-compatible content payload.
      */
     private buildContent(parts: ClientMessagePart[]): Array<ContentChunk> | string {
+        // Fast-path simple text-only messages so Mistral receives the compact string form.
         if (parts.length === 1 && parts[0].type === "text") {
             return parts[0].text;
         }
@@ -364,7 +359,7 @@ export class MistralChatCapabilityImpl
                 case "text":
                     return { type: "text", text: part.text };
                 case "image":
-                    // Mistral accepts either remote URLs or data URIs for vision/chat-with-image inputs.
+                    // Mistral accepts either remote URLs or data URIs for multimodal chat inputs.
                     return {
                         type: "image_url",
                         imageUrl: part.url ?? ensureDataUri(part.base64 ?? "", part.mimeType)
@@ -383,9 +378,10 @@ export class MistralChatCapabilityImpl
      *
      * @param {ClientMessagePart[]} parts Provider-agnostic system message parts.
      * @throws {Error} When a non-text system message part is supplied.
-     * @returns {string | TextChunk[]} SDK-compatible system content payload.
+     * @returns {string | Array<Extract<ContentChunk, { type: "text" }>>} SDK-compatible system content payload.
      */
     private buildSystemContent(parts: ClientMessagePart[]): string | Array<Extract<ContentChunk, { type: "text" }>> {
+        // Use the compact string form when the system prompt is plain text.
         if (parts.length === 1 && parts[0].type === "text") {
             return parts[0].text;
         }
@@ -399,42 +395,45 @@ export class MistralChatCapabilityImpl
     }
 
     /**
-     * Builds a typed non-streaming chat request for the Mistral SDK.
+     * Builds a Mistral chat request for both non-streaming and streaming chat calls.
      *
      * @param {string} model Resolved model name.
      * @param {ClientChatMessage[]} messages Provider-agnostic chat messages.
      * @param {Record<string, unknown> | undefined} modelParams Provider/model-specific request overrides.
-     * @returns {ChatCompletionRequest} SDK-compatible chat completion request.
+     * @returns {ChatCompletionRequest | ChatCompletionStreamRequest} SDK-compatible chat completion request.
      */
     private buildChatCompletionRequest(
         model: string,
         messages: ClientChatMessage[],
         modelParams?: Record<string, unknown>
-    ): ChatCompletionRequest {
-        return {
-            model,
-            messages: this.buildMessages(messages),
-            ...(modelParams ?? {})
-        } as ChatCompletionRequest;
-    }
+    ): ChatCompletionRequest | ChatCompletionStreamRequest {
+        // Convert ProviderPlane roles into Mistral's narrower role/content union before dispatch.
+        const constructedMessages: ChatCompletionRequestMessage[] = messages.map((message) => {
+            switch (message.role) {
+                case "system":
+                    // Mistral uses a narrower system-message shape than user/assistant content,
+                    // so we keep the role-specific mapping localized here.
+                    return <SystemMessage>{
+                        role: "system",
+                        content: this.buildSystemContent(message.content)
+                    };
+                case "user":
+                    return <UserMessage>{
+                        role: "user",
+                        content: this.buildContent(message.content)
+                    };
+                case "assistant":
+                    return <AssistantMessage & { role: "assistant" }>{
+                        role: "assistant",
+                        content: this.buildContent(message.content)
+                    };
+            }
+        });
 
-    /**
-     * Builds a typed streaming chat request for the Mistral SDK.
-     *
-     * @param {string} model Resolved model name.
-     * @param {ClientChatMessage[]} messages Provider-agnostic chat messages.
-     * @param {Record<string, unknown> | undefined} modelParams Provider/model-specific request overrides.
-     * @returns {ChatCompletionStreamRequest} SDK-compatible streaming chat request.
-     */
-    private buildChatCompletionStreamRequest(
-        model: string,
-        messages: ClientChatMessage[],
-        modelParams?: Record<string, unknown>
-    ): ChatCompletionStreamRequest {
         return {
             model,
-            messages: this.buildMessages(messages),
+            messages: constructedMessages,
             ...(modelParams ?? {})
-        } as ChatCompletionStreamRequest;
+        } as ChatCompletionRequest | ChatCompletionStreamRequest;
     }
 }

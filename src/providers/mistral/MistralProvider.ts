@@ -19,6 +19,7 @@ import {
     ClientChatRequest,
     ClientEmbeddingRequest,
     ClientImageAnalysisRequest,
+    ClientOCRRequest,
     ClientTextToSpeechRequest,
     ClientModerationRequest,
     EmbedCapability,
@@ -30,15 +31,17 @@ import {
     MistralEmbedCapabilityImpl,
     MistralImageAnalysisCapabilityImpl,
     MistralModerationCapabilityImpl,
+    MistralOCRCapabilityImpl,
     ModerationCapability,
     MultiModalExecutionContext,
     NormalizedAudio,
     NormalizedChatMessage,
     NormalizedEmbedding,
     NormalizedImageAnalysis,
+    NormalizedOCRDocument,
     NormalizedModeration,
-    ProviderConnectionConfig
-    ,
+    ProviderConnectionConfig,
+    OCRCapability,
     TextToSpeechCapability,
     TextToSpeechStreamCapability
 } from "#root/index.js";
@@ -48,7 +51,6 @@ import {
  *
  * Responsibilities:
  * - Own the official Mistral SDK client
- * - Validate provider configuration and credentials
  * - Register supported Mistral v1 capabilities
  * - Delegate capability execution to capability-specific adapters
  *
@@ -59,6 +61,7 @@ import {
  * - moderation
  * - imageAnalysis
  * - imageAnalysisStream
+ * - ocr
  * - audio transcription
  * - audio transcription stream
  * - text-to-speech
@@ -76,6 +79,7 @@ export class MistralProvider
         ModerationCapability<ClientModerationRequest>,
         ImageAnalysisCapability<ClientImageAnalysisRequest>,
         ImageAnalysisStreamCapability<ClientImageAnalysisRequest>,
+        OCRCapability<ClientOCRRequest>,
         AudioTranscriptionCapability<ClientAudioTranscriptionRequest>,
         AudioTranscriptionStreamCapability<ClientAudioTranscriptionRequest>,
         TextToSpeechCapability<ClientTextToSpeechRequest>,
@@ -92,6 +96,7 @@ export class MistralProvider
     private embedDelegate: MistralEmbedCapabilityImpl | null = null;
     private moderationDelegate: MistralModerationCapabilityImpl | null = null;
     private imageAnalysisDelegate: MistralImageAnalysisCapabilityImpl | null = null;
+    private ocrDelegate: MistralOCRCapabilityImpl | null = null;
     private audioTranscriptionDelegate: MistralAudioTranscriptionCapabilityImpl | null = null;
     private audioTtsDelegate: MistralAudioTextToSpeechCapabilityImpl | null = null;
 
@@ -137,6 +142,7 @@ export class MistralProvider
         this.embedDelegate = new MistralEmbedCapabilityImpl(this, this.client);
         this.moderationDelegate = new MistralModerationCapabilityImpl(this, this.client);
         this.imageAnalysisDelegate = new MistralImageAnalysisCapabilityImpl(this, this.client);
+        this.ocrDelegate = new MistralOCRCapabilityImpl(this, this.client);
         this.audioTranscriptionDelegate = new MistralAudioTranscriptionCapabilityImpl(this, this.client);
         this.audioTtsDelegate = new MistralAudioTextToSpeechCapabilityImpl(this, this.client);
 
@@ -164,6 +170,10 @@ export class MistralProvider
         this.registerCapability(
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.OCRCapabilityKey,
+            this as OCRCapability<ClientOCRRequest, NormalizedOCRDocument[]>
         );
         this.registerCapability(
             CapabilityKeys.AudioTranscriptionCapabilityKey,
@@ -261,6 +271,26 @@ export class MistralProvider
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ModerationCapabilityKey);
         }
         return await this.moderationDelegate.moderation(req, executionContext, signal);
+    }
+
+    /**
+     * Executes a Mistral OCR request.
+     *
+     * @param {AIRequest<ClientOCRRequest>} req Unified OCR request envelope.
+     * @param {MultiModalExecutionContext} executionContext Execution context for timeline/state propagation.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @throws {CapabilityUnsupportedError} When the OCR delegate is unavailable.
+     * @returns {Promise<AIResponse<NormalizedOCRDocument[]>>} Provider-normalized OCR artifacts.
+     */
+    async ocr(
+        req: AIRequest<ClientOCRRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedOCRDocument[]>> {
+        if (!this.ocrDelegate || typeof this.ocrDelegate.ocr !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.OCRCapabilityKey);
+        }
+        return await this.ocrDelegate.ocr(req, executionContext, signal);
     }
 
     /**

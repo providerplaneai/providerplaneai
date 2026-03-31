@@ -3,7 +3,7 @@
  * @description Mistral image analysis capability adapter.
  */
 import { Mistral } from "@mistralai/mistralai";
-import type { ChatCompletionRequest, ContentChunk, UserMessage } from "@mistralai/mistralai/models/components";
+import type { ChatCompletionRequest, CompletionEvent, ContentChunk, UserMessage } from "@mistralai/mistralai/models/components";
 import {
     AIProvider,
     AIRequest,
@@ -50,20 +50,22 @@ type MistralImageAnalysisPayload = {
 };
 
 /**
- * MistralImageAnalysisCapabilityImpl: adapts Mistral multimodal chat completions
- * into ProviderPlaneAI's normalized image analysis artifact surface.
+ * Adapts Mistral multimodal chat completions into ProviderPlaneAI's normalized
+ * image analysis artifact surface.
  *
- * Current v1 behavior:
- * - uses Mistral chat completions for image understanding
- * - requests JSON output via prompt + `responseFormat`
- * - parses best-effort JSON and normalizes it into `NormalizedImageAnalysis[]`
- * - uses a thin stream wrapper that emits the final normalized result once complete
+ * Uses Mistral chat completions for image understanding, requests JSON-shaped
+ * output via prompt plus `responseFormat`, and normalizes best-effort parsed
+ * results into `NormalizedImageAnalysis[]`. Stream mode uses Mistral chat
+ * streaming, emits best-effort incremental normalized chunks once structured
+ * payloads emerge from partial JSON, suppresses duplicate incremental states,
+ * and always finishes with one terminal chunk containing the final normalized output.
  *
  * @public
  * @description Provider capability implementation for MistralImageAnalysisCapabilityImpl.
  */
-export class MistralImageAnalysisCapabilityImpl
-    implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
+export class MistralImageAnalysisCapabilityImpl implements 
+    ImageAnalysisCapability<ClientImageAnalysisRequest>, 
+    ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
 {
     /**
      * Creates a new Mistral image analysis capability adapter.
@@ -109,22 +111,19 @@ export class MistralImageAnalysisCapabilityImpl
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisCapabilityKey, options);
         const prompt = input.prompt?.trim() || DEFAULT_MISTRAL_IMAGE_ANALYSIS_PROMPT.trim();
+        const model = merged.model ?? DEFAULT_MISTRAL_IMAGE_ANALYSIS_MODEL;
+        const analysisRequest = this.buildImageAnalysisRequest(model, images, prompt, merged.modelParams);
         // Vision is modeled as multimodal chat for Mistral, so the adapter keeps
         // the provider-specific prompt/response formatting local here.
         const response = await this.client.chat.complete(
-            this.buildImageAnalysisRequest(
-                merged.model ?? DEFAULT_MISTRAL_IMAGE_ANALYSIS_MODEL,
-                images,
-                prompt,
-                merged.modelParams
-            ),
+            analysisRequest,
             { signal, ...(merged.providerParams ?? {}) }
         );
 
-        const text = this.extractMessageText(response.choices?.[0]?.message?.content ?? undefined);
+        const responseText = this.extractMessageText(response.choices?.[0]?.message?.content ?? undefined);
         // Providers do not always emit perfect JSON even in "json_object" mode;
         // use best-effort parsing so the workflow layer still gets a usable artifact.
-        const parsed = parseBestEffortJson<MistralImageAnalysisPayload>(text);
+        const parsed = parseBestEffortJson<MistralImageAnalysisPayload>(responseText);
         const normalized = this.normalizeAnalyses(parsed, images);
 
         return {
@@ -134,7 +133,7 @@ export class MistralImageAnalysisCapabilityImpl
             metadata: {
                 ...(context?.metadata ?? {}),
                 provider: AIProvider.Mistral,
-                model: merged.model ?? response.model ?? DEFAULT_MISTRAL_IMAGE_ANALYSIS_MODEL,
+                model,
                 status: "completed",
                 requestId: context?.requestId
             }
@@ -144,27 +143,142 @@ export class MistralImageAnalysisCapabilityImpl
     /**
      * Executes a streaming Mistral image analysis request.
      *
-     * Current v1 behavior intentionally keeps this simple: it reuses the non-stream
-     * path and emits one terminal normalized chunk.
+     * Streams best-effort normalized image analysis output by incrementally parsing
+     * partial JSON text from Mistral chat deltas. Incremental chunks are only
+     * emitted once best-effort parsing yields structured payloads, duplicate
+     * incremental states are suppressed, and the stream always ends with one
+     * terminal completed chunk containing the final normalized output.
      *
      * @param {AIRequest<ClientImageAnalysisRequest>} request Unified image analysis request envelope.
      * @param {MultiModalExecutionContext} [executionContext] Optional execution context for fallback image sourcing.
      * @param {AbortSignal} [signal] Optional cancellation signal.
-     * @returns {AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>>} Async generator emitting one final normalized chunk.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>>} Async generator emitting incremental and terminal normalized chunks.
      */
     async *analyzeImageStream(
         request: AIRequest<ClientImageAnalysisRequest>,
         executionContext?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>> {
-        const response = await this.analyzeImage(request, executionContext, signal);
-        yield {
-            delta: response.output,
-            output: response.output,
-            done: true,
-            id: response.id,
-            metadata: response.metadata
-        };
+        this.provider.ensureInitialized();
+
+        const { input, options, context } = request;
+        const images = input.images ?? this.toReferenceImages(executionContext?.getLatestImages() ?? []);
+        if (!images.length) {
+            throw new Error("At least one image is required for analysis");
+        }
+
+        const merged = this.provider.getMergedOptions(CapabilityKeys.ImageAnalysisStreamCapabilityKey, options);
+        const prompt = input.prompt?.trim() || DEFAULT_MISTRAL_IMAGE_ANALYSIS_PROMPT.trim();
+        const model = merged.model ?? DEFAULT_MISTRAL_IMAGE_ANALYSIS_MODEL;
+        const analysisRequest = this.buildImageAnalysisRequest(model, images, prompt, merged.modelParams);
+
+        let responseId: string | undefined;
+        let accumulatedText = "";
+        let lastEmissionSignature: string | undefined;
+
+        try {
+            if (signal?.aborted) {
+                throw new Error("Image analysis aborted before request started");
+            }
+
+            const stream = await this.client.chat.stream(
+                analysisRequest,
+                { signal, ...(merged.providerParams ?? {}) }
+            );
+
+            for await (const event of stream as AsyncIterable<CompletionEvent>) {
+                if (signal?.aborted) {
+                    return;
+                }
+
+                responseId ??= event?.data?.id;
+                const deltaText = this.extractMessageText(event?.data?.choices?.[0]?.delta?.content);
+                if (!deltaText) {
+                    continue;
+                }
+
+                accumulatedText += deltaText;
+                // Partial JSON may still be malformed mid-stream; best-effort parsing lets
+                // downstream consumers see progressively improving analysis output.
+                const parsed = parseBestEffortJson<MistralImageAnalysisPayload>(accumulatedText);
+                const hasStructuredPayload = parsed.some((item) => !!item && typeof item === "object");
+                const deltaAnalyses = this.normalizeAnalyses(parsed, images);
+                const emissionSignature = JSON.stringify(
+                    deltaAnalyses.map(({ id: _id, ...analysis }) => analysis)
+                );
+
+                // Skip noisy fallback chunks while JSON is still incomplete; wait until we have
+                // at least one parsed object before emitting incremental analysis updates.
+                if (!hasStructuredPayload) {
+                    continue;
+                }
+
+                // Structured incremental output can stabilize across multiple provider deltas.
+                // Suppress duplicate emissions to keep playground/log output readable.
+                if (emissionSignature === lastEmissionSignature) {
+                    continue;
+                }
+                lastEmissionSignature = emissionSignature;
+
+                yield {
+                    delta: deltaAnalyses,
+                    output: deltaAnalyses,
+                    done: false,
+                    id: responseId ?? crypto.randomUUID(),
+                    metadata: {
+                        ...(context?.metadata ?? {}),
+                        provider: AIProvider.Mistral,
+                        model,
+                        status: "incomplete",
+                        requestId: context?.requestId
+                    }
+                };
+            }
+
+            const finalOutput = this.normalizeAnalyses(
+                parseBestEffortJson<MistralImageAnalysisPayload>(accumulatedText),
+                images
+            );
+            const finalEmissionSignature = JSON.stringify(
+                finalOutput.map(({ id: _id, ...analysis }) => analysis)
+            );
+            // If the final normalized state is identical to the last incremental emission,
+            // keep the terminal chunk authoritative via `output` but avoid repeating it in `delta`.
+            const finalDelta = finalEmissionSignature === lastEmissionSignature ? [] : finalOutput;
+
+            yield {
+                delta: finalDelta,
+                output: finalOutput,
+                done: true,
+                id: responseId ?? crypto.randomUUID(),
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.Mistral,
+                    model,
+                    status: "completed",
+                    requestId: context?.requestId
+                }
+            };
+        } catch (err) {
+            if (signal?.aborted) {
+                return;
+            }
+
+            yield {
+                delta: [],
+                output: [],
+                done: true,
+                id: responseId ?? crypto.randomUUID(),
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.Mistral,
+                    model,
+                    status: "error",
+                    requestId: context?.requestId,
+                    error: err instanceof Error ? err.message : String(err)
+                }
+            };
+        }
     }
 
     /**
@@ -177,6 +291,7 @@ export class MistralImageAnalysisCapabilityImpl
     private buildVisionContent(images: ClientReferenceImage[], prompt: string): Array<ContentChunk> {
         const content: Array<ContentChunk> = [{ type: "text", text: prompt }];
         for (const image of images) {
+            // Mistral multimodal chat accepts either remote URLs or data URIs for image parts.
             content.push({
                 type: "image_url",
                 imageUrl: image.url ?? ensureDataUri(image.base64 ?? "", image.mimeType)
@@ -188,10 +303,13 @@ export class MistralImageAnalysisCapabilityImpl
     /**
      * Flattens Mistral assistant content into plain text for JSON parsing.
      *
-     * @param {string | Array<ContentChunk> | undefined} content Provider message content.
+     * Mistral chat content may arrive as either a raw string or an array of typed
+     * content chunks, including during streaming delta events.
+     *
+     * @param {string | Array<ContentChunk> | null | undefined} content Provider message content.
      * @returns {string} Flattened text content.
      */
-    private extractMessageText(content: string | Array<ContentChunk> | undefined): string {
+    private extractMessageText(content: string | Array<ContentChunk> | null | undefined): string {
         if (!content) {
             return "";
         }
@@ -218,33 +336,48 @@ export class MistralImageAnalysisCapabilityImpl
         payload: Array<MistralImageAnalysisPayload | string>,
         images: ClientReferenceImage[]
     ): NormalizedImageAnalysis[] {
-        const objects = payload.filter((item): item is MistralImageAnalysisPayload => !!item && typeof item === "object");
-        if (objects.length === 0) {
+        const structuredPayloads = payload.filter(
+            (item): item is MistralImageAnalysisPayload => !!item && typeof item === "object"
+        );
+        if (structuredPayloads.length === 0) {
+            const fallbackDescription = typeof payload[0] === "string" ? payload[0] : undefined;
+
             return images.map((image, index) => ({
                 id: crypto.randomUUID(),
-                description: typeof payload[0] === "string" && index === 0 ? payload[0] : undefined,
+                // If parsing never yields an object, preserve the first raw text response
+                // as a best-effort description for the first source image.
+                description: index === 0 ? fallbackDescription : undefined,
                 sourceImageId: image.id
             }));
         }
 
-        return objects.map((item, index) => ({
-            id: crypto.randomUUID(),
-            description: item.description,
-            tags: item.tags,
-            objects: item.objects
+        return structuredPayloads.map((item, index) => {
+            const normalizedObjects = item.objects
                 ?.filter((obj) => typeof obj?.label === "string" && obj.label.length > 0)
-                .map((obj) => ({ label: obj.label! })),
-            text: item.text
+                .map((obj) => ({ label: obj.label! }));
+            const normalizedText = item.text
                 ?.filter((entry) => typeof entry?.text === "string" && entry.text.length > 0)
-                .map((entry) => ({ text: entry.text!, confidence: entry.confidence })),
-            safety: item.safety
+                .map((entry) => ({ text: entry.text!, confidence: entry.confidence }));
+            const normalizedSafety = item.safety
                 ? {
                       flagged: Boolean(item.safety.flagged),
                       categories: item.safety.categories
                   }
-                : undefined,
-            sourceImageId: images[item.imageIndex ?? index]?.id ?? images[index]?.id
-        }));
+                : undefined;
+            // Prefer the provider's explicit image index when present, then fall back
+            // to the current payload position so output can still be matched to input images.
+            const sourceImageId = images[item.imageIndex ?? index]?.id ?? images[index]?.id;
+
+            return {
+                id: crypto.randomUUID(),
+                description: item.description,
+                tags: item.tags,
+                objects: normalizedObjects,
+                text: normalizedText,
+                safety: normalizedSafety,
+                sourceImageId
+            };
+        });
     }
 
     /**
@@ -258,6 +391,7 @@ export class MistralImageAnalysisCapabilityImpl
      */
     private toReferenceImages(images: NormalizedImage[]): ClientReferenceImage[] {
         return images
+            // Ignore context images that have no reusable provider-facing source.
             .filter((image) => image.url || image.base64)
             .map((image) => ({
                 id: image.id,
@@ -291,6 +425,8 @@ export class MistralImageAnalysisCapabilityImpl
         return {
             model,
             messages: [userMessage],
+            // Mistral does not expose OpenAI-style tool schemas here, so JSON output is
+            // steered through prompt design plus the provider's `json_object` response format.
             responseFormat: { type: "json_object" },
             ...(modelParams ?? {})
         } as ChatCompletionRequest;

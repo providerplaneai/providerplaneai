@@ -48,11 +48,16 @@ describe("MistralAudioTextToSpeechCapabilityImpl", () => {
         );
     });
 
-    it("textToSpeech validates supported formats", async () => {
-        const cap = new MistralAudioTextToSpeechCapabilityImpl(makeProvider(), {} as any);
-        await expect(cap.textToSpeech({ input: { text: "hello", voice: "voice-1", format: "aac" } } as any, {} as any)).rejects.toThrow(
-            "Unsupported Mistral TTS format: aac"
-        );
+    it("textToSpeech passes provider-specific formats through without local allowlisting", async () => {
+        const complete = vi.fn().mockResolvedValue({ audioData: "AQID" });
+        const cap = new MistralAudioTextToSpeechCapabilityImpl(makeProvider(), {
+            audio: { speech: { complete } }
+        } as any);
+
+        const response = await cap.textToSpeech({ input: { text: "hello", voice: "voice-1", format: "aac" } } as any, {} as any);
+
+        expect(complete).toHaveBeenCalledWith(expect.objectContaining({ responseFormat: "aac" }), expect.any(Object));
+        expect(response.output[0]?.mimeType).toBe("audio/aac");
     });
 
     it("textToSpeech maps base64 payload to normalized artifact", async () => {
@@ -106,6 +111,114 @@ describe("MistralAudioTextToSpeechCapabilityImpl", () => {
         );
     });
 
+    it("textToSpeech supports refAudio-only config and preserves extra model params", async () => {
+        const provider = makeProvider();
+        provider.getMergedOptions = vi.fn().mockReturnValue({
+            model: undefined,
+            modelParams: { refAudio: "ref-only", style: "narration" },
+            providerParams: {},
+            generalParams: {}
+        });
+        const complete = vi.fn().mockResolvedValue({ audioData: "AQID" });
+        const cap = new MistralAudioTextToSpeechCapabilityImpl(provider, {
+            audio: { speech: { complete } }
+        } as any);
+
+        await cap.textToSpeech({ input: { text: "hello ref audio" } } as any, {} as any);
+
+        expect(complete).toHaveBeenCalledWith(
+            expect.objectContaining({
+                model: "voxtral-mini-tts-2603",
+                refAudio: "ref-only",
+                style: "narration"
+            }),
+            expect.any(Object)
+        );
+        expect(complete.mock.calls[0][0]).not.toHaveProperty("voiceId");
+    });
+
+    it("textToSpeech does not let modelParams override normalized request fields", async () => {
+        const provider = makeProvider();
+        provider.getMergedOptions = vi.fn().mockReturnValue({
+            model: "voxtral-mini-tts-2603",
+            modelParams: {
+                voiceId: "config-voice-id",
+                responseFormat: "wav",
+                model: "should-not-win",
+                input: "wrong-input",
+                stream: true
+            },
+            providerParams: {},
+            generalParams: {}
+        });
+        const complete = vi.fn().mockResolvedValue({ audioData: "AQID" });
+        const cap = new MistralAudioTextToSpeechCapabilityImpl(provider, {
+            audio: { speech: { complete } }
+        } as any);
+
+        await cap.textToSpeech({ input: { text: "hello", voice: "request-voice", format: "mp3" } } as any, {} as any);
+
+        expect(complete).toHaveBeenCalledWith(
+            expect.objectContaining({
+                model: "voxtral-mini-tts-2603",
+                input: "hello",
+                stream: false,
+                voiceId: "request-voice",
+                responseFormat: "mp3"
+            }),
+            expect.any(Object)
+        );
+    });
+
+    it("textToSpeechStream completes without totalTokens when the done event omits usage", async () => {
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                yield {
+                    event: "speech.audio.delta",
+                    data: { type: "speech.audio.delta", audioData: Buffer.from("ab").toString("base64") }
+                };
+                yield {
+                    event: "speech.audio.done",
+                    data: { type: "speech.audio.done" }
+                };
+            }
+        };
+
+        const cap = new MistralAudioTextToSpeechCapabilityImpl(makeProvider(), {
+            audio: { speech: { complete: vi.fn().mockResolvedValue(stream) } }
+        } as any);
+
+        const chunks = await collect(cap.textToSpeechStream({ input: { text: "hello", voice: "voice-1" } } as any, {} as any));
+
+        expect(chunks.at(-1)?.done).toBe(true);
+        expect(chunks.at(-1)?.metadata?.totalTokens).toBeUndefined();
+    });
+
+    it("textToSpeech honors configured responseFormat when request format is omitted", async () => {
+        const provider = makeProvider();
+        provider.getMergedOptions = vi.fn().mockReturnValue({
+            model: "voxtral-mini-tts-2603",
+            modelParams: { voiceId: "config-voice-id", responseFormat: "wav" },
+            providerParams: {},
+            generalParams: {}
+        });
+        const complete = vi.fn().mockResolvedValue({ audioData: "AQID" });
+        const cap = new MistralAudioTextToSpeechCapabilityImpl(provider, {
+            audio: { speech: { complete } }
+        } as any);
+
+        const response = await cap.textToSpeech({ input: { text: "hello from configured format" } } as any, {} as any);
+
+        expect(complete).toHaveBeenCalledWith(
+            expect.objectContaining({
+                voiceId: "config-voice-id",
+                responseFormat: "wav"
+            }),
+            expect.any(Object)
+        );
+        expect(response.output[0]?.mimeType).toBe("audio/wav");
+    });
+
     it("textToSpeechStream emits deltas and final artifact", async () => {
         const stream = {
             async *[Symbol.asyncIterator]() {
@@ -146,14 +259,24 @@ describe("MistralAudioTextToSpeechCapabilityImpl", () => {
         expect(chunks[2]?.metadata?.totalTokens).toBe(4);
     });
 
-    it("textToSpeechStream rejects non-stream responses on stream path", async () => {
+    it("textToSpeechStream emits an error chunk when the stream path gets a non-stream response", async () => {
         const cap = new MistralAudioTextToSpeechCapabilityImpl(makeProvider(), {
             audio: { speech: { complete: vi.fn().mockResolvedValue({ audioData: "AQID" }) } }
         } as any);
 
-        await expect(
-            collect(cap.textToSpeechStream({ input: { text: "hello", voice: "voice-1" } } as any, {} as any))
-        ).rejects.toThrow("Mistral TTS stream returned a non-streaming response");
+        const chunks = await collect(cap.textToSpeechStream({ input: { text: "hello", voice: "voice-1" } } as any, {} as any));
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]).toMatchObject({
+            done: true,
+            output: [],
+            delta: [],
+            metadata: {
+                provider: "mistral",
+                status: "error",
+                error: "Mistral TTS stream returned a non-streaming response"
+            }
+        });
     });
 
     it("textToSpeech rejects stream responses on non-stream path", async () => {
@@ -203,5 +326,46 @@ describe("MistralAudioTextToSpeechCapabilityImpl", () => {
 
         expect(chunks).toHaveLength(1);
         expect(chunks[0]?.done).toBe(false);
+    });
+
+    it("textToSpeechStream emits a terminal error chunk on provider failure", async () => {
+        const cap = new MistralAudioTextToSpeechCapabilityImpl(makeProvider(), {
+            audio: { speech: { complete: vi.fn().mockRejectedValue(new Error("provider boom")) } }
+        } as any);
+
+        const chunks = await collect(
+            cap.textToSpeechStream(
+                {
+                    input: { text: "hello", voice: "voice-1" },
+                    context: { requestId: "mistral-tts-stream-error", metadata: { source: "test" } }
+                } as any,
+                {} as any
+            )
+        );
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]).toMatchObject({
+            done: true,
+            id: "mistral-tts-stream-error",
+            output: [],
+            delta: [],
+            metadata: {
+                provider: "mistral",
+                status: "error",
+                requestId: "mistral-tts-stream-error",
+                error: "provider boom",
+                source: "test"
+            }
+        });
+    });
+
+    it("textToSpeechStream validates non-empty text before calling Mistral", async () => {
+        const cap = new MistralAudioTextToSpeechCapabilityImpl(makeProvider(), {
+            audio: { speech: { complete: vi.fn() } }
+        } as any);
+
+        await expect(collect(cap.textToSpeechStream({ input: { text: "   ", voice: "voice-1" } } as any, {} as any))).rejects.toThrow(
+            "TTS text must be a non-empty string"
+        );
     });
 });

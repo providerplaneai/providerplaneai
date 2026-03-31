@@ -9,8 +9,6 @@ import type {
     AudioTranscriptionRequest,
     AudioTranscriptionRequestStream,
     FileT,
-    TranscriptionResponse,
-    TranscriptionStreamEvents,
     UsageInfo
 } from "@mistralai/mistralai/models/components";
 import {
@@ -24,6 +22,7 @@ import {
     CapabilityKeys,
     ClientAudioInputSource,
     ClientAudioTranscriptionRequest,
+    dataUriToUint8Array,
     MultiModalExecutionContext,
     NormalizedChatMessage
 } from "#root/index.js";
@@ -36,11 +35,11 @@ type ResolvedTranscriptionInput =
     | { file?: never; fileUrl: string };
 
 /**
- * Mistral audio transcription capability implementation.
+ * Adapts Mistral audio transcription endpoints into ProviderPlaneAI's normalized
+ * text-message artifact surface.
  *
- * Uses Mistral's dedicated audio transcription endpoints and normalizes transcript
- * output to `NormalizedChatMessage[]` so it aligns with the rest of PPAI's audio
- * capability contracts.
+ * Normalizes both non-streaming and streaming transcription output to
+ * `NormalizedChatMessage[]` so it aligns with the rest of the audio capability contracts.
  *
  * @public
  * @description Provider capability implementation for MistralAudioTranscriptionCapabilityImpl.
@@ -65,14 +64,14 @@ export class MistralAudioTranscriptionCapabilityImpl
      * Transcribes input audio using Mistral's non-streaming transcription endpoint.
      *
      * @param {AIRequest<ClientAudioTranscriptionRequest>} request Unified transcription request envelope.
-     * @param {MultiModalExecutionContext} _executionContext Optional execution context. Unused directly in this adapter.
+     * @param {MultiModalExecutionContext} _ctx Optional execution context. Unused directly in this adapter.
      * @param {AbortSignal} [signal] Optional cancellation signal.
      * @throws {Error} When input is invalid or the request is aborted before execution.
      * @returns {Promise<AIResponse<NormalizedChatMessage[]>>} Provider-normalized transcript artifacts.
      */
     async transcribeAudio(
         request: AIRequest<ClientAudioTranscriptionRequest>,
-        _executionContext: MultiModalExecutionContext,
+        _ctx: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedChatMessage[]>> {
         this.provider.ensureInitialized();
@@ -87,26 +86,35 @@ export class MistralAudioTranscriptionCapabilityImpl
         }
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.AudioTranscriptionCapabilityKey, options);
+        const model = merged.model ?? DEFAULT_MISTRAL_AUDIO_TRANSCRIPTION_MODEL;
+        // Normalize all caller-supported input shapes into the two Mistral forms:
+        // inline upload (`file`) or provider-fetched remote source (`fileUrl`).
         const resolvedInput = await this.resolveTranscriptionInput(input.file, input.filename, input.mimeType, signal);
         const response = await this.client.audio.transcriptions.complete(
             this.buildTranscriptionRequest(
-                merged.model ?? DEFAULT_MISTRAL_AUDIO_TRANSCRIPTION_MODEL,
+                model,
                 resolvedInput,
                 input,
+                false,
                 merged.modelParams
-            ),
-            { signal, ...(merged.providerParams ?? {}) }
+            ) as AudioTranscriptionRequest,
+            {
+                signal,
+                // Keep the transport-level SDK options passthrough behavior unchanged here.
+                ...(merged.providerParams ?? {})
+            }
         );
 
+        const finalUsage = this.extractUsage(response.usage, input.language ?? response.language ?? undefined);
         const responseId = context?.requestId ?? crypto.randomUUID();
         const message = this.createTranscriptMessage(
             responseId,
             response.text ?? "",
-            merged.model ?? response.model ?? DEFAULT_MISTRAL_AUDIO_TRANSCRIPTION_MODEL,
+            model,
             "completed",
             context,
             response,
-            this.extractUsage(response.usage, input.language ?? response.language ?? undefined)
+            finalUsage
         );
 
         return {
@@ -117,10 +125,10 @@ export class MistralAudioTranscriptionCapabilityImpl
             metadata: {
                 ...(context?.metadata ?? {}),
                 provider: AIProvider.Mistral,
-                model: merged.model ?? response.model ?? DEFAULT_MISTRAL_AUDIO_TRANSCRIPTION_MODEL,
+                model,
                 status: "completed",
                 requestId: context?.requestId,
-                ...this.extractUsage(response.usage, input.language ?? response.language ?? undefined)
+                ...finalUsage
             }
         };
     }
@@ -129,17 +137,21 @@ export class MistralAudioTranscriptionCapabilityImpl
      * Streams transcription deltas from Mistral and emits a final completed transcript chunk.
      *
      * @param {AIRequest<ClientAudioTranscriptionRequest>} request Unified transcription request envelope.
-     * @param {MultiModalExecutionContext} _executionContext Optional execution context. Unused directly in this adapter.
+     * @param {MultiModalExecutionContext} _ctx Optional execution context. Unused directly in this adapter.
      * @param {AbortSignal} [signal] Optional cancellation signal.
      * @throws {Error} When input is invalid before streaming starts.
      * @returns {AsyncGenerator<AIResponseChunk<NormalizedChatMessage[]>>} Async generator of transcript delta and completion chunks.
      */
     async *transcribeAudioStream(
         request: AIRequest<ClientAudioTranscriptionRequest>,
-        _executionContext: MultiModalExecutionContext,
+        _ctx: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage[]>> {
         this.provider.ensureInitialized();
+
+        if (signal?.aborted) {
+            throw new Error("Audio transcription request aborted before execution");
+        }
 
         const { input, options, context } = request;
         if (!input?.file) {
@@ -148,79 +160,143 @@ export class MistralAudioTranscriptionCapabilityImpl
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.AudioTranscriptionStreamCapabilityKey, options);
         const model = merged.model ?? DEFAULT_MISTRAL_AUDIO_TRANSCRIPTION_MODEL;
-        const resolvedInput = await this.resolveTranscriptionInput(input.file, input.filename, input.mimeType, signal);
-        const stream = await this.client.audio.transcriptions.stream(
-            this.buildTranscriptionStreamRequest(model, resolvedInput, input, merged.modelParams),
-            { signal, ...(merged.providerParams ?? {}) }
-        );
-
         const responseId = context?.requestId ?? crypto.randomUUID();
         let accumulatedText = "";
+        let finalUsage: Record<string, unknown> | undefined;
 
-        for await (const event of stream) {
+        try {
+            const resolvedInput = await this.resolveTranscriptionInput(input.file, input.filename, input.mimeType, signal);
+            const stream = await this.client.audio.transcriptions.stream(
+                this.buildTranscriptionRequest(
+                    model,
+                    resolvedInput,
+                    input,
+                    true,
+                    merged.modelParams
+                ) as AudioTranscriptionRequestStream,
+                {
+                    signal,
+                    // Keep the current stream-call passthrough behavior unchanged here.
+                    ...(merged.modelParams ?? {})
+                }
+            );
+
+            for await (const event of stream) {
+                if (signal?.aborted) {
+                    return;
+                }
+
+                // Mistral emits incremental transcript text as delta events before a terminal
+                // `transcription.done` frame with the authoritative final text and usage.
+                if (event.event === "transcription.text.delta" && event.data.type === "transcription.text.delta") {
+                    if (!event.data.text) {
+                        continue;
+                    }
+
+                    accumulatedText += event.data.text;
+                    const deltaMessage = this.createTranscriptMessage(
+                        `${responseId}-delta-${crypto.randomUUID()}`,
+                        event.data.text,
+                        model,
+                        "incomplete",
+                        context,
+                        event
+                    );
+                    const outputMessage = this.createTranscriptMessage(responseId, accumulatedText, model, "incomplete", context);
+
+                    yield {
+                        done: false,
+                        id: responseId,
+                        delta: [deltaMessage],
+                        output: [outputMessage],
+                        metadata: {
+                            ...(context?.metadata ?? {}),
+                            provider: AIProvider.Mistral,
+                            model,
+                            status: "incomplete",
+                            requestId: context?.requestId,
+                            ...finalUsage
+                        }
+                    };
+                    continue;
+                }
+
+                if (event.event === "transcription.done" && event.data.type === "transcription.done") {
+                    accumulatedText = event.data.text ?? accumulatedText;
+                    finalUsage = this.extractUsage(event.data.usage, input.language ?? event.data.language ?? undefined);
+                    const finalModel = event.data.model ?? model;
+                    const message = this.createTranscriptMessage(
+                        responseId,
+                        accumulatedText,
+                        finalModel,
+                        "completed",
+                        context,
+                        event,
+                        finalUsage
+                    );
+
+                    yield {
+                        done: true,
+                        id: responseId,
+                        output: [message],
+                        multimodalArtifacts: { chat: [message] },
+                        metadata: {
+                            ...(context?.metadata ?? {}),
+                            provider: AIProvider.Mistral,
+                            model: finalModel,
+                            status: "completed",
+                            requestId: context?.requestId,
+                            ...finalUsage
+                        }
+                    };
+                    return;
+                }
+            }
+
+            const fallbackMessage = this.createTranscriptMessage(
+                responseId,
+                accumulatedText,
+                model,
+                "completed",
+                context,
+                undefined,
+                finalUsage
+            );
+
+            yield {
+                done: true,
+                id: responseId,
+                output: [fallbackMessage],
+                multimodalArtifacts: { chat: [fallbackMessage] },
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.Mistral,
+                    model,
+                    status: "completed",
+                    requestId: context?.requestId,                        
+                    ...finalUsage
+                }
+            };
+        } catch (err) {
             if (signal?.aborted) {
                 return;
             }
 
-            if (event.event === "transcription.text.delta" && event.data.type === "transcription.text.delta") {
-                if (!event.data.text) {
-                    continue;
-                }
-
-                accumulatedText += event.data.text;
-                const deltaMessage = this.createTranscriptMessage(
-                    `${responseId}-delta-${crypto.randomUUID()}`,
-                    event.data.text,
+            yield {
+                done: true,
+                id: responseId,
+                output: [],
+                delta: [],
+                metadata: {
+                    ...(context?.metadata ?? {}),
+                    provider: AIProvider.Mistral,
                     model,
-                    "incomplete",
-                    context,
-                    event
-                );
-                const outputMessage = this.createTranscriptMessage(responseId, accumulatedText, model, "incomplete", context);
-
-                yield {
-                    done: false,
-                    id: responseId,
-                    delta: [deltaMessage],
-                    output: [outputMessage],
-                    metadata: {
-                        ...(context?.metadata ?? {}),
-                        provider: AIProvider.Mistral,
-                        model,
-                        status: "incomplete",
-                        requestId: context?.requestId
-                    }
-                };
-                continue;
-            }
-
-            if (event.event === "transcription.done" && event.data.type === "transcription.done") {
-                accumulatedText = event.data.text ?? accumulatedText;
-                const usage = this.extractUsage(event.data.usage, input.language ?? event.data.language ?? undefined);
-                const message = this.createTranscriptMessage(
-                    responseId,
-                    accumulatedText,
-                    event.data.model ?? model,
-                    "completed",
-                    context,
-                    event,
-                    usage
-                );
-
-                yield {
-                    done: true,
-                    id: responseId,
-                    output: [message],
-                    metadata: {
-                        ...(context?.metadata ?? {}),
-                        provider: AIProvider.Mistral,
-                        model: event.data.model ?? model,
-                        status: "completed",
-                        requestId: context?.requestId,
-                        ...usage
-                    }
-                };
-            }
+                    status: "error",
+                    requestId: context?.requestId,
+                    ...(finalUsage ?? {}),
+                    error: err instanceof Error ? err.message : String(err)
+                }
+            };
         }
     }
 
@@ -230,55 +306,30 @@ export class MistralAudioTranscriptionCapabilityImpl
      * @param {string} model Resolved model name.
      * @param {ResolvedTranscriptionInput} source Normalized audio source.
      * @param {ClientAudioTranscriptionRequest} input Original client request input.
+     * @param {boolean} stream Whether the request is for streaming transcription.
      * @param {Record<string, unknown> | undefined} modelParams Provider/model-specific overrides.
-     * @returns {AudioTranscriptionRequest} SDK-compatible transcription request.
+     * @returns {AudioTranscriptionRequest | AudioTranscriptionRequestStream} SDK-compatible transcription request.
      */
     private buildTranscriptionRequest(
         model: string,
         source: ResolvedTranscriptionInput,
         input: ClientAudioTranscriptionRequest,
+        stream: boolean = false,
         modelParams?: Record<string, unknown>
-    ): AudioTranscriptionRequest {
+    ): AudioTranscriptionRequest | AudioTranscriptionRequestStream {
         const contextBias = input.knownSpeakerNames?.length ? input.knownSpeakerNames : undefined;
 
         return {
+            // Preserve provider-specific extras without letting modelParams override
+            // the normalized request fields this adapter already resolved.
+            ...(modelParams ?? {}),
             model,
             ...(source.file ? { file: source.file } : {}),
             ...(source.fileUrl ? { fileUrl: source.fileUrl } : {}),
             ...(input.language !== undefined ? { language: input.language } : {}),
             ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
             ...(contextBias ? { contextBias } : {}),
-            stream: false,
-            ...(modelParams ?? {})
-        };
-    }
-
-    /**
-     * Builds a streaming transcription request for the Mistral SDK.
-     *
-     * @param {string} model Resolved model name.
-     * @param {ResolvedTranscriptionInput} source Normalized audio source.
-     * @param {ClientAudioTranscriptionRequest} input Original client request input.
-     * @param {Record<string, unknown> | undefined} modelParams Provider/model-specific overrides.
-     * @returns {AudioTranscriptionRequestStream} SDK-compatible streaming transcription request.
-     */
-    private buildTranscriptionStreamRequest(
-        model: string,
-        source: ResolvedTranscriptionInput,
-        input: ClientAudioTranscriptionRequest,
-        modelParams?: Record<string, unknown>
-    ): AudioTranscriptionRequestStream {
-        const contextBias = input.knownSpeakerNames?.length ? input.knownSpeakerNames : undefined;
-
-        return {
-            model,
-            ...(source.file ? { file: source.file } : {}),
-            ...(source.fileUrl ? { fileUrl: source.fileUrl } : {}),
-            ...(input.language !== undefined ? { language: input.language } : {}),
-            ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
-            ...(contextBias ? { contextBias } : {}),
-            stream: true,
-            ...(modelParams ?? {})
+            stream
         };
     }
 
@@ -300,6 +351,7 @@ export class MistralAudioTranscriptionCapabilityImpl
     ): Promise<ResolvedTranscriptionInput> {
         if (typeof file === "string") {
             if (/^https?:\/\//i.test(file)) {
+                // Remote audio can be fetched directly by Mistral without a local upload hop.
                 return { fileUrl: file };
             }
 
@@ -307,7 +359,8 @@ export class MistralAudioTranscriptionCapabilityImpl
                 return {
                     file: {
                         fileName: filename ?? DEFAULT_AUDIO_FILENAME,
-                        content: this.dataUriToUint8Array(file)
+                        // Shared Data URI decoding keeps this path consistent with OCR and other providers.
+                        content: dataUriToUint8Array(file)
                     }
                 };
             }
@@ -329,6 +382,7 @@ export class MistralAudioTranscriptionCapabilityImpl
             return {
                 file: {
                     fileName: filename ?? this.extractBlobName(file) ?? DEFAULT_AUDIO_FILENAME,
+                    // Preserve the caller MIME override when the Blob itself is untyped.
                     content: mimeType && !file.type ? new Blob([file], { type: mimeType }) : file
                 }
             };
@@ -389,29 +443,10 @@ export class MistralAudioTranscriptionCapabilityImpl
                 throw new Error("Audio transcription request aborted while reading stream input");
             }
 
-            if (typeof chunk === "string") {
-                chunks.push(Buffer.from(chunk));
-            } else {
-                chunks.push(Buffer.from(chunk));
-            }
+            chunks.push(Buffer.from(chunk));
         }
 
         return new Uint8Array(Buffer.concat(chunks));
-    }
-
-    /**
-     * Decodes a base64 data URI into raw bytes.
-     *
-     * @param {string} dataUri Base64 data URI string.
-     * @throws {Error} When the URI does not contain base64 payload data.
-     * @returns {Uint8Array} Decoded bytes.
-     */
-    private dataUriToUint8Array(dataUri: string): Uint8Array {
-        const match = dataUri.match(/^data:.*?;base64,(.*)$/i);
-        if (!match?.[1]) {
-            throw new Error("Invalid audio data URI");
-        }
-        return new Uint8Array(Buffer.from(match[1], "base64"));
     }
 
     /**

@@ -19,8 +19,10 @@ import {
 const DEFAULT_MISTRAL_EMBED_MODEL = "mistral-embed";
 
 /**
- * MistralEmbedCapabilityImpl: adapts Mistral embeddings into ProviderPlaneAI's
- * normalized embedding artifact surface.
+ * Adapts Mistral embeddings into ProviderPlaneAI's normalized embedding artifact surface.
+ *
+ * Executes Mistral's embeddings API, preserves deterministic vector ordering,
+ * and normalizes embedding outputs into `NormalizedEmbedding[]`.
  *
  * @public
  * @description Provider capability implementation for MistralEmbedCapabilityImpl.
@@ -48,14 +50,14 @@ export class MistralEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddi
      * - attach normalized usage/model metadata
      *
      * @param {AIRequest<ClientEmbeddingRequest>} request Unified embedding request envelope.
-     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {MultiModalExecutionContext} [_ctx] Optional execution context. Unused directly in this adapter.
      * @param {AbortSignal} [signal] Optional cancellation signal.
      * @throws {Error} When input is invalid, aborted, or Mistral returns no embeddings.
      * @returns {Promise<AIResponse<NormalizedEmbedding[]>>} Provider-normalized embedding artifacts.
      */
     async embed(
         request: AIRequest<ClientEmbeddingRequest>,
-        _executionContext?: MultiModalExecutionContext,
+        _ctx?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedEmbedding[]>> {
         this.provider.ensureInitialized();
@@ -69,8 +71,10 @@ export class MistralEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddi
         }
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.EmbedCapabilityKey, options);
+        const model = merged.model ?? DEFAULT_MISTRAL_EMBED_MODEL;
+        const embeddingRequest = this.buildEmbeddingRequest(model, input.input, merged.modelParams);
         const response = await this.client.embeddings.create(
-            this.buildEmbeddingRequest(merged.model ?? DEFAULT_MISTRAL_EMBED_MODEL, input.input, merged.modelParams),
+            embeddingRequest,
             { signal, ...(merged.providerParams ?? {}) }
         );
 
@@ -78,25 +82,30 @@ export class MistralEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddi
             throw new Error("Mistral returned no embeddings");
         }
 
+        const tokensUsed = this.extractTokensUsed(response.usage);
         const normalized = [...response.data]
-            // Some SDK types keep fields optional. Filter to the concrete shape we actually normalize.
+            // Keep normalization defensive: the SDK types mark these fields optional even
+            // though successful embedding rows should contain both index and vector data.
             .filter(
                 (item): item is { index: number; embedding: number[] } =>
                     typeof item.index === "number" && Array.isArray(item.embedding)
             )
+            // Preserve caller input order even if the provider response arrives out of order.
             .sort((a, b) => a.index - b.index)
             .map((item) => ({
                 id: crypto.randomUUID(),
                 vector: item.embedding,
                 dimensions: item.embedding.length,
+                // Scalar inputs can preserve the caller's inputId; batched inputs cannot map
+                // a single id cleanly without a broader input-id contract.
                 inputId: Array.isArray(input.input) ? undefined : input.inputId,
                 purpose: input.purpose ?? "embedding",
                 metadata: {
                     provider: AIProvider.Mistral,
-                    model: merged.model ?? response.model ?? DEFAULT_MISTRAL_EMBED_MODEL,
+                    model,
                     status: "completed",
-                    tokensUsed: this.extractTokensUsed(response.usage),
-                    requestId: context?.requestId
+                    requestId: context?.requestId,
+                    tokensUsed
                 }
             }));
 
@@ -107,16 +116,16 @@ export class MistralEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddi
             metadata: {
                 ...(context?.metadata ?? {}),
                 provider: AIProvider.Mistral,
-                model: merged.model ?? response.model ?? DEFAULT_MISTRAL_EMBED_MODEL,
+                model,
                 status: "completed",
-                tokensUsed: this.extractTokensUsed(response.usage),
-                requestId: context?.requestId
+                requestId: context?.requestId,
+                tokensUsed
             }
         };
     }
 
     /**
-     * Builds a typed embeddings request for the Mistral SDK.
+     * Builds a Mistral embeddings request.
      *
      * @param {string} model Resolved model name.
      * @param {string | string[]} input Embedding input payload.

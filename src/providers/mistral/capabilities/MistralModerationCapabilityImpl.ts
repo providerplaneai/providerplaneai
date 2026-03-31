@@ -3,7 +3,6 @@
  * @description Mistral moderation capability adapter.
  */
 import { Mistral } from "@mistralai/mistralai";
-import type { ClassificationRequest } from "@mistralai/mistralai/models/components";
 import {
     AIProvider,
     AIRequest,
@@ -19,8 +18,12 @@ import {
 const DEFAULT_MISTRAL_MODERATION_MODEL = "mistral-moderation-latest";
 
 /**
- * MistralModerationCapabilityImpl: adapts Mistral moderation/classifier responses
- * into ProviderPlaneAI's normalized moderation artifact surface.
+ * Adapts Mistral moderation and classifier responses into ProviderPlaneAI's
+ * normalized moderation artifact surface.
+ *
+ * Accepts a single string or an array of strings, executes Mistral's classifier
+ * moderation endpoint, and normalizes category booleans, category scores,
+ * `flagged`, and `reason` into `NormalizedModeration[]`.
  *
  * @public
  * @description Provider capability implementation for MistralModerationCapabilityImpl.
@@ -41,36 +44,44 @@ export class MistralModerationCapabilityImpl implements ModerationCapability<Cli
      * Executes a Mistral moderation request.
      *
      * Responsibilities:
-     * - normalize single-string and multi-string moderation input
+     * - normalize single-string and multi-string moderation input into an array
      * - execute `classifiers.moderate` through the official SDK
      * - convert category booleans/scores into normalized moderation artifacts
-     * - derive `flagged`/`reason` from the flagged category set
+     * - derive `flagged` and `reason` from the flagged category set
+     * - return top-level provider/model/request metadata for the moderation call
      *
      * @param {AIRequest<ClientModerationRequest>} request Unified moderation request envelope.
-     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {MultiModalExecutionContext} [_ctx] Optional execution context. Unused directly in this adapter.
      * @param {AbortSignal} [signal] Optional cancellation signal.
      * @throws {Error} When input is invalid, aborted, or Mistral returns no moderation results.
      * @returns {Promise<AIResponse<NormalizedModeration[]>>} Provider-normalized moderation artifacts.
      */
     async moderation(
         request: AIRequest<ClientModerationRequest>,
-        _executionContext?: MultiModalExecutionContext,
+        _ctx?: MultiModalExecutionContext,
         signal?: AbortSignal
     ): Promise<AIResponse<NormalizedModeration[]>> {
         this.provider.ensureInitialized();
+
+        if (signal?.aborted) {
+            throw new Error("Request aborted");
+        }
 
         const { input, options, context } = request;
         if (!input?.input) {
             throw new Error("Invalid moderation input");
         }
-        if (signal?.aborted) {
-            throw new Error("Request aborted");
-        }
 
         const merged = this.provider.getMergedOptions(CapabilityKeys.ModerationCapabilityKey, options);
+        const model = merged.model ?? DEFAULT_MISTRAL_MODERATION_MODEL;
+        // Normalize to the provider's batch input shape so single and multi-input moderation
+        // follow the same execution and normalization path.
         const inputs = Array.isArray(input.input) ? input.input : [input.input];
         const response = await this.client.classifiers.moderate(
-            this.buildClassificationRequest(merged.model ?? DEFAULT_MISTRAL_MODERATION_MODEL, inputs),
+            {
+                model,
+                inputs
+            },
             { signal, ...(merged.providerParams ?? {}) }
         );
 
@@ -91,6 +102,8 @@ export class MistralModerationCapabilityImpl implements ModerationCapability<Cli
 
             return {
                 id: crypto.randomUUID(),
+                // Derive the summary flag and human-readable reason from normalized categories
+                // so downstream behavior stays stable even if provider flags evolve.
                 flagged: flaggedCategoryNames.length > 0,
                 categories,
                 categoryScores,
@@ -98,7 +111,7 @@ export class MistralModerationCapabilityImpl implements ModerationCapability<Cli
                 inputIndex: index,
                 metadata: {
                     provider: AIProvider.Mistral,
-                    model: merged.model ?? response.model ?? DEFAULT_MISTRAL_MODERATION_MODEL,
+                    model,
                     requestId: context?.requestId
                 }
             };
@@ -111,27 +124,10 @@ export class MistralModerationCapabilityImpl implements ModerationCapability<Cli
             metadata: {
                 ...(context?.metadata ?? {}),
                 provider: AIProvider.Mistral,
-                model: merged.model ?? response.model ?? DEFAULT_MISTRAL_MODERATION_MODEL,
+                model,
                 status: "completed",
                 requestId: context?.requestId
             }
-        };
-    }
-
-    /**
-     * Builds a typed moderation/classification request for the Mistral SDK.
-     *
-     * The current SDK request type only accepts `model` and `inputs`, so model
-     * params are intentionally not spread here.
-     *
-     * @param {string} model Resolved model name.
-     * @param {string[]} inputs Moderation input batch.
-     * @returns {ClassificationRequest} SDK-compatible moderation request.
-     */
-    private buildClassificationRequest(model: string, inputs: string[]): ClassificationRequest {
-        return {
-            model,
-            inputs
         };
     }
 }
