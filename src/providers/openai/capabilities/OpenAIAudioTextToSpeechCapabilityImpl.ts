@@ -12,6 +12,7 @@ import {
     CapabilityKeys,
     ClientTextToSpeechRequest,
     createAudioArtifact,
+    getMimeTypeForExtensionOrFormat,
     MultiModalExecutionContext,
     NormalizedAudio,
     TextToSpeechCapability,
@@ -21,16 +22,6 @@ import {
 const DEFAULT_OPENAI_TTS_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_OPENAI_TTS_VOICE = "alloy";
 const DEFAULT_STREAM_BATCH_BYTES = 64 * 1024;
-
-const FORMAT_TO_MIME: Record<string, string> = {
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    flac: "audio/flac",
-    aac: "audio/aac",
-    opus: "audio/opus",
-    ogg: "audio/ogg",
-    pcm: "audio/pcm"
-};
 
 type OpenAITtsResponse = Response & { id?: string; url?: string };
 
@@ -45,8 +36,9 @@ type OpenAITtsResponse = Response & { id?: string; url?: string };
  * @public
  * @description Provider capability implementation for OpenAIAudioTextToSpeechCapabilityImpl.
  */
-export class OpenAIAudioTextToSpeechCapabilityImpl
-    implements TextToSpeechCapability<ClientTextToSpeechRequest>, TextToSpeechStreamCapability<ClientTextToSpeechRequest>
+export class OpenAIAudioTextToSpeechCapabilityImpl implements 
+    TextToSpeechCapability<ClientTextToSpeechRequest>, 
+    TextToSpeechStreamCapability<ClientTextToSpeechRequest>
 {
     /**
      * Creates a new OpenAI TTS capability delegate.
@@ -313,12 +305,12 @@ export class OpenAIAudioTextToSpeechCapabilityImpl
         }
     }
 
-    resolveAudioOutputMimeType(format?: string, header?: string | null): string {
+    private resolveAudioOutputMimeType(format?: string, header?: string | null): string {
         const fromHeader = header?.split(";")[0]?.trim();
         if (fromHeader) {
             return fromHeader;
         }
-        const fromFormat = format ? FORMAT_TO_MIME[format.toLowerCase()] : undefined;
+        const fromFormat = format ? getMimeTypeForExtensionOrFormat(format) : undefined;
         return fromFormat ?? "audio/mpeg";
     }
 }

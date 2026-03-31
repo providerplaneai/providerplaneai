@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { parseDataUriToBuffer } from "#root/index.js";
 import { OpenAIAudioTranscriptionCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIAudioTranscriptionCapabilityImpl.js";
 
 function makeProvider() {
@@ -296,19 +297,19 @@ describe("OpenAIAudioTranscriptionCapabilityImpl", () => {
         });
         expect(emptyMessage.content).toEqual([]);
 
-        expect((cap as any).parseDataUrl("data:audio/mpeg;base64,AQID")).toEqual({
+        expect(parseDataUriToBuffer("data:audio/mpeg;base64,AQID")).toEqual({
             bytes: Buffer.from([1, 2, 3]),
             mimeType: "audio/mpeg"
         });
-        expect((cap as any).parseDataUrl("data:text/plain,hello%20world")).toEqual({
+        expect(parseDataUriToBuffer("data:text/plain,hello%20world")).toEqual({
             bytes: Buffer.from("hello world", "utf8"),
             mimeType: "text/plain"
         });
-        expect((cap as any).parseDataUrl("data:;base64,AQID")).toEqual({
+        expect(parseDataUriToBuffer("data:;base64,AQID")).toEqual({
             bytes: Buffer.from([1, 2, 3]),
             mimeType: "application/octet-stream"
         });
-        expect(() => (cap as any).parseDataUrl("data:audio/mpeg;base64")).toThrow("Invalid data URL");
+        expect(() => parseDataUriToBuffer("data:audio/mpeg;base64")).toThrow("Invalid data URL");
 
         expect((cap as any).fileNameFromPath("/tmp/a.wav")).toBe("a.wav");
         expect((cap as any).fileNameFromPath("C:\\tmp\\a.wav")).toBe("a.wav");

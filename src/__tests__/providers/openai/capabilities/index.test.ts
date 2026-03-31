@@ -9,6 +9,7 @@ describe("openai capabilities index exports", () => {
         expect(typeof caps.OpenAIAudioTextToSpeechCapabilityImpl).toBe("function");
         expect(typeof caps.OpenAIEmbedCapabilityImpl).toBe("function");
         expect(typeof caps.OpenAIImageAnalysisCapabilityImpl).toBe("function");
+        expect(typeof caps.OpenAIOCRCapabilityImpl).toBe("function");
         expect(typeof caps.OpenAIImageGenerationCapabilityImpl).toBe("function");
         expect(typeof caps.OpenAIImageEditCapabilityImpl).toBe("function");
         expect(typeof caps.OpenAIModerationCapabilityImpl).toBe("function");

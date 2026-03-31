@@ -11,6 +11,7 @@ import {
     AnthropicChatCapabilityImpl,
     AnthropicEmbedCapabilityImpl,
     AnthropicImageAnalysisCapabilityImpl,
+    AnthropicOCRCapabilityImpl,
     AnthropicModerationCapabilityImpl,
     BaseProvider,
     CapabilityKeys,
@@ -21,6 +22,7 @@ import {
     ClientEmbeddingRequest,
     ClientImageAnalysisRequest,
     ClientModerationRequest,
+    ClientOCRRequest,
     EmbedCapability,
     ImageAnalysisCapability,
     ImageAnalysisStreamCapability,
@@ -30,6 +32,8 @@ import {
     NormalizedEmbedding,
     NormalizedImageAnalysis,
     NormalizedModeration,
+    NormalizedOCRDocument,
+    OCRCapability,
     ProviderConnectionConfig
 } from "#root/index.js";
 
@@ -56,7 +60,8 @@ export class AnthropicProvider
         EmbedCapability<ClientEmbeddingRequest>,
         ModerationCapability<ClientModerationRequest>,
         ImageAnalysisCapability<ClientImageAnalysisRequest>,
-        ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
+        ImageAnalysisStreamCapability<ClientImageAnalysisRequest>,
+        OCRCapability<ClientOCRRequest>
 {
     /**
      * Underlying Anthropic SDK client instance
@@ -69,6 +74,7 @@ export class AnthropicProvider
     private moderateDelegate: AnthropicModerationCapabilityImpl | null = null;
     private embedDelegate: AnthropicEmbedCapabilityImpl | null = null;
     private imageAnalysisDelegate: AnthropicImageAnalysisCapabilityImpl | null = null;
+    private ocrDelegate: AnthropicOCRCapabilityImpl | null = null;
     public constructor() {
         super(AIProvider.Anthropic);
     }
@@ -97,6 +103,7 @@ export class AnthropicProvider
         this.moderateDelegate = new AnthropicModerationCapabilityImpl(this, this.client);
         this.embedDelegate = new AnthropicEmbedCapabilityImpl(this);
         this.imageAnalysisDelegate = new AnthropicImageAnalysisCapabilityImpl(this, this.client);
+        this.ocrDelegate = new AnthropicOCRCapabilityImpl(this, this.client);
 
         // Register supported capabilities
         this.registerCapability(
@@ -122,6 +129,10 @@ export class AnthropicProvider
         this.registerCapability(
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.OCRCapabilityKey,
+            this as OCRCapability<ClientOCRRequest, NormalizedOCRDocument[]>
         );
     }
 
@@ -243,5 +254,19 @@ export class AnthropicProvider
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisStreamCapabilityKey);
         }
         return this.imageAnalysisDelegate.analyzeImageStream(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming OCR request.
+     */
+    async ocr(
+        req: AIRequest<ClientOCRRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedOCRDocument[]>> {
+        if (!this.ocrDelegate || typeof this.ocrDelegate.ocr !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.OCRCapabilityKey);
+        }
+        return await this.ocrDelegate.ocr(req, executionContext, signal);
     }
 }

@@ -15,6 +15,7 @@ describe('ConfigLoader - error and env cases', () => {
         process.env.OPENAI_API_KEY_2 = "openai-test-key-2";
         process.env.ANTHROPIC_API_KEY_2 = "anthropic-test-key-2";        
         process.env.GEMINI_API_KEY_1 = "gemini-test-key";
+        process.env.MISTRAL_API_KEY_1 = "mistral-test-key";
     });
 
     afterEach(() => {
@@ -24,6 +25,10 @@ describe('ConfigLoader - error and env cases', () => {
         vi.clearAllMocks();
         delete process.env.OPENAI_API_KEY_1;
         delete process.env.ANTHROPIC_API_KEY_1;
+        delete process.env.MISTRAL_API_KEY_1;
+        delete process.env.OPENAI_API_KEY_2;
+        delete process.env.ANTHROPIC_API_KEY_2;
+        delete process.env.GEMINI_API_KEY_1;
     });
 
     it("loads default config and injects API keys from env when missing", async () => {

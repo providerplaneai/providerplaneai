@@ -14,8 +14,10 @@ import {
     BaseProvider,
     CapabilityKeys,
     ClientAudioTranscriptionRequest,
+    inferMimeTypeFromFilename,
     MultiModalExecutionContext,
-    NormalizedChatMessage
+    NormalizedChatMessage,
+    parseDataUriToBase64
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_AUDIO_TRANSCRIPTION_MODEL = "gemini-2.5-flash";
@@ -472,7 +474,7 @@ export class GeminiAudioTranscriptionCapabilityImpl
         if (typeof source === "string") {
             if (source.startsWith("data:")) {
                 // Data URL flow: decode payload and keep embedded mime when present.
-                return this.parseDataUrl(source);
+                return parseDataUriToBase64(source);
             }
 
             if (await this.pathExists(source)) {
@@ -587,31 +589,6 @@ export class GeminiAudioTranscriptionCapabilityImpl
     }
 
     /**
-     * Parses a data URL to base64 payload and mime type.
-     *
-     * @param dataUrl Data URL input
-     * @returns Parsed base64 + mime data
-     * @throws {Error} If data URL is malformed
-     * @private
-     */
-    private parseDataUrl(dataUrl: string): { base64: string; mimeType: string } {
-        const commaIndex = dataUrl.indexOf(",");
-        if (commaIndex < 0) {
-            throw new Error("Invalid data URL");
-        }
-        const header = dataUrl.slice(0, commaIndex);
-        const payload = dataUrl.slice(commaIndex + 1);
-        const mimeMatch = /^data:([^;]+)(;base64)?$/i.exec(header);
-        const mimeType = mimeMatch?.[1] ?? "application/octet-stream";
-        const isBase64 = /;base64$/i.test(header);
-        return {
-            // Non-base64 data URLs are urlencoded text payloads, so we normalize them to base64.
-            base64: isBase64 ? payload : Buffer.from(decodeURIComponent(payload), "utf8").toString("base64"),
-            mimeType
-        };
-    }
-
-    /**
      * Infers audio mime type from local file extension.
      *
      * @param filePath Local file path
@@ -619,29 +596,7 @@ export class GeminiAudioTranscriptionCapabilityImpl
      * @private
      */
     private inferMimeFromPath(filePath: string): string {
-        const lower = filePath.toLowerCase();
-        if (lower.endsWith(".wav")) {
-            return "audio/wav";
-        }
-        if (lower.endsWith(".flac")) {
-            return "audio/flac";
-        }
-        if (lower.endsWith(".m4a")) {
-            return "audio/mp4";
-        }
-        if (lower.endsWith(".ogg") || lower.endsWith(".oga")) {
-            return "audio/ogg";
-        }
-        if (lower.endsWith(".opus")) {
-            return "audio/opus";
-        }
-        if (lower.endsWith(".aac")) {
-            return "audio/aac";
-        }
-        if (lower.endsWith(".webm")) {
-            return "audio/webm";
-        }
-        return "audio/mpeg";
+        return inferMimeTypeFromFilename(filePath, "audio/mpeg")!;
     }
 
     /**

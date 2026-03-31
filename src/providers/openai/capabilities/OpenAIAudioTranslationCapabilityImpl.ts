@@ -14,7 +14,8 @@ import {
     CapabilityKeys,
     ClientAudioTranslationRequest,
     MultiModalExecutionContext,
-    NormalizedChatMessage
+    NormalizedChatMessage,
+    parseDataUriToBuffer
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_AUDIO_TRANSLATION_MODEL = "whisper-1";
@@ -193,7 +194,7 @@ export class OpenAIAudioTranslationCapabilityImpl implements AudioTranslationCap
         if (typeof source === "string") {
             if (source.startsWith("data:")) {
                 // Data URL flow: decode payload bytes and prefer caller mime hint when present.
-                const parsed = this.parseDataUrl(source);
+                const parsed = parseDataUriToBuffer(source);
                 const fileName = filenameHint ?? "audio-input";
                 return await toFile(parsed.bytes, fileName, { type: mimeTypeHint ?? parsed.mimeType });
             }
@@ -228,29 +229,6 @@ export class OpenAIAudioTranslationCapabilityImpl implements AudioTranslationCap
             return false;
         }
         return typeof (value as any).arrayBuffer === "function" && typeof (value as any).type === "string";
-    }
-
-    /**
-     * Parses a data URL into bytes and mime type.
-     *
-     * @param dataUrl Input data URL
-     * @returns Decoded byte payload with inferred mime type
-     * @throws {Error} If data URL is malformed
-     */
-    private parseDataUrl(dataUrl: string): { bytes: Buffer; mimeType: string } {
-        const commaIndex = dataUrl.indexOf(",");
-        if (commaIndex < 0) {
-            throw new Error("Invalid data URL");
-        }
-
-        const header = dataUrl.slice(0, commaIndex);
-        const payload = dataUrl.slice(commaIndex + 1);
-        const mimeMatch = /^data:([^;]+)(;base64)?$/i.exec(header);
-        const mimeType = mimeMatch?.[1] ?? "application/octet-stream";
-
-        const isBase64 = /;base64$/i.test(header);
-        const bytes = isBase64 ? Buffer.from(payload, "base64") : Buffer.from(decodeURIComponent(payload), "utf8");
-        return { bytes, mimeType };
     }
 
     /**

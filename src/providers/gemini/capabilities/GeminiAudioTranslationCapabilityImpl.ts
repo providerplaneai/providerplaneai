@@ -12,8 +12,10 @@ import {
     BaseProvider,
     CapabilityKeys,
     ClientAudioTranslationRequest,
+    inferMimeTypeFromFilename,
     MultiModalExecutionContext,
-    NormalizedChatMessage
+    NormalizedChatMessage,
+    parseDataUriToBase64
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_AUDIO_TRANSLATION_MODEL = "gemini-2.5-flash";
@@ -146,7 +148,7 @@ export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCap
 
         if (typeof source === "string") {
             if (source.startsWith("data:")) {
-                return this.parseDataUrl(source);
+                return parseDataUriToBase64(source);
             }
 
             if (await this.pathExists(source)) {
@@ -205,46 +207,8 @@ export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCap
         });
     }
 
-    private parseDataUrl(dataUrl: string): { base64: string; mimeType: string } {
-        const commaIndex = dataUrl.indexOf(",");
-        if (commaIndex < 0) {
-            throw new Error("Invalid data URL");
-        }
-        const header = dataUrl.slice(0, commaIndex);
-        const payload = dataUrl.slice(commaIndex + 1);
-        const mimeMatch = /^data:([^;]+)(;base64)?$/i.exec(header);
-        const mimeType = mimeMatch?.[1] ?? "application/octet-stream";
-        const isBase64 = /;base64$/i.test(header);
-        return {
-            base64: isBase64 ? payload : Buffer.from(decodeURIComponent(payload), "utf8").toString("base64"),
-            mimeType
-        };
-    }
-
     private inferMimeFromPath(filePath: string): string {
-        const lower = filePath.toLowerCase();
-        if (lower.endsWith(".wav")) {
-            return "audio/wav";
-        }
-        if (lower.endsWith(".flac")) {
-            return "audio/flac";
-        }
-        if (lower.endsWith(".m4a")) {
-            return "audio/mp4";
-        }
-        if (lower.endsWith(".ogg") || lower.endsWith(".oga")) {
-            return "audio/ogg";
-        }
-        if (lower.endsWith(".opus")) {
-            return "audio/opus";
-        }
-        if (lower.endsWith(".aac")) {
-            return "audio/aac";
-        }
-        if (lower.endsWith(".webm")) {
-            return "audio/webm";
-        }
-        return "audio/mpeg";
+        return inferMimeTypeFromFilename(filePath, "audio/mpeg")!;
     }
 
     /**

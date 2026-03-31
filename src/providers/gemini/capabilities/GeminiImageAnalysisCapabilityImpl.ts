@@ -15,7 +15,9 @@ import {
     ImageAnalysisStreamCapability,
     MultiModalExecutionContext,
     NormalizedImageAnalysis,
-    parseBestEffortJson
+    parseDataUri,
+    parseBestEffortJson,
+    stripDataUriPrefix
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_IMAGE_ANALYSIS_MODEL = "gemini-2.5-pro";
@@ -292,7 +294,7 @@ export class GeminiImageAnalysisCapabilityImpl
             return {
                 inlineData: {
                     mimeType,
-                    data: this.stripDataUriPrefix(img.base64)
+                    data: stripDataUriPrefix(img.base64)
                 }
             };
         }
@@ -300,11 +302,11 @@ export class GeminiImageAnalysisCapabilityImpl
         if (typeof img.url === "string" && img.url.length > 0) {
             // Data URIs are not valid fileUri values for Gemini; convert them to inlineData.
             if (img.url.startsWith("data:")) {
-                const parsed = this.parseDataUri(img.url);
+                const parsed = parseDataUri(img.url);
                 return {
                     inlineData: {
                         mimeType: parsed.mimeType ?? mimeType,
-                        data: parsed.base64
+                        data: Buffer.from(parsed.bytes).toString("base64")
                     }
                 };
             }
@@ -318,29 +320,6 @@ export class GeminiImageAnalysisCapabilityImpl
         }
 
         throw new Error("Gemini image analysis requires image.base64 or image.url");
-    }
-
-    /**
-     * Strips `data:<mime>;base64,` when present.
-     */
-    private stripDataUriPrefix(value: string): string {
-        const marker = "base64,";
-        const idx = value.toLowerCase().indexOf(marker);
-        if (idx >= 0) {
-            return value.slice(idx + marker.length).trim();
-        }
-        return value.trim();
-    }
-
-    private parseDataUri(dataUri: string): { mimeType?: string; base64: string } {
-        const match = dataUri.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/i);
-        if (!match) {
-            return { base64: this.stripDataUriPrefix(dataUri) };
-        }
-        return {
-            mimeType: match[1],
-            base64: (match[2] ?? "").trim()
-        };
     }
 
     /**

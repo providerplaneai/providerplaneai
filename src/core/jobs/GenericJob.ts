@@ -23,6 +23,7 @@ const TIMELINE_ARTIFACT_KEYS: (keyof TimelineArtifacts)[] = [
     "images",
     "masks",
     "imageAnalysis",
+    "ocr",
     "videoAnalysis",
     "transcript",
     "translation",

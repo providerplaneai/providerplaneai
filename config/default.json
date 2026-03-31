@@ -46,6 +46,7 @@
                         "moderation": "mistral-moderation-latest",
                         "imageAnalysis": "mistral-small-latest",
                         "imageAnalyzeStream": "mistral-small-latest",
+                        "ocr": "mistral-ocr-latest",
                         "audioTranscription": "voxtral-mini-latest",
                         "audioTranscriptionStream": "voxtral-mini-latest",
                         "audioTts": "voxtral-mini-tts-2603",
@@ -103,29 +104,28 @@
                                 "modelParams": {}
                             }
                         },
+                        "mistral-ocr-latest": {
+                            "ocr": {
+                                "modelParams": {}
+                            }
+                        },
                         "voxtral-mini-latest": {
                             "audioTranscription": {
                                 "modelParams": {}
                             },
                             "audioTranscriptionStream": {
-                                "modelParams": {},
-                                "generalParams": {
-                                    "audioStreamBatchSize": 64
-                                }
+                                "modelParams": {}
                             }
                         },
                         "voxtral-mini-tts-2603": {
                             "audioTts": {
                                 "modelParams": {
-                                    "voiceId": "replace-with-mistral-voice-id"
+                                    "voiceId": "60844938-221d-4d1e-8233-34203f787d9f"
                                 }
                             },
                             "audioTtsStream": {
                                 "modelParams": {
-                                    "voiceId": "replace-with-mistral-voice-id"
-                                },
-                                "generalParams": {
-                                    "audioStreamBatchSize": 65536
+                                    "voiceId": "60844938-221d-4d1e-8233-34203f787d9f"
                                 }
                             }
                         }
@@ -146,6 +146,7 @@
                         "imageEditStream": "gpt-4.1",
                         "imageAnalysis": "gpt-4.1",
                         "imageAnalyzeStream": "gpt-4.1",
+                        "ocr": "gpt-4.1",
                         "audioTranscription": "gpt-4o-transcribe",
                         "audioTranscriptionStream": "gpt-4o-transcribe",
                         "audioTranslation": "whisper-1",
@@ -161,6 +162,13 @@
                             "chatStream": {
                                 "generalParams": {
                                     "chatStreamBatchSize": 64
+                                }
+                            }
+                        },
+                        "gpt-4.1": {
+                            "ocr": {
+                                "modelParams": {
+                                    "temperature": 0
                                 }
                             }
                         },
@@ -250,6 +258,7 @@
                         "imageEditStream": "gpt-4.1",
                         "imageAnalysis": "gpt-4.1",
                         "imageAnalyzeStream": "gpt-4.1",
+                        "ocr": "gpt-4.1",
                         "audioTranscription": "gpt-4o-transcribe",
                         "audioTranscriptionStream": "gpt-4o-transcribe",
                         "audioTranslation": "whisper-1",
@@ -272,7 +281,8 @@
                         "embed": "voyage-3",
                         "moderation": "claude-sonnet-4-5-20250929",
                         "imageAnalysis": "claude-sonnet-4-5-20250929",
-                        "imageAnalyzeStream": "claude-sonnet-4-5-20250929"
+                        "imageAnalyzeStream": "claude-sonnet-4-5-20250929",
+                        "ocr": "claude-sonnet-4-5-20250929"
                     },
                     "models": {
                         "claude-sonnet-4-5-20250929": {
@@ -304,6 +314,11 @@
                                 "generalParams": {
                                     "defaultPrompt": "Analyze EACH image independently. Return a JSON array where each element corresponds to one input image."
                                 }
+                            },
+                            "ocr": {
+                                "modelParams": {
+                                    "max_tokens": 2048
+                                }
                             }
                         }
                     }
@@ -322,6 +337,7 @@
                         "imageGenerationStream": "imagen-4.0-generate-001",
                         "imageAnalysis": "gemini-2.5-pro",
                         "imageAnalyzeStream": "gemini-2.5-pro",
+                        "ocr": "gemini-2.5-pro",
                         "audioTranscription": "gemini-2.5-flash",
                         "audioTranscriptionStream": "gemini-2.5-flash",
                         "audioTranslation": "gemini-2.5-flash",
@@ -394,6 +410,11 @@
                             }
                         },
                         "gemini-2.5-pro": {
+                            "ocr": {
+                                "modelParams": {
+                                    "temperature": 0
+                                }
+                            },
                             "videoAnalysis": {
                                 "modelParams": {
                                     "temperature": 0

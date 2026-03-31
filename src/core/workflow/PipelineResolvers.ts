@@ -228,6 +228,26 @@ export function toPipelineAudioInput(audio: { base64?: string; url?: string; mim
 }
 
 /**
+ * Convert a generic artifact into a file/document input source accepted by OCR.
+ *
+ * @public
+ * @param {{ base64?: string; url?: string; mimeType?: string }} artifact Artifact candidate.
+ * @returns {string} Data URL (when base64 exists) or remote URL.
+ * @throws {PipelineError} When the artifact has neither `base64` nor `url`.
+ */
+export function toPipelineFileInput(artifact: { base64?: string; url?: string; mimeType?: string }): string {
+    const base64 = typeof artifact.base64 === "string" ? artifact.base64.trim() : "";
+    if (base64) {
+        const mimeType = String(artifact.mimeType ?? "application/octet-stream");
+        return `data:${mimeType};base64,${base64}`;
+    }
+    if (typeof artifact.url === "string" && artifact.url.trim().length > 0) {
+        return artifact.url;
+    }
+    throw new PipelineError("Pipeline: file source is missing both base64 and url");
+}
+
+/**
  * Resolve `{{stepId}}` placeholders in a template using extracted text from step outputs.
  *
  * @public

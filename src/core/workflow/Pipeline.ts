@@ -7,6 +7,7 @@ import {
     CapabilityKeys,
     GenericJob,
     type AIProviderType,
+    type ClientOCRStructuredOptions,
     type ClientReferenceImage,
     type MultiModalExecutionContext,
     type ProviderRef,
@@ -24,7 +25,8 @@ import {
     extractPipelineImageReference,
     extractPipelineText,
     resolvePipelineTemplate,
-    toPipelineAudioInput
+    toPipelineAudioInput,
+    toPipelineFileInput
 } from "#root/index.js";
 
 /**
@@ -339,6 +341,18 @@ export interface PipelineImageGenerateInput {
  */
 export interface PipelineImageAnalyzeInput {
     prompt?: StepTextInput;
+}
+
+/**
+ * Step input for OCR.
+ */
+export interface PipelineOCRInput {
+    prompt?: StepTextInput;
+    language?: string;
+    filename?: string;
+    mimeType?: string;
+    includeBoundingBoxes?: boolean;
+    structured?: ClientOCRStructuredOptions;
 }
 
 /**
@@ -824,6 +838,48 @@ export class Pipeline<TOutput = unknown> {
     }
 
     /**
+     * Add an OCR step bound to a file/image-producing source step.
+     *
+     * @param {string} id Node id.
+     * @param {PipelineOCRInput} input OCR request input.
+     * @param {PipelineArtifactSourceStepOptions} opts Source binding and step options.
+     * @returns {this} Fluent pipeline instance.
+     */
+    ocr(id: string, input: PipelineOCRInput, opts: PipelineArtifactSourceStepOptions): this {
+        const sourceRefs = this.toSourceBindings(opts.source);
+        const sourceIds = sourceRefs.map((ref) => this.resolveStepRef(this.resolveBoundSourceRef(ref)));
+        const mergedAfter = this.mergeAfterDependencies(sourceIds, opts.after);
+        return this.capabilityStep(
+            id,
+            CapabilityKeys.OCRCapabilityKey,
+            (_ctx: MultiModalExecutionContext, state: WorkflowState) => {
+                const artifact = this.resolveFirstSourceArtifact(sourceRefs, state.values);
+                return {
+                    input: {
+                        file: toPipelineFileInput(artifact),
+                        ...(input.filename ? { filename: input.filename } : {}),
+                        ...(input.mimeType ? { mimeType: input.mimeType } : {}),
+                        ...(input.language ? { language: input.language } : {}),
+                        ...(input.structured ? { structured: input.structured } : {}),
+                        ...(input.includeBoundingBoxes !== undefined
+                            ? { includeBoundingBoxes: input.includeBoundingBoxes }
+                            : {}),
+                        ...(input.prompt
+                            ? {
+                                  prompt: this.resolveTextInput(input.prompt, state.values)
+                              }
+                            : {})
+                    }
+                };
+            },
+            {
+                ...opts,
+                after: mergedAfter
+            }
+        );
+    }
+
+    /**
      * Add a save-file step bound to an artifact-producing source step.
      *
      * @param {string} id Node id.
@@ -1257,6 +1313,13 @@ export class Pipeline<TOutput = unknown> {
                 }
                 break;
             }
+            case CapabilityKeys.OCRCapabilityKey: {
+                const strict = this.extractOCRText(output);
+                if (strict) {
+                    return strict;
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -1316,6 +1379,47 @@ export class Pipeline<TOutput = unknown> {
         }
 
         return collected.join("\n").trim();
+    }
+
+    /**
+     * Extract readable OCR text from normalized OCR output.
+     *
+     * @private
+     * @param {unknown} output Raw OCR capability output.
+     * @returns {string} OCR text content, if available.
+     */
+    private extractOCRText(output: unknown): string {
+        const documents = Array.isArray(output) ? output : [output];
+        const collected: string[] = [];
+
+        for (const document of documents) {
+            if (!document || typeof document !== "object") {
+                continue;
+            }
+
+            const typedDocument = document as { fullText?: unknown; pages?: unknown };
+            if (typeof typedDocument.fullText === "string" && typedDocument.fullText.trim().length > 0) {
+                collected.push(typedDocument.fullText.trim());
+                continue;
+            }
+
+            if (!Array.isArray(typedDocument.pages)) {
+                continue;
+            }
+
+            for (const page of typedDocument.pages) {
+                if (!page || typeof page !== "object") {
+                    continue;
+                }
+                const fullText = (page as { fullText?: unknown }).fullText;
+                if (typeof fullText !== "string" || fullText.trim().length === 0) {
+                    continue;
+                }
+                collected.push(fullText.trim());
+            }
+        }
+
+        return collected.join("\n\n").trim();
     }
 
     /**

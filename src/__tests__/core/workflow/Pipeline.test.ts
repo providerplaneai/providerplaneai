@@ -109,6 +109,28 @@ function createPipelineHarness() {
                             metadata: { status: "completed" }
                         };
                     }
+                    case CapabilityKeys.OCRCapabilityKey: {
+                        const file = String((input as any)?.input?.file ?? "");
+                        return {
+                            output: [
+                                {
+                                    id: "ocr-1",
+                                    fullText: `ocr-text:${file.slice(0, 24)}`,
+                                    pages: [
+                                        {
+                                            pageNumber: 1,
+                                            fullText: `ocr-text:${file.slice(0, 24)}`,
+                                            metadata: {
+                                                markdown: "| ![img-0](img-0.png) |"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ] as TOutput,
+                            id: crypto.randomUUID(),
+                            metadata: { status: "completed" }
+                        };
+                    }
                     case CapabilityKeys.SaveFileCapabilityKey: {
                         return {
                             output: {
@@ -384,6 +406,27 @@ describe("Pipeline", () => {
         expect(execution.status).toBe("completed");
         expect(execution.output?.savedPath).toContain("img-1");
         expect(execution.output?.contentType).toBe("base64");
+    });
+
+    it("routes imageGenerate -> ocr and supports normalize text for OCR output", async () => {
+        const { runner, ctx, createCapabilityJob } = createPipelineHarness();
+        const workflow = new Pipeline<{ ocrText: string }>("pipeline-ocr")
+            .imageGenerate("img", { prompt: "generate receipt image" })
+            .ocr("ocr", { language: "en" }, { source: "img", normalize: "text" })
+            .output((values) => ({ ocrText: String(values.ocr ?? "") }))
+            .build();
+
+        const execution = await runner.run(workflow, ctx);
+        expect(execution.status).toBe("completed");
+        expect(execution.output?.ocrText).toContain("ocr-text:data:image/png;base64");
+
+        const call = createCapabilityJob.mock.calls.find(([cap]) => cap === CapabilityKeys.OCRCapabilityKey);
+        expect(call?.[1]).toMatchObject({
+            input: {
+                language: "en"
+            }
+        });
+        expect(String(call?.[1]?.input?.file ?? "")).toContain("data:image/png;base64,AQID");
     });
 
     it("videoAnalyze can use multiple source steps and picks first usable artifact", async () => {

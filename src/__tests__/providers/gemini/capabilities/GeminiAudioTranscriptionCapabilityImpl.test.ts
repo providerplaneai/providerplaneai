@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { parseDataUriToBase64 } from "#root/index.js";
 import { GeminiAudioTranscriptionCapabilityImpl } from "#root/providers/gemini/capabilities/GeminiAudioTranscriptionCapabilityImpl.js";
 
 function makeProvider(batchSize: number = 4) {
@@ -316,19 +317,19 @@ describe("GeminiAudioTranscriptionCapabilityImpl", () => {
         expect((cap as any).buildTranscriptionInstruction(undefined, undefined, "verbose_json")).toContain("detailed JSON");
         expect((cap as any).buildTranscriptionInstruction("  ", "  ", "json")).toContain("Return the transcript text only.");
 
-        expect((cap as any).parseDataUrl("data:audio/mpeg;base64,AQID")).toEqual({
+        expect(parseDataUriToBase64("data:audio/mpeg;base64,AQID")).toEqual({
             base64: "AQID",
             mimeType: "audio/mpeg"
         });
-        expect((cap as any).parseDataUrl("data:text/plain,hello%20world")).toEqual({
+        expect(parseDataUriToBase64("data:text/plain,hello%20world")).toEqual({
             base64: Buffer.from("hello world", "utf8").toString("base64"),
             mimeType: "text/plain"
         });
-        expect((cap as any).parseDataUrl("data:;base64,AQID")).toEqual({
+        expect(parseDataUriToBase64("data:;base64,AQID")).toEqual({
             base64: "AQID",
             mimeType: "application/octet-stream"
         });
-        expect(() => (cap as any).parseDataUrl("data:audio/mpeg;base64")).toThrow("Invalid data URL");
+        expect(() => parseDataUriToBase64("data:audio/mpeg;base64")).toThrow("Invalid data URL");
 
         const infer = (p: string) => (cap as any).inferMimeFromPath(p);
         expect(infer("a.wav")).toBe("audio/wav");

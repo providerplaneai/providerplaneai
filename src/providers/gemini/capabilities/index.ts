@@ -7,6 +7,7 @@ export * from "./GeminiEmbedCapabilityImpl.js";
 export * from "./GeminiImageAnalysisCapabilityImpl.js";
 export * from "./GeminiImageGenerationCapabilityImpl.js";
 export * from "./GeminiModerationCapabilityImpl.js";
+export * from "./GeminiOCRCapabilityImpl.js";
 export * from "./GeminiAudioTranscriptionCapabilityImpl.js";
 export * from "./GeminiAudioTranslationCapabilityImpl.js";
 export * from "./GeminiAudioTextToSpeechCapabilityImpl.js";

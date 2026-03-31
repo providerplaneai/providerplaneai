@@ -17,17 +17,22 @@ vi.mock("node:dns/promises", () => ({
 }));
 
 import {
+    dataUriToUint8Array,
     ensureDataUri,
     expectArrayForCapability,
     expectObjectForCapability,
+    getMimeTypeForExtensionOrFormat,
+    inferMimeTypeFromFilename,
     logProviderAttempts,
     logRawBudgetDiagnostics,
+    parseDataUri,
     parseBestEffortJson,
     readNumber,
     resolveImageToBytes,
     sanitizeTimelineArtifacts,
     summarizeSnapshot,
     stripBinaryPayloadFields,
+    stripDataUriPrefix,
     toDataUrl,
     validateBoolean,
     validateNonNegativeInteger
@@ -141,6 +146,56 @@ describe("SharedUtils", () => {
         expect(ensureDataUri("data:image/png;base64,AAA")).toBe("data:image/png;base64,AAA");
         expect(ensureDataUri("AAA")).toBe("data:application/octet-stream;base64,AAA");
         expect(ensureDataUri("AAA", "image/jpeg")).toBe("data:image/jpeg;base64,AAA");
+    });
+
+    it("parseDataUri decodes base64 and urlencoded payloads", () => {
+        expect(parseDataUri("data:audio/mpeg;base64,AQID")).toEqual({
+            bytes: new Uint8Array([1, 2, 3]),
+            mimeType: "audio/mpeg",
+            isBase64: true
+        });
+
+        expect(parseDataUri("data:text/plain,hello%20world")).toEqual({
+            bytes: new Uint8Array(Buffer.from("hello world")),
+            mimeType: "text/plain",
+            isBase64: false
+        });
+
+        expect(parseDataUri("data:;base64,AQID")).toEqual({
+            bytes: new Uint8Array([1, 2, 3]),
+            mimeType: "application/octet-stream",
+            isBase64: true
+        });
+
+        expect(() => parseDataUri("not-a-data-uri")).toThrow("Invalid data URL");
+    });
+
+    it("dataUriToUint8Array decodes bytes from a data URI", () => {
+        expect(dataUriToUint8Array("data:audio/mpeg;base64,AQID")).toEqual(new Uint8Array([1, 2, 3]));
+    });
+
+    it("stripDataUriPrefix removes data-uri headers and trims raw payloads", () => {
+        expect(stripDataUriPrefix("data:audio/mpeg;base64,AQID")).toBe("AQID");
+        expect(stripDataUriPrefix("data:text/plain,hello%20world")).toBe("hello%20world");
+        expect(stripDataUriPrefix("  AQID  ")).toBe("AQID");
+    });
+
+    it("getMimeTypeForExtensionOrFormat resolves common extension and format tokens", () => {
+        expect(getMimeTypeForExtensionOrFormat("mp3")).toBe("audio/mpeg");
+        expect(getMimeTypeForExtensionOrFormat(".wav")).toBe("audio/wav");
+        expect(getMimeTypeForExtensionOrFormat("clip.m4a")).toBe("audio/mp4");
+        expect(getMimeTypeForExtensionOrFormat("report.pdf")).toBe("application/pdf");
+        expect(getMimeTypeForExtensionOrFormat("sheet.xlsx")).toBe(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        expect(getMimeTypeForExtensionOrFormat("unknown", "application/octet-stream")).toBe("application/octet-stream");
+    });
+
+    it("inferMimeTypeFromFilename resolves mime types from filenames and paths", () => {
+        expect(inferMimeTypeFromFilename("image.jpeg")).toBe("image/jpeg");
+        expect(inferMimeTypeFromFilename("/tmp/archive/file.webm")).toBe("audio/webm");
+        expect(inferMimeTypeFromFilename("notes.txt")).toBe("text/plain");
+        expect(inferMimeTypeFromFilename(undefined, "application/octet-stream")).toBe("application/octet-stream");
     });
 
     it("toDataUrl validates base64 and applies default mime", () => {

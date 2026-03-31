@@ -24,6 +24,7 @@ import {
     ClientImageAnalysisRequest,
     ClientImageEditRequest,
     ClientImageGenerationRequest,
+    ClientOCRRequest,
     ClientVideoDownloadRequest,
     ClientVideoGenerationRequest,
     ClientVideoRemixRequest,
@@ -43,6 +44,7 @@ import {
     NormalizedImage,
     NormalizedImageAnalysis,
     NormalizedModeration,
+    NormalizedOCRDocument,
     NormalizedVideo,
     OpenAIChatCapabilityImpl,
     OpenAIEmbedCapabilityImpl,
@@ -52,10 +54,12 @@ import {
     OpenAIImageAnalysisCapabilityImpl,
     OpenAIImageEditCapabilityImpl,
     OpenAIImageGenerationCapabilityImpl,
+    OpenAIOCRCapabilityImpl,
     OpenAIModerationCapabilityImpl,
     OpenAIVideoDownloadCapabilityImpl,
     OpenAIVideoGenerationCapabilityImpl,
     OpenAIVideoRemixCapabilityImpl,
+    OCRCapability,
     TextToSpeechCapability,
     TextToSpeechStreamCapability,
     VideoGenerationCapability,
@@ -97,6 +101,7 @@ export class OpenAIProvider
         AudioTranscriptionCapability<ClientAudioTranscriptionRequest>,
         AudioTranscriptionStreamCapability<ClientAudioTranscriptionRequest>,
         AudioTranslationCapability<ClientAudioTranslationRequest>,
+        OCRCapability<ClientOCRRequest>,
         TextToSpeechCapability<ClientTextToSpeechRequest>,
         TextToSpeechStreamCapability<ClientTextToSpeechRequest>
 {
@@ -113,6 +118,7 @@ export class OpenAIProvider
     private imageEditDelegate: OpenAIImageEditCapabilityImpl | null = null;
     private imageGenDelegate: OpenAIImageGenerationCapabilityImpl | null = null;
     private imageAnalysisDelegate: OpenAIImageAnalysisCapabilityImpl | null = null;
+    private ocrDelegate: OpenAIOCRCapabilityImpl | null = null;
     private audioTranscriptionDelegate: OpenAIAudioTranscriptionCapabilityImpl | null = null;
     private audioTranslationDelegate: OpenAIAudioTranslationCapabilityImpl | null = null;
     private audioTtsDelegate: OpenAIAudioTextToSpeechCapabilityImpl | null = null;
@@ -150,6 +156,7 @@ export class OpenAIProvider
         this.imageEditDelegate = new OpenAIImageEditCapabilityImpl(this, this.client);
         this.imageGenDelegate = new OpenAIImageGenerationCapabilityImpl(this, this.client);
         this.imageAnalysisDelegate = new OpenAIImageAnalysisCapabilityImpl(this, this.client);
+        this.ocrDelegate = new OpenAIOCRCapabilityImpl(this, this.client);
         this.audioTranscriptionDelegate = new OpenAIAudioTranscriptionCapabilityImpl(this, this.client);
         this.audioTranslationDelegate = new OpenAIAudioTranslationCapabilityImpl(this, this.client);
         this.audioTtsDelegate = new OpenAIAudioTextToSpeechCapabilityImpl(this, this.client);
@@ -197,6 +204,10 @@ export class OpenAIProvider
         this.registerCapability(
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.OCRCapabilityKey,
+            this as OCRCapability<ClientOCRRequest, NormalizedOCRDocument[]>
         );
         this.registerCapability(
             CapabilityKeys.VideoGenerationCapabilityKey,
@@ -430,6 +441,25 @@ export class OpenAIProvider
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisStreamCapabilityKey);
         }
         return this.imageAnalysisDelegate.analyzeImageStream(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming OCR request.
+     *
+     * @param req Unified AI request containing OCR input and options.
+     * @param executionContext Execution context.
+     * @param signal AbortSignal for request cancellation.
+     * @returns AIResponse containing normalized OCR document artifacts.
+     */
+    async ocr(
+        req: AIRequest<ClientOCRRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedOCRDocument[]>> {
+        if (!this.ocrDelegate || typeof this.ocrDelegate.ocr !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.OCRCapabilityKey);
+        }
+        return await this.ocrDelegate.ocr(req, executionContext, signal);
     }
 
     /**

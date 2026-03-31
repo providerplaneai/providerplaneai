@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { parseDataUriToBuffer } from "#root/index.js";
 import { OpenAIAudioTranslationCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIAudioTranslationCapabilityImpl.js";
 
 function makeProvider() {
@@ -139,11 +140,11 @@ describe("OpenAIAudioTranslationCapabilityImpl", () => {
         expect((cap as any).extractTranslationText({ text: "value" })).toBe("value");
         expect((cap as any).extractTranslationText({})).toBe("");
 
-        expect((cap as any).parseDataUrl("data:audio/mpeg;base64,AQID")).toEqual({
+        expect(parseDataUriToBuffer("data:audio/mpeg;base64,AQID")).toEqual({
             bytes: Buffer.from([1, 2, 3]),
             mimeType: "audio/mpeg"
         });
-        expect((cap as any).parseDataUrl("data:text/plain,hello%20world")).toEqual({
+        expect(parseDataUriToBuffer("data:text/plain,hello%20world")).toEqual({
             bytes: Buffer.from("hello world", "utf8"),
             mimeType: "text/plain"
         });
@@ -177,12 +178,12 @@ describe("OpenAIAudioTranslationCapabilityImpl", () => {
         expect(fromStream).toBeTruthy();
     });
 
-    it("isBlobLike and parseDataUrl fallback branches are handled", () => {
+    it("isBlobLike and shared Data URI buffer fallback branches are handled", () => {
         const cap = new OpenAIAudioTranslationCapabilityImpl(makeProvider(), {} as any);
         expect((cap as any).isBlobLike(null)).toBe(false);
         expect((cap as any).isBlobLike({ arrayBuffer: async () => new ArrayBuffer(0), type: "audio/mpeg" })).toBe(true);
 
-        expect((cap as any).parseDataUrl("data:;base64,AQID")).toEqual({
+        expect(parseDataUriToBuffer("data:;base64,AQID")).toEqual({
             bytes: Buffer.from([1, 2, 3]),
             mimeType: "application/octet-stream"
         });

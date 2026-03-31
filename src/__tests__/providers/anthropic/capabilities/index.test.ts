@@ -7,5 +7,6 @@ describe("anthropic capabilities index exports", () => {
         expect(typeof caps.AnthropicEmbedCapabilityImpl).toBe("function");
         expect(typeof caps.AnthropicModerationCapabilityImpl).toBe("function");
         expect(typeof caps.AnthropicImageAnalysisCapabilityImpl).toBe("function");
+        expect(typeof caps.AnthropicOCRCapabilityImpl).toBe("function");
     });
 });

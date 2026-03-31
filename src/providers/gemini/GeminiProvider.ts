@@ -23,6 +23,7 @@ import {
     ClientEmbeddingRequest,
     ClientImageAnalysisRequest,
     ClientImageGenerationRequest,
+    ClientOCRRequest,
     ClientVideoAnalysisRequest,
     ClientVideoDownloadRequest,
     ClientVideoExtendRequest,
@@ -36,6 +37,7 @@ import {
     GeminiEmbedCapabilityImpl,
     GeminiImageAnalysisCapabilityImpl,
     GeminiImageGenerationCapabilityImpl,
+    GeminiOCRCapabilityImpl,
     GeminiVideoDownloadCapabilityImpl,
     GeminiVideoExtendCapabilityImpl,
     GeminiVideoAnalysisCapabilityImpl,
@@ -53,9 +55,11 @@ import {
     NormalizedImage,
     NormalizedImageAnalysis,
     NormalizedModeration,
+    NormalizedOCRDocument,
     NormalizedVideo,
     NormalizedVideoAnalysis,
     ProviderConnectionConfig,
+    OCRCapability,
     TextToSpeechCapability,
     TextToSpeechStreamCapability,
     VideoDownloadCapability,
@@ -91,6 +95,7 @@ export class GeminiProvider
         ImageGenerationStreamCapability<ClientImageGenerationRequest>,
         ImageAnalysisCapability<ClientImageAnalysisRequest>,
         ImageAnalysisStreamCapability<ClientImageAnalysisRequest>,
+        OCRCapability<ClientOCRRequest>,
         VideoAnalysisCapability<ClientVideoAnalysisRequest>,
         VideoGenerationCapability<ClientVideoGenerationRequest>,
         VideoExtendCapability<ClientVideoExtendRequest>,
@@ -111,6 +116,7 @@ export class GeminiProvider
     private chatDelegate: GeminiChatCapabilityImpl | null = null;
     private imageGenerationDelegate: GeminiImageGenerationCapabilityImpl | null = null;
     private imageAnalysisDelegate: GeminiImageAnalysisCapabilityImpl | null = null;
+    private ocrDelegate: GeminiOCRCapabilityImpl | null = null;
     private videoAnalysisDelegate: GeminiVideoAnalysisCapabilityImpl | null = null;
     private videoGenerationDelegate: GeminiVideoGenerationCapabilityImpl | null = null;
     private videoExtendDelegate: GeminiVideoExtendCapabilityImpl | null = null;
@@ -151,6 +157,7 @@ export class GeminiProvider
         this.embedDelegate = new GeminiEmbedCapabilityImpl(this, this.client);
         this.imageGenerationDelegate = new GeminiImageGenerationCapabilityImpl(this, this.client);
         this.imageAnalysisDelegate = new GeminiImageAnalysisCapabilityImpl(this, this.client);
+        this.ocrDelegate = new GeminiOCRCapabilityImpl(this, this.client);
         this.videoAnalysisDelegate = new GeminiVideoAnalysisCapabilityImpl(this, this.client);
         this.videoGenerationDelegate = new GeminiVideoGenerationCapabilityImpl(this, this.client);
         this.videoExtendDelegate = new GeminiVideoExtendCapabilityImpl(this, this.client);
@@ -191,6 +198,10 @@ export class GeminiProvider
         this.registerCapability(
             CapabilityKeys.ImageAnalysisStreamCapabilityKey,
             this as ImageAnalysisStreamCapability<ClientImageAnalysisRequest, NormalizedImageAnalysis[]>
+        );
+        this.registerCapability(
+            CapabilityKeys.OCRCapabilityKey,
+            this as OCRCapability<ClientOCRRequest, NormalizedOCRDocument[]>
         );
         this.registerCapability(
             CapabilityKeys.VideoAnalysisCapabilityKey,
@@ -388,6 +399,20 @@ export class GeminiProvider
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.ImageAnalysisStreamCapabilityKey);
         }
         return this.imageAnalysisDelegate.analyzeImageStream(req, executionContext, signal);
+    }
+
+    /**
+     * Execute a non-streaming OCR request.
+     */
+    async ocr(
+        req: AIRequest<ClientOCRRequest>,
+        executionContext: MultiModalExecutionContext,
+        signal?: AbortSignal
+    ): Promise<AIResponse<NormalizedOCRDocument[]>> {
+        if (!this.ocrDelegate || typeof this.ocrDelegate.ocr !== "function") {
+            throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.OCRCapabilityKey);
+        }
+        return await this.ocrDelegate.ocr(req, executionContext, signal);
     }
 
     /**

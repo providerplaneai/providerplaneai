@@ -16,6 +16,41 @@ const DEFAULT_REMOTE_IMAGE_FETCH_TIMEOUT_MS = 30_000;
  */
 const DEFAULT_MAX_REMOTE_IMAGE_BYTES = 512 * 1024 * 1024; // 512 MB
 
+const FILE_EXTENSION_TO_MIME_TYPE: Readonly<Record<string, string>> = {
+    aac: "audio/aac",
+    csv: "text/csv",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    flac: "audio/flac",
+    gif: "image/gif",
+    heic: "image/heic",
+    heif: "image/heif",
+    html: "text/html",
+    jpeg: "image/jpeg",
+    jpg: "image/jpeg",
+    json: "application/json",
+    m4a: "audio/mp4",
+    md: "text/markdown",
+    mp3: "audio/mpeg",
+    oga: "audio/ogg",
+    ogg: "audio/ogg",
+    odt: "application/vnd.oasis.opendocument.text",
+    opus: "audio/opus",
+    pdf: "application/pdf",
+    pcm: "audio/pcm",
+    png: "image/png",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    rtf: "application/rtf",
+    svg: "image/svg+xml",
+    tif: "image/tiff",
+    tiff: "image/tiff",
+    txt: "text/plain",
+    wav: "audio/wav",
+    webm: "audio/webm",
+    webp: "image/webp",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    xml: "application/xml"
+};
+
 /**
  * Summarizes a job snapshot as a comma-separated string for logging/debugging.
  * @param snapshot The job snapshot to summarize
@@ -140,6 +175,134 @@ export function sanitizeTimelineArtifacts(artifacts?: Partial<TimelineArtifacts>
  */
 export function ensureDataUri(base64OrUri: string, mimeType = "application/octet-stream"): string {
     return base64OrUri.startsWith("data:") ? base64OrUri : `data:${mimeType};base64,${base64OrUri}`;
+}
+
+/**
+ * Removes the `data:<mime>,` or `data:<mime>;base64,` prefix when present.
+ *
+ * @param value Data URI or raw payload string
+ * @returns Payload portion without the leading Data URI metadata
+ */
+export function stripDataUriPrefix(value: string): string {
+    const commaIndex = value.indexOf(",");
+    if (value.startsWith("data:") && commaIndex >= 0) {
+        return value.slice(commaIndex + 1).trim();
+    }
+    return value.trim();
+}
+
+/**
+ * Parses a Data URI into decoded bytes plus MIME metadata.
+ *
+ * Supports both base64 and URL-encoded payload variants.
+ *
+ * @param dataUri Data URI input
+ * @returns Decoded bytes, MIME type, and original encoding flag
+ * @throws {Error} When the Data URI is malformed
+ */
+export function parseDataUri(dataUri: string): { bytes: Uint8Array; mimeType: string; isBase64: boolean } {
+    const commaIndex = dataUri.indexOf(",");
+    if (commaIndex < 0) {
+        throw new Error("Invalid data URL");
+    }
+
+    const header = dataUri.slice(0, commaIndex);
+    const payload = stripDataUriPrefix(dataUri);
+    const mimeMatch = /^data:(?:([^;]+))?(;base64)?$/i.exec(header);
+    const mimeType = mimeMatch?.[1] ?? "application/octet-stream";
+    const isBase64 = /;base64$/i.test(header);
+
+    return {
+        bytes: isBase64
+            ? new Uint8Array(Buffer.from(payload, "base64"))
+            : new Uint8Array(Buffer.from(decodeURIComponent(payload), "utf8")),
+        mimeType,
+        isBase64
+    };
+}
+
+/**
+ * Decodes a Data URI directly to bytes.
+ *
+ * @param dataUri Data URI input
+ * @returns Decoded byte payload
+ * @throws {Error} When the Data URI is malformed
+ */
+export function dataUriToUint8Array(dataUri: string): Uint8Array {
+    return parseDataUri(dataUri).bytes;
+}
+
+/**
+ * Parses a Data URI and returns a Node Buffer payload.
+ *
+ * @param dataUri Data URI input
+ * @returns Decoded buffer payload with detected MIME type
+ * @throws {Error} When the Data URI is malformed
+ */
+export function parseDataUriToBuffer(dataUri: string): { bytes: Buffer; mimeType: string } {
+    const parsed = parseDataUri(dataUri);
+    return {
+        bytes: Buffer.from(parsed.bytes),
+        mimeType: parsed.mimeType
+    };
+}
+
+/**
+ * Parses a Data URI and returns a base64 payload string.
+ *
+ * @param dataUri Data URI input
+ * @returns Base64 payload with detected MIME type
+ * @throws {Error} When the Data URI is malformed
+ */
+export function parseDataUriToBase64(dataUri: string): { base64: string; mimeType: string } {
+    const parsed = parseDataUri(dataUri);
+    return {
+        base64: Buffer.from(parsed.bytes).toString("base64"),
+        mimeType: parsed.mimeType
+    };
+}
+
+/**
+ * Looks up a MIME type from a file extension or provider format token.
+ *
+ * Accepts values like:
+ * - `mp3`
+ * - `.mp3`
+ * - `file.mp3`
+ *
+ * @param value Extension, format token, or filename
+ * @param fallback Value returned when the type cannot be inferred
+ * @returns Matching MIME type or fallback
+ */
+export function getMimeTypeForExtensionOrFormat(value?: string, fallback?: string): string | undefined {
+    if (!value) {
+        return fallback;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+        return fallback;
+    }
+
+    const basename = normalized.split(/[\\/]/).pop() ?? normalized;
+    const key = basename.startsWith(".")
+        ? basename.slice(1)
+        : basename.includes(".")
+            ? basename.slice(basename.lastIndexOf(".") + 1)
+            : basename;
+
+    return FILE_EXTENSION_TO_MIME_TYPE[key] ?? fallback;
+}
+
+/**
+ * Infers a MIME type from a filename or path.
+ *
+ * @param filename Filename or path containing an extension
+ * @param fallback Value returned when the type cannot be inferred
+ * @returns Matching MIME type or fallback
+ */
+export function inferMimeTypeFromFilename(filename?: string, fallback?: string): string | undefined {
+    return getMimeTypeForExtensionOrFormat(filename, fallback);
 }
 
 /**

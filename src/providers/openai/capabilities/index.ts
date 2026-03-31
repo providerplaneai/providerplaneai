@@ -8,6 +8,7 @@ export * from "./OpenAIAudioTranslationCapabilityImpl.js";
 export * from "./OpenAIAudioTextToSpeechCapabilityImpl.js";
 export * from "./OpenAIEmbedCapabilityImpl.js";
 export * from "./OpenAIImageAnalysisCapabilityImpl.js";
+export * from "./OpenAIOCRCapabilityImpl.js";
 export * from "./OpenAIImageGenerationCapabilityImpl.js";
 export * from "./OpenAIImageEditCapabilityImpl.js";
 export * from "./OpenAIModerationCapabilityImpl.js";
