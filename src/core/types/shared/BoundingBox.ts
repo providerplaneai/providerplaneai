@@ -1,6 +1,6 @@
 /**
- * @module client/types/shared/BoundingBox.ts
- * @description ProviderPlaneAI source module.
+ * @module core/types/shared/BoundingBox.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
  */
 /**
  * Axis-aligned bounding box in normalized image coordinates.

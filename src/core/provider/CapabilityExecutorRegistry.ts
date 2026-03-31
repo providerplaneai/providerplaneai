@@ -12,10 +12,10 @@ import {
     CapabilityMap,
     CustomCapabilityKey,
     ProviderCapability,
-    MultiModalExecutionContext
+    MultiModalExecutionContext,
+    createApprovalGateExecutor,
+    createSaveFileExecutor
 } from "#root/index.js";
-import { createApprovalGateExecutor } from "../../capabilities/ApprovalGateCapabilityImpl.js";
-import { createSaveFileExecutor } from "../../capabilities/SaveFileCapabilityImpl.js";
 
 /**
  * Resolves the provider capability interface type for a capability key.
@@ -210,6 +210,11 @@ export function createDefaultExecutors(): CapabilityExecutorRegistry {
     registry.register(CapabilityKeys.ImageAnalysisStreamCapabilityKey, {
         streaming: true,
         invoke: (capability, input, ctx, signal) => capability.analyzeImageStream(input, ctx, signal)
+    });
+
+    registry.register(CapabilityKeys.OCRCapabilityKey, {
+        streaming: false,
+        invoke: (capability, input, ctx, signal) => capability.ocr(input, ctx, signal)
     });
 
     // Register default non-streaming image edit executor

@@ -2,8 +2,7 @@
  * @module client/types/audio/ClientAudioTranslationRequest.ts
  * @description ProviderPlaneAI source module.
  */
-import { ClientRequestBase } from "../shared/index.js";
-import { ClientAudioInputSource } from "./ClientAudioTranscriptionRequest.js";
+import { ClientAudioInputSource, ClientRequestBase } from "#root/index.js";
 
 /**
  * Common response formats used by translation-capable providers.

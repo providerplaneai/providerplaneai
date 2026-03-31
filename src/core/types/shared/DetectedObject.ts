@@ -1,6 +1,6 @@
 /**
- * @module client/types/shared/DetectedObject.ts
- * @description ProviderPlaneAI source module.
+ * @module core/types/shared/DetectedObject.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
  */
 import { BoundingBox } from "#root/index.js";
 

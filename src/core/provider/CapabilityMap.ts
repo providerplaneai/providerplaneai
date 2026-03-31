@@ -16,6 +16,7 @@ import {
     ClientImageAnalysisRequest,
     ClientImageEditRequest,
     ClientImageGenerationRequest,
+    ClientOCRRequest,
     ClientVideoAnalysisRequest,
     ClientVideoDownloadRequest,
     ClientVideoExtendRequest,
@@ -30,6 +31,7 @@ import {
     ImageGenerationCapability,
     ImageGenerationStreamCapability,
     ModerationCapability,
+    OCRCapability,
     TextToSpeechCapability,
     TextToSpeechStreamCapability,
     VideoGenerationCapability,
@@ -42,6 +44,7 @@ import {
     NormalizedEmbedding,
     NormalizedImage,
     NormalizedImageAnalysis,
+    NormalizedOCRDocument,
     NormalizedModeration,
     ProviderCapability,
     NormalizedVideo,
@@ -73,6 +76,7 @@ export const CapabilityKeys = {
     ImageEditStreamCapabilityKey: "imageEditStream",
     ImageAnalysisCapabilityKey: "imageAnalysis",
     ImageAnalysisStreamCapabilityKey: "imageAnalyzeStream",
+    OCRCapabilityKey: "ocr",
     EmbedCapabilityKey: "embed",
     ModerationCapabilityKey: "moderation"
 } as const;
@@ -136,6 +140,7 @@ export interface CapabilityMap {
         ClientImageAnalysisRequest,
         NormalizedImageAnalysis[]
     >;
+    [CapabilityKeys.OCRCapabilityKey]: OCRCapability<ClientOCRRequest, NormalizedOCRDocument[]>;
     [CapabilityKeys.ImageEditCapabilityKey]: ImageEditCapability<ClientImageEditRequest, NormalizedImage[]>;
     [CapabilityKeys.ImageEditStreamCapabilityKey]: ImageEditStreamCapability<ClientImageEditRequest, NormalizedImage[]>;
 }

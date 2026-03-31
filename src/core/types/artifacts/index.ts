@@ -7,6 +7,7 @@ export * from "./NormalizedChatMessage.js";
 export * from "./NormalizedEmbedding.js";
 export * from "./NormalizedImage.js";
 export * from "./NormalizedImageAnalysis.js";
+export * from "./NormalizedOCRDocument.js";
 export * from "./NormalizedMask.js";
 export * from "./NormalizedModeration.js";
 export * from "./NormalizedAudio.js";

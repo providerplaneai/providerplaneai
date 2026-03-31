@@ -11,6 +11,7 @@ import {
     NormalizedChatMessage,
     NormalizedImage,
     NormalizedImageAnalysis,
+    NormalizedOCRDocument,
     NormalizedVideoAnalysis,
     NormalizedModeration,
     NormalizedEmbedding,
@@ -183,6 +184,7 @@ export class MultiModalExecutionContext {
             masks: [...safeArray(base.masks), ...safeArray(addition.masks)],
             videoAnalysis: [...safeArray(base.videoAnalysis), ...safeArray(addition.videoAnalysis)],
             imageAnalysis: [...safeArray(base.imageAnalysis), ...safeArray(addition.imageAnalysis)],
+            ocr: [...safeArray(base.ocr), ...safeArray(addition.ocr)],
             transcript: [...safeArray(base.transcript), ...safeArray(addition.transcript)],
             translation: [...safeArray(base.translation), ...safeArray(addition.translation)],
             embeddings: [...safeArray(base.embeddings), ...safeArray(addition.embeddings)],
@@ -202,6 +204,7 @@ export class MultiModalExecutionContext {
             images: [],
             masks: [],
             imageAnalysis: [],
+            ocr: [],
             videoAnalysis: [],
             transcript: [],
             translation: [],
@@ -224,6 +227,7 @@ export class MultiModalExecutionContext {
             sizeOf(artifacts.images) === 0 &&
             sizeOf(artifacts.masks) === 0 &&
             sizeOf(artifacts.imageAnalysis) === 0 &&
+            sizeOf(artifacts.ocr) === 0 &&
             sizeOf(artifacts.videoAnalysis) === 0 &&
             sizeOf(artifacts.transcript) === 0 &&
             sizeOf(artifacts.translation) === 0 &&
@@ -257,6 +261,10 @@ export class MultiModalExecutionContext {
 
     getLatestImages(): NormalizedImage[] {
         return this.findLatest((e) => e.artifacts.images) ?? [];
+    }
+
+    getLatestOCR(): NormalizedOCRDocument[] {
+        return this.findLatest((e) => e.artifacts.ocr) ?? [];
     }
 
     getLatestMasks(): NormalizedMask[] {

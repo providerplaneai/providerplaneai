@@ -2,7 +2,7 @@
  * @module client/types/chat/ClientChatMessage.ts
  * @description ProviderPlaneAI source module.
  */
-import { ClientMessagePart } from "./ClientMessageParts.js";
+import { ClientMessagePart } from "#root/index.js";
 
 /**
  * Represents a single chat message in a conversation.

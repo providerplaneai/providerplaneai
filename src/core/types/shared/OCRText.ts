@@ -1,6 +1,6 @@
 /**
- * @module client/types/shared/OCRText.ts
- * @description ProviderPlaneAI source module.
+ * @module core/types/shared/OCRText.ts
+ * @description Core shared type definitions used by runtime, providers, and workflows.
  */
 import { BoundingBox } from "#root/index.js";
 

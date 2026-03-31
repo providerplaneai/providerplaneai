@@ -2,21 +2,16 @@
  * @module client/types/audio/ClientAudioTranscriptionRequest.ts
  * @description ProviderPlaneAI source module.
  */
-import { ClientRequestBase } from "../shared/index.js";
+import { ClientFileInputSource, ClientRequestBase } from "#root/index.js";
 
 /**
- * Supported audio input source types across browser and Node runtimes.
- *
- * Notes:
- * - Browser: File/Blob
- * - Node: Buffer/Uint8Array/ArrayBuffer/Readable stream
- * - Some providers may also accept a local path string or data URL string
+ * Backward-compatible alias for generic file/binary input sources used by audio APIs.
  */
 /**
  * @public
  * @description Type alias for ClientAudioInputSource.
  */
-export type ClientAudioInputSource = File | Blob | Buffer | Uint8Array | ArrayBuffer | NodeJS.ReadableStream | string;
+export type ClientAudioInputSource = ClientFileInputSource;
 
 /**
  * Common response formats used by transcription-capable providers.

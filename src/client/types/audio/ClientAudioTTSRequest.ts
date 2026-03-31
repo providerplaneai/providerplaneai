@@ -2,7 +2,7 @@
  * @module client/types/audio/ClientAudioTTSRequest.ts
  * @description ProviderPlaneAI source module.
  */
-import { ClientRequestBase } from "../shared/index.js";
+import { ClientRequestBase } from "#root/index.js";
 
 /**
  * Common output formats used by text-to-speech providers.

@@ -4,7 +4,7 @@
  */
 export interface NormalizedUserInput {
     id: string;
-    modality: "chat" | "embedding" | "moderation" | "image" | "audio" | "video" | "file" | "custom";
+    modality: "chat" | "embedding" | "moderation" | "image" | "audio" | "video" | "file" | "ocr" | "custom";
 
     /**
      * Raw client request input

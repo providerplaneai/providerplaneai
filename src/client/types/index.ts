@@ -8,6 +8,7 @@ export * from "./chat/index.js"; // Chat message/request types
 export * from "./embeddings/index.js"; // Embedding request types
 export * from "./image/index.js"; // Image analysis/generation/editing types
 export * from "./moderation/index.js"; // Moderation request/result types
+export * from "./ocr/index.js"; // OCR request types
 export * from "./shared/index.js"; // Shared utility types (base, safety, bounding box, etc.)
 export * from "./video/index.js"; // Video analysis types
 export * from "./AIClientLifecycleHooks.js"; // Lifecycle hooks for instrumentation

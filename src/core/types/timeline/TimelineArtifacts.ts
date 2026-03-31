@@ -11,6 +11,7 @@ import {
     NormalizedImageAnalysis,
     NormalizedMask,
     NormalizedModeration,
+    NormalizedOCRDocument,
     NormalizedVideo,
     NormalizedVideoAnalysis
 } from "#root/index.js";
@@ -25,6 +26,7 @@ import {
  */
 export interface TimelineArtifacts {
     imageAnalysis?: NormalizedImageAnalysis[];
+    ocr?: NormalizedOCRDocument[];
     videoAnalysis?: NormalizedVideoAnalysis[];
     images?: NormalizedImage[];
     masks?: NormalizedMask[];
