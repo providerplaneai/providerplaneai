@@ -13,7 +13,8 @@ import {
     ClientEmbeddingRequest,
     EmbedCapability,
     MultiModalExecutionContext,
-    NormalizedEmbedding
+    NormalizedEmbedding,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_MISTRAL_EMBED_MODEL = "mistral-embed";
@@ -25,7 +26,6 @@ const DEFAULT_MISTRAL_EMBED_MODEL = "mistral-embed";
  * and normalizes embedding outputs into `NormalizedEmbedding[]`.
  *
  * @public
- * @description Provider capability implementation for MistralEmbedCapabilityImpl.
  */
 export class MistralEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
     /**
@@ -73,10 +73,7 @@ export class MistralEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddi
         const merged = this.provider.getMergedOptions(CapabilityKeys.EmbedCapabilityKey, options);
         const model = merged.model ?? DEFAULT_MISTRAL_EMBED_MODEL;
         const embeddingRequest = this.buildEmbeddingRequest(model, input.input, merged.modelParams);
-        const response = await this.client.embeddings.create(
-            embeddingRequest,
-            { signal, ...(merged.providerParams ?? {}) }
-        );
+        const response = await this.client.embeddings.create(embeddingRequest, { signal, ...(merged.providerParams ?? {}) });
 
         if (!response.data?.length) {
             throw new Error("Mistral returned no embeddings");
@@ -100,27 +97,26 @@ export class MistralEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddi
                 // a single id cleanly without a broader input-id contract.
                 inputId: Array.isArray(input.input) ? undefined : input.inputId,
                 purpose: input.purpose ?? "embedding",
-                metadata: {
+                metadata: buildMetadata(undefined, {
                     provider: AIProvider.Mistral,
                     model,
                     status: "completed",
                     requestId: context?.requestId,
                     tokensUsed
-                }
+                })
             }));
 
         return {
             output: normalized,
             rawResponse: response,
             id: response.id ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Mistral,
                 model,
                 status: "completed",
                 requestId: context?.requestId,
                 tokensUsed
-            }
+            })
         };
     }
 

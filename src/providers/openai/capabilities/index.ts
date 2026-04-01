@@ -15,3 +15,4 @@ export * from "./OpenAIModerationCapabilityImpl.js";
 export * from "./OpenAIVideoDownloadCapabilityImpl.js";
 export * from "./OpenAIVideoGenerationCapabilityImpl.js";
 export * from "./OpenAIVideoRemixCapabilityImpl.js";
+export * from "./shared/index.js";

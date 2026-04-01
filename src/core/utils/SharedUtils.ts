@@ -1,10 +1,11 @@
 /**
  * @module core/utils/SharedUtils.ts
- * @description ProviderPlaneAI source module.
+ * @description Shared normalization, data URI, and remote media helpers used across capabilities.
  */
 import config from "config";
-import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
 import { CapabilityKeyType, ClientReferenceImage, JobSnapshot, TimelineArtifacts } from "#root/index.js";
 
 /**
@@ -16,45 +17,11 @@ const DEFAULT_REMOTE_IMAGE_FETCH_TIMEOUT_MS = 30_000;
  */
 const DEFAULT_MAX_REMOTE_IMAGE_BYTES = 512 * 1024 * 1024; // 512 MB
 
-const FILE_EXTENSION_TO_MIME_TYPE: Readonly<Record<string, string>> = {
-    aac: "audio/aac",
-    csv: "text/csv",
-    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    flac: "audio/flac",
-    gif: "image/gif",
-    heic: "image/heic",
-    heif: "image/heif",
-    html: "text/html",
-    jpeg: "image/jpeg",
-    jpg: "image/jpeg",
-    json: "application/json",
-    m4a: "audio/mp4",
-    md: "text/markdown",
-    mp3: "audio/mpeg",
-    oga: "audio/ogg",
-    ogg: "audio/ogg",
-    odt: "application/vnd.oasis.opendocument.text",
-    opus: "audio/opus",
-    pdf: "application/pdf",
-    pcm: "audio/pcm",
-    png: "image/png",
-    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    rtf: "application/rtf",
-    svg: "image/svg+xml",
-    tif: "image/tiff",
-    tiff: "image/tiff",
-    txt: "text/plain",
-    wav: "audio/wav",
-    webm: "audio/webm",
-    webp: "image/webp",
-    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    xml: "application/xml"
-};
-
 /**
- * Summarizes a job snapshot as a comma-separated string for logging/debugging.
- * @param snapshot The job snapshot to summarize
- * @returns Summary string
+ * Summarizes a job snapshot as a compact comma-separated string for logging and diagnostics.
+ *
+ * @param {JobSnapshot<any, any>} snapshot - Job snapshot to summarize.
+ * @returns {string} Human-readable summary string.
  */
 export function summarizeSnapshot(snapshot: JobSnapshot<any, any>) {
     return [
@@ -68,9 +35,10 @@ export function summarizeSnapshot(snapshot: JobSnapshot<any, any>) {
 }
 
 /**
- * Logs provider attempt metadata for debugging provider fallback chains.
- * @param label Log label
- * @param metadata Metadata object containing providerAttempts
+ * Logs provider-attempt metadata for debugging provider fallback chains.
+ *
+ * @param {string} label - Log label prefix.
+ * @param {Record<string, any> | undefined} metadata - Metadata object that may contain `providerAttempts`.
  */
 export function logProviderAttempts(label: string, metadata: Record<string, any> | undefined) {
     const attempts = metadata?.providerAttempts;
@@ -82,9 +50,10 @@ export function logProviderAttempts(label: string, metadata: Record<string, any>
 }
 
 /**
- * Logs raw payload budget diagnostics for a job or provider.
- * @param label Log label
- * @param metadata Metadata object with raw payload budget fields
+ * Logs raw-payload budget diagnostics for a job or provider.
+ *
+ * @param {string} label - Log label prefix.
+ * @param {Record<string, any> | undefined} metadata - Metadata object that may contain raw payload counters.
  */
 export function logRawBudgetDiagnostics(label: string, metadata: Record<string, any> | undefined) {
     console.log(`[${label}] raw diagnostics:`, {
@@ -96,9 +65,11 @@ export function logRawBudgetDiagnostics(label: string, metadata: Record<string, 
 }
 
 /**
- * Validates that a value is a boolean, or undefined. Throws if not.
- * @param value The value to validate
- * @param fieldName Name of the field for error messages
+ * Validates that a value is a boolean when provided.
+ *
+ * @param {unknown} value - Value to validate.
+ * @param {string} fieldName - Field name used in the thrown error.
+ * @throws {Error} When `value` is present but not a boolean.
  */
 export function validateBoolean(value: unknown, fieldName: string) {
     if (value === undefined) {
@@ -118,6 +89,10 @@ export function validateBoolean(value: unknown, fieldName: string) {
  *
  * This is intentionally generic so snapshots/timelines can sanitize artifacts
  * without provider-specific branching.
+ *
+ * @template T - Artifact value shape being sanitized.
+ * @param {T} value - Value to sanitize.
+ * @returns {T} Sanitized value with binary-heavy fields removed recursively.
  */
 export function stripBinaryPayloadFields<T>(value: T): T {
     if (value === null || value === undefined) {
@@ -151,13 +126,11 @@ export function stripBinaryPayloadFields<T>(value: T): T {
 }
 
 /**
- * Sanitizes timeline artifacts by removing binary-heavy fields.
- */
-/**
- * @public
- * @description Utility function sanitizeTimelineArtifacts.
- * @param artifacts Parameter.
- * @returns Return value.
+ * Sanitizes timeline artifacts by removing binary-heavy fields such as base64 payloads and Data
+ * URI URLs.
+ *
+ * @param {Partial<TimelineArtifacts> | undefined} artifacts - Timeline artifacts to sanitize.
+ * @returns {Partial<TimelineArtifacts> | undefined} Sanitized artifacts, or `undefined` when no artifacts were provided.
  */
 export function sanitizeTimelineArtifacts(artifacts?: Partial<TimelineArtifacts>): Partial<TimelineArtifacts> | undefined {
     if (!artifacts) {
@@ -167,11 +140,44 @@ export function sanitizeTimelineArtifacts(artifacts?: Partial<TimelineArtifacts>
 }
 
 /**
- * Ensures a string is a valid Data URI for base64-encoded content.
- * Returns as-is if already a Data URI, otherwise prepends the appropriate prefix.
- * @param base64OrUri Base64 string or existing Data URI
- * @param mimeType MIME type for base64 input (default: "application/octet-stream")
- * @returns Proper Data URI string
+ * Builds result metadata by merging base metadata with capability-specific fields.
+ *
+ * Undefined values are removed so callers can pass optional fields without
+ * polluting response metadata with explicit `undefined` entries.
+ *
+ * @template TBase - Base metadata shape to preserve.
+ * @template TExtra - Additional metadata shape to merge.
+ * @param {TBase | undefined} baseMetadata - Existing metadata to preserve, typically from request context.
+ * @param {TExtra | undefined} metadata - Capability-specific metadata fields.
+ * @returns {TBase & TExtra} Merged metadata object with undefined values removed.
+ */
+export function buildMetadata<TBase extends Record<string, unknown>, TExtra extends Record<string, unknown>>(
+    baseMetadata?: TBase,
+    metadata?: TExtra
+): TBase & TExtra {
+    const merged: Record<string, unknown> = {
+        ...(baseMetadata ?? {}),
+        ...(metadata ?? {})
+    };
+
+    for (const key of Object.keys(merged)) {
+        if (merged[key] === undefined) {
+            delete merged[key];
+        }
+    }
+
+    return merged as TBase & TExtra;
+}
+
+/**
+ * Ensures a payload string is represented as a Data URI.
+ *
+ * Existing Data URIs are preserved; raw base64 payloads receive a best-effort prefix using the
+ * supplied MIME type.
+ *
+ * @param {string} base64OrUri - Raw base64 payload or existing Data URI.
+ * @param {string} mimeType - MIME type used when wrapping raw base64 data.
+ * @returns {string} Proper Data URI string.
  */
 export function ensureDataUri(base64OrUri: string, mimeType = "application/octet-stream"): string {
     return base64OrUri.startsWith("data:") ? base64OrUri : `data:${mimeType};base64,${base64OrUri}`;
@@ -180,8 +186,8 @@ export function ensureDataUri(base64OrUri: string, mimeType = "application/octet
 /**
  * Removes the `data:<mime>,` or `data:<mime>;base64,` prefix when present.
  *
- * @param value Data URI or raw payload string
- * @returns Payload portion without the leading Data URI metadata
+ * @param {string} value - Data URI or raw payload string.
+ * @returns {string} Payload portion without the leading Data URI metadata.
  */
 export function stripDataUriPrefix(value: string): string {
     const commaIndex = value.indexOf(",");
@@ -196,8 +202,8 @@ export function stripDataUriPrefix(value: string): string {
  *
  * Supports both base64 and URL-encoded payload variants.
  *
- * @param dataUri Data URI input
- * @returns Decoded bytes, MIME type, and original encoding flag
+ * @param {string} dataUri - Data URI input.
+ * @returns {{ bytes: Uint8Array; mimeType: string; isBase64: boolean }} Decoded bytes, MIME type, and original encoding flag.
  * @throws {Error} When the Data URI is malformed
  */
 export function parseDataUri(dataUri: string): { bytes: Uint8Array; mimeType: string; isBase64: boolean } {
@@ -224,8 +230,8 @@ export function parseDataUri(dataUri: string): { bytes: Uint8Array; mimeType: st
 /**
  * Decodes a Data URI directly to bytes.
  *
- * @param dataUri Data URI input
- * @returns Decoded byte payload
+ * @param {string} dataUri - Data URI input.
+ * @returns {Uint8Array} Decoded byte payload.
  * @throws {Error} When the Data URI is malformed
  */
 export function dataUriToUint8Array(dataUri: string): Uint8Array {
@@ -235,8 +241,8 @@ export function dataUriToUint8Array(dataUri: string): Uint8Array {
 /**
  * Parses a Data URI and returns a Node Buffer payload.
  *
- * @param dataUri Data URI input
- * @returns Decoded buffer payload with detected MIME type
+ * @param {string} dataUri - Data URI input.
+ * @returns {{ bytes: Buffer; mimeType: string }} Decoded buffer payload with detected MIME type.
  * @throws {Error} When the Data URI is malformed
  */
 export function parseDataUriToBuffer(dataUri: string): { bytes: Buffer; mimeType: string } {
@@ -250,8 +256,8 @@ export function parseDataUriToBuffer(dataUri: string): { bytes: Buffer; mimeType
 /**
  * Parses a Data URI and returns a base64 payload string.
  *
- * @param dataUri Data URI input
- * @returns Base64 payload with detected MIME type
+ * @param {string} dataUri - Data URI input.
+ * @returns {{ base64: string; mimeType: string }} Base64 payload with detected MIME type.
  * @throws {Error} When the Data URI is malformed
  */
 export function parseDataUriToBase64(dataUri: string): { base64: string; mimeType: string } {
@@ -263,53 +269,11 @@ export function parseDataUriToBase64(dataUri: string): { base64: string; mimeTyp
 }
 
 /**
- * Looks up a MIME type from a file extension or provider format token.
+ * Converts a client reference image with inline base64 content into a Data URI.
  *
- * Accepts values like:
- * - `mp3`
- * - `.mp3`
- * - `file.mp3`
- *
- * @param value Extension, format token, or filename
- * @param fallback Value returned when the type cannot be inferred
- * @returns Matching MIME type or fallback
- */
-export function getMimeTypeForExtensionOrFormat(value?: string, fallback?: string): string | undefined {
-    if (!value) {
-        return fallback;
-    }
-
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) {
-        return fallback;
-    }
-
-    const basename = normalized.split(/[\\/]/).pop() ?? normalized;
-    const key = basename.startsWith(".")
-        ? basename.slice(1)
-        : basename.includes(".")
-            ? basename.slice(basename.lastIndexOf(".") + 1)
-            : basename;
-
-    return FILE_EXTENSION_TO_MIME_TYPE[key] ?? fallback;
-}
-
-/**
- * Infers a MIME type from a filename or path.
- *
- * @param filename Filename or path containing an extension
- * @param fallback Value returned when the type cannot be inferred
- * @returns Matching MIME type or fallback
- */
-export function inferMimeTypeFromFilename(filename?: string, fallback?: string): string | undefined {
-    return getMimeTypeForExtensionOrFormat(filename, fallback);
-}
-
-/**
- * Converts a ClientReferenceImage with base64 content into a Data URI string.
- * @param img Reference image object containing base64 data
- * @throws Error if `img.base64` is not provided
- * @returns Data URI string
+ * @param {ClientReferenceImage} img - Reference image carrying base64 content.
+ * @returns {string} Data URI string.
+ * @throws {Error} When `img.base64` is missing.
  */
 export function toDataUrl(img: ClientReferenceImage): string {
     if (!img.base64) {
@@ -321,16 +285,19 @@ export function toDataUrl(img: ClientReferenceImage): string {
 }
 
 /**
- * Resolves a reference image URL or Data URI into a Buffer of bytes.
- * Decodes base64 Data URIs directly, or fetches remote images if not a Data URI.
- * @param url URL or Data URI of the image
- * @throws Error if the Data URI is invalid or fetching the remote image fails
- * @returns Promise that resolves to a Buffer containing the image bytes
+ * Resolves a reference image URL or Data URI into bytes.
+ *
+ * Data URIs are decoded locally. Remote URLs are validated against SSRF-style unsafe targets before
+ * fetching, then streamed with configurable size and timeout limits.
+ *
+ * @param {string} url - Remote image URL or Data URI.
+ * @returns {Promise<Buffer>} Image bytes.
+ * @throws {Error} When the Data URI is invalid, the URL is unsafe, or the remote fetch fails.
  */
 export async function resolveImageToBytes(url: string): Promise<Buffer> {
     const { remoteImageFetchTimeoutMs, maxRemoteImageBytes } = getImageFetchLimits();
 
-    // 1. Check if it's already a Data URL
+    // Data URIs are resolved locally and still respect the configured maximum payload size.
     if (url.startsWith("data:")) {
         const base64Data = url.split(",")[1];
         if (!base64Data) {
@@ -344,7 +311,6 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
         return decoded;
     }
 
-    // 2. Otherwise, fetch the remote image
     try {
         await assertSafeRemoteHttpUrl(url);
 
@@ -393,8 +359,9 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
 }
 
 /**
- * Gets image fetch timeout and max size limits from config, with defaults.
- * @returns Object with remoteImageFetchTimeoutMs and maxRemoteImageBytes
+ * Reads image-fetch limits from config, falling back to safe defaults.
+ *
+ * @returns {{ remoteImageFetchTimeoutMs: number; maxRemoteImageBytes: number }} Effective timeout and maximum byte budget for remote image fetches.
  */
 function getImageFetchLimits(): {
     remoteImageFetchTimeoutMs: number;
@@ -413,20 +380,24 @@ function getImageFetchLimits(): {
 }
 
 /**
- * Converts a value to a non-negative integer, or returns fallback if invalid.
- * @param value Value to check
- * @param fallback Fallback value if not a non-negative integer
- * @returns Non-negative integer
+ * Converts a config value into a non-negative integer, or falls back when invalid.
+ *
+ * @param {unknown} value - Candidate config value.
+ * @param {number} fallback - Value to use when the candidate is invalid.
+ * @returns {number} Valid non-negative integer.
  */
 function toNonNegativeInteger(value: unknown, fallback: number): number {
     return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
 /**
- * Asserts that a remote image URL is safe (not localhost/private IP, only http/https).
- * Resolves DNS and checks for private/loopback/link-local addresses.
- * @param rawUrl The URL to check
- * @throws Error if the URL is unsafe
+ * Asserts that a remote HTTP(S) URL is safe to fetch.
+ *
+ * The check rejects localhost, private address ranges, and hostnames that resolve to private
+ * addresses to reduce SSRF risk when capabilities download remote images.
+ *
+ * @param {string} rawUrl - URL to validate.
+ * @throws {Error} When the URL is malformed, non-HTTP(S), or resolves to an unsafe target.
  */
 export async function assertSafeRemoteHttpUrl(rawUrl: string) {
     let parsed: URL;

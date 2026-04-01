@@ -1,4 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import { delayWithAbort } from "#root/index.js";
+import {
+    downloadGeminiFileViaApi,
+    extractGeminiFileName,
+    readFiniteNumber,
+    resolveGeminiDurationSeconds,
+    resolveGeminiVideoBase64
+} from "#root/providers/gemini/capabilities/shared/GeminiVideoUtils.js";
 import { GeminiVideoExtendCapabilityImpl } from "#root/providers/gemini/capabilities/GeminiVideoExtendCapabilityImpl.js";
 import { writeFile } from "node:fs/promises";
 
@@ -112,35 +120,39 @@ describe("GeminiVideoExtendCapabilityImpl", () => {
         }
     });
 
-    it("helper methods cover duration parsing, finite-number parsing, filename extraction, and delay branches", async () => {
-        const cap = new GeminiVideoExtendCapabilityImpl(makeProvider(), { models: {}, operations: {} } as any);
+    it("shared helpers cover duration parsing, finite-number parsing, filename extraction, and delay branches", async () => {
+        expect(readFiniteNumber(5)).toBe(5);
+        expect(readFiniteNumber("6")).toBe(6);
+        expect(readFiniteNumber("abc")).toBeUndefined();
+        expect(readFiniteNumber(undefined)).toBeUndefined();
 
-        expect((cap as any).readFiniteNumber(5)).toBe(5);
-        expect((cap as any).readFiniteNumber("6")).toBe(6);
-        expect((cap as any).readFiniteNumber("abc")).toBeUndefined();
-        expect((cap as any).readFiniteNumber(undefined)).toBeUndefined();
+        expect(resolveGeminiDurationSeconds(undefined, 4, 8)).toBeUndefined();
+        expect(resolveGeminiDurationSeconds(5, 4, 8)).toBe(5);
+        expect(() => resolveGeminiDurationSeconds(Number.NaN, 4, 8)).toThrow("finite number");
+        expect(() => resolveGeminiDurationSeconds(9, 4, 8)).toThrow("between 4 and 8");
 
-        expect((cap as any).resolveDurationSeconds(undefined)).toBeUndefined();
-        expect((cap as any).resolveDurationSeconds(5)).toBe(5);
-        expect(() => (cap as any).resolveDurationSeconds(Number.NaN)).toThrow("finite number");
-        expect(() => (cap as any).resolveDurationSeconds(9)).toThrow("between 4 and 8");
+        expect(extractGeminiFileName("files/abc-123")).toBe("abc-123");
+        expect(extractGeminiFileName("https://x/v1beta/files/abc123:download")).toBe("abc123");
+        expect(extractGeminiFileName("https://x/?name=files%2Fabc123")).toBe("abc123");
+        expect(extractGeminiFileName("https://x/not-file")).toBeUndefined();
 
-        expect((cap as any).extractGeminiFileName("files/abc-123")).toBe("abc-123");
-        expect((cap as any).extractGeminiFileName("https://x/v1beta/files/abc123:download")).toBe("abc123");
-        expect((cap as any).extractGeminiFileName("https://x/?name=files%2Fabc123")).toBe("abc123");
-        expect((cap as any).extractGeminiFileName("https://x/not-file")).toBeUndefined();
-
-        await expect((cap as any).delay(0, undefined)).resolves.toBeUndefined();
+        await expect(delayWithAbort(0, undefined, "Gemini video extension polling aborted")).resolves.toBeUndefined();
         const ac = new AbortController();
         ac.abort();
-        await expect((cap as any).delay(5, ac.signal)).rejects.toThrow("polling aborted");
+        await expect(delayWithAbort(5, ac.signal, "Gemini video extension polling aborted")).rejects.toThrow(
+            "polling aborted"
+        );
     });
 
     it("resolveVideoBase64 covers data-uri/http-success/http-failure/non-http branches", async () => {
-        const cap = new GeminiVideoExtendCapabilityImpl(makeProvider(), { models: {}, operations: {} } as any);
+        const client = { models: {}, operations: {} } as any;
 
-        await expect((cap as any).resolveVideoBase64({ videoBytes: "AQID" })).resolves.toBe("AQID");
-        await expect((cap as any).resolveVideoBase64({ uri: "data:video/mp4;base64,BAUG" })).resolves.toBe("BAUG");
+        await expect(
+            resolveGeminiVideoBase64({ client, video: { videoBytes: "AQID" }, fetchFailureLabel: "Failed to fetch extended video from URI" })
+        ).resolves.toBe("AQID");
+        await expect(
+            resolveGeminiVideoBase64({ client, video: { uri: "data:video/mp4;base64,BAUG" }, fetchFailureLabel: "Failed to fetch extended video from URI" })
+        ).resolves.toBe("BAUG");
 
         vi.stubGlobal(
             "fetch",
@@ -149,18 +161,24 @@ describe("GeminiVideoExtendCapabilityImpl", () => {
                 arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([1, 2]).buffer)
             } as Partial<Response>)
         );
-        await expect((cap as any).resolveVideoBase64({ uri: "https://example.com/v.mp4" })).resolves.toBe("AQI=");
+        await expect(
+            resolveGeminiVideoBase64({ client, video: { uri: "https://example.com/v.mp4" }, fetchFailureLabel: "Failed to fetch extended video from URI" })
+        ).resolves.toBe("AQI=");
 
         vi.stubGlobal(
             "fetch",
             vi.fn().mockResolvedValue({ ok: false, status: 500, statusText: "Server Error" } as Partial<Response>)
         );
-        await expect((cap as any).resolveVideoBase64({ uri: "https://example.com/v.mp4" })).rejects.toThrow(
+        await expect(
+            resolveGeminiVideoBase64({ client, video: { uri: "https://example.com/v.mp4" }, fetchFailureLabel: "Failed to fetch extended video from URI" })
+        ).rejects.toThrow(
             "Failed to fetch extended video from URI: 500 Server Error"
         );
 
         vi.unstubAllGlobals();
-        await expect((cap as any).resolveVideoBase64({ uri: "files/invalid_name_" })).rejects.toThrow(
+        await expect(
+            resolveGeminiVideoBase64({ client, video: { uri: "files/invalid_name_" }, fetchFailureLabel: "Failed to fetch extended video from URI" })
+        ).rejects.toThrow(
             "Gemini video download requires a valid file reference"
         );
     });
@@ -170,37 +188,21 @@ describe("GeminiVideoExtendCapabilityImpl", () => {
             .fn()
             .mockRejectedValueOnce(new Error("first failed"))
             .mockRejectedValueOnce(new Error("second failed"));
-        const cap = new GeminiVideoExtendCapabilityImpl(makeProvider(), {
+        const client = {
             models: {},
             operations: {},
             files: { download }
-        } as any);
+        } as any;
 
-        await expect((cap as any).downloadViaFilesApi("files/abc123")).rejects.toThrow("second failed");
+        await expect(downloadGeminiFileViaApi(client, "files/abc123")).rejects.toThrow("second failed");
     });
 
-    it("covers polling abort/timeout, empty fetch bytes, and generic files API failure", async () => {
-        const cap = new GeminiVideoExtendCapabilityImpl(
-            makeProvider(),
-            {
-                models: {},
-                operations: { getVideosOperation: vi.fn().mockResolvedValue({ done: false, name: "op-timeout" }) },
-                files: { download: vi.fn().mockRejectedValue("non-error failure") }
-            } as any
-        );
-
-        const ac = new AbortController();
-        ac.abort();
-        await expect((cap as any).pollUntilTerminal({ done: false, name: "op-abort" }, 1, 100, ac.signal)).rejects.toThrow(
-            "Gemini video extension polling aborted"
-        );
-
-        const nowSpy = vi.spyOn(Date, "now");
-        nowSpy.mockReturnValueOnce(0).mockReturnValueOnce(1000);
-        await expect((cap as any).pollUntilTerminal({ done: false, name: "op-timeout" }, 1, 10)).rejects.toThrow(
-            "Timed out waiting for Gemini video operation 'op-timeout'"
-        );
-        nowSpy.mockRestore();
+    it("covers empty fetch bytes and generic files API failure", async () => {
+        const client = {
+            models: {},
+            operations: { getVideosOperation: vi.fn().mockResolvedValue({ done: false, name: "op-timeout" }) },
+            files: { download: vi.fn().mockRejectedValue("non-error failure") }
+        } as any;
 
         vi.stubGlobal(
             "fetch",
@@ -210,13 +212,43 @@ describe("GeminiVideoExtendCapabilityImpl", () => {
             } as Partial<Response>)
         );
         try {
-            await expect((cap as any).resolveVideoBase64({ uri: "https://example.com/v.mp4" })).resolves.toBeUndefined();
+            await expect(
+                resolveGeminiVideoBase64({ client, video: { uri: "https://example.com/v.mp4" }, fetchFailureLabel: "Failed to fetch extended video from URI" })
+            ).resolves.toBeUndefined();
         } finally {
             vi.unstubAllGlobals();
         }
 
-        await expect((cap as any).downloadViaFilesApi("files/abc123")).rejects.toThrow(
+        await expect(downloadGeminiFileViaApi(client, "files/abc123")).rejects.toThrow(
             "Gemini files.download failed for all attempted file reference formats"
         );
     });
+
+    it(
+        "surfaces the capability-specific timeout message when extension polling never reaches done",
+        async () => {
+            const provider = makeProvider();
+            provider.getMergedOptions = vi.fn().mockReturnValue({
+                model: "veo-extend",
+                modelParams: undefined,
+                providerParams: undefined,
+                generalParams: { pollIntervalMs: 1, maxPollMs: 5 }
+            });
+
+            const client = {
+                models: { generateVideos: vi.fn().mockResolvedValue({ done: false, name: "operations/ge-timeout" }) },
+                operations: { getVideosOperation: vi.fn().mockResolvedValue({ done: false, name: "operations/ge-timeout" }) }
+            };
+            const cap = new GeminiVideoExtendCapabilityImpl(provider, client as any);
+
+            await expect(
+                cap.extendVideo({
+                    input: {
+                        sourceVideoUri: "gs://bucket/input.mp4"
+                    }
+                } as any)
+            ).rejects.toThrow("Timed out waiting for Gemini video operation 'operations/ge-timeout'");
+        },
+        1000
+    );
 });

@@ -1,6 +1,6 @@
 /**
  * @module core/types/jobs/index.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Barrel exports for job contracts and job snapshot types.
  */
 export * from "./Job.js";
 export * from "./JobSnapshot.js";

@@ -1,17 +1,13 @@
 /**
  * @module client/types/chat/ClientChatRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientChatMessage, ClientRequestBase } from "#root/index.js";
 
 /**
- * Provider-agnostic chat request payload.
+ * Request payload for multi-turn or single-turn chat interactions.
  *
- * - `messages`: Array of chat messages (multi-turn or single-turn).
- */
-/**
  * @public
- * @description Interface contract for ClientChatRequest.
  */
 export interface ClientChatRequest extends ClientRequestBase {
     messages: ClientChatMessage[];

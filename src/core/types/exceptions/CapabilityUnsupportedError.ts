@@ -1,6 +1,6 @@
 /**
  * @module core/types/exceptions/CapabilityUnsupportedError.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Error type thrown when a provider lacks a requested capability.
  */
 import { AIProviderType, CapabilityKeyType } from "#root/index.js";
 
@@ -9,9 +9,13 @@ import { AIProviderType, CapabilityKeyType } from "#root/index.js";
  */
 /**
  * @public
- * @description Implementation class for CapabilityUnsupportedError.
+ * Error thrown when a provider does not support a requested capability.
  */
 export class CapabilityUnsupportedError extends Error {
+    /**
+     * @param {AIProviderType} providerType - Provider identifier.
+     * @param {CapabilityKeyType} capabilityKey - Capability key that was requested.
+     */
     constructor(providerType: AIProviderType, capabilityKey: CapabilityKeyType) {
         super(`No capability ${capabilityKey} found for ${providerType} provider`);
         this.name = "CapabilityUnsupportedError";

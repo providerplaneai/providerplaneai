@@ -1,9 +1,8 @@
 /**
  * @module providers/gemini/capabilities/GeminiAudioTranscriptionCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini audio transcription capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
-import { readFile, access } from "node:fs/promises";
 import {
     AIProvider,
     AIRequest,
@@ -17,26 +16,31 @@ import {
     inferMimeTypeFromFilename,
     MultiModalExecutionContext,
     NormalizedChatMessage,
-    parseDataUriToBase64
+    resolveBinarySourceToBase64,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_AUDIO_TRANSCRIPTION_MODEL = "gemini-2.5-flash";
 
 /**
- * Gemini audio transcription capability implementation.
+ * Adapts Gemini audio transcription responses into ProviderPlaneAI's normalized chat artifact surface.
  *
- * Uses Gemini `models.generateContent` / `models.generateContentStream` and normalizes
- * transcripts to `NormalizedChatMessage[]` artifacts.
- */
-/**
+ * Supports non-streaming and streaming transcription by sending audio plus an
+ * instruction prompt through Gemini multimodal content generation APIs.
+ *
  * @public
- * @description Provider capability implementation for GeminiAudioTranscriptionCapabilityImpl.
  */
 export class GeminiAudioTranscriptionCapabilityImpl
     implements
         AudioTranscriptionCapability<ClientAudioTranscriptionRequest>,
         AudioTranscriptionStreamCapability<ClientAudioTranscriptionRequest>
 {
+    /**
+     * Creates a new Gemini audio transcription capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {GoogleGenAI} client Initialized Google GenAI SDK client.
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
@@ -52,12 +56,11 @@ export class GeminiAudioTranscriptionCapabilityImpl
      * - Build Gemini instruction prompt
      * - Call `generateContent` and normalize output
      *
-     * @param request Unified AI request containing transcription input/options/context
-     * @param _ctx Optional multimodal execution context (unused by this capability)
-     * @param signal Optional abort signal
-     * @returns Provider-normalized transcript messages
-     * @throws {Error} If input is invalid or request is aborted
-     *
+     * @param {AIRequest<ClientAudioTranscriptionRequest>} request Unified transcription request envelope.
+     * @param {MultiModalExecutionContext} _ctx Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedChatMessage[]>>} Provider-normalized transcript artifacts.
+     * @throws {Error} If input is invalid or the request is aborted before execution.
      */
     async transcribeAudio(
         request: AIRequest<ClientAudioTranscriptionRequest>,
@@ -113,15 +116,14 @@ export class GeminiAudioTranscriptionCapabilityImpl
             id: responseId,
             role: "assistant",
             content: text ? [{ type: "text", text }] : [],
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model,
                 status: "completed",
                 requestId: context?.requestId,
                 language: input.language,
                 ...usage
-            }
+            })
         };
 
         return {
@@ -130,15 +132,14 @@ export class GeminiAudioTranscriptionCapabilityImpl
             multimodalArtifacts: { chat: [message] },
             id: responseId,
             rawResponse: response,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model,
                 status: "completed",
                 requestId: context?.requestId,
                 language: input.language,
                 ...usage
-            }
+            })
         };
     }
 
@@ -150,12 +151,11 @@ export class GeminiAudioTranscriptionCapabilityImpl
      * - a terminal `done: true` completed chunk
      * - a terminal `done: true` error chunk on failure
      *
-     * @param request Unified AI request containing transcription input/options/context
-     * @param _ctx Optional multimodal execution context (unused by this capability)
-     * @param signal Optional abort signal
-     * @returns Async generator of delta and final transcript chunks
-     * @throws {Error} If input is invalid before streaming starts
-     *
+     * @param {AIRequest<ClientAudioTranscriptionRequest>} request Unified transcription request envelope.
+     * @param {MultiModalExecutionContext} _ctx Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedChatMessage[]>>} Async generator of delta and final transcript chunks.
+     * @throws {Error} If input is invalid before streaming starts.
      */
     async *transcribeAudioStream(
         request: AIRequest<ClientAudioTranscriptionRequest>,
@@ -233,30 +233,28 @@ export class GeminiAudioTranscriptionCapabilityImpl
                         id: `${responseId}-delta-${crypto.randomUUID()}`,
                         role: "assistant",
                         content: [{ type: "text", text: buffer }],
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.Gemini,
                             model,
                             status: "incomplete",
                             requestId: context?.requestId,
                             language: input.language,
                             ...(latestUsage ?? {})
-                        }
+                        })
                     };
 
                     const outputMessage: NormalizedChatMessage = {
                         id: responseId,
                         role: "assistant",
                         content: [{ type: "text", text: accumulatedText }],
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.Gemini,
                             model,
                             status: "incomplete",
                             requestId: context?.requestId,
                             language: input.language,
                             ...(latestUsage ?? {})
-                        }
+                        })
                     };
 
                     yield {
@@ -264,15 +262,14 @@ export class GeminiAudioTranscriptionCapabilityImpl
                         id: responseId,
                         delta: [deltaMessage],
                         output: [outputMessage],
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.Gemini,
                             model,
                             status: "incomplete",
                             requestId: context?.requestId,
                             language: input.language,
                             ...(latestUsage ?? {})
-                        }
+                        })
                     };
 
                     // Reset only flushed buffer; keep accumulatedText for final output continuity.
@@ -286,30 +283,28 @@ export class GeminiAudioTranscriptionCapabilityImpl
                     id: `${responseId ?? context?.requestId ?? crypto.randomUUID()}-delta-${crypto.randomUUID()}`,
                     role: "assistant",
                     content: buffer ? [{ type: "text", text: buffer }] : [],
-                    metadata: {
-                        ...(context?.metadata ?? {}),
+                    metadata: buildMetadata(context?.metadata, {
                         provider: AIProvider.Gemini,
                         model,
                         status: "incomplete",
                         requestId: context?.requestId,
                         language: input.language,
                         ...(latestUsage ?? {})
-                    }
+                    })
                 };
 
                 const outputMessage: NormalizedChatMessage = {
                     id: responseId ?? context?.requestId ?? crypto.randomUUID(),
                     role: "assistant",
                     content: accumulatedText ? [{ type: "text", text: accumulatedText }] : [],
-                    metadata: {
-                        ...(context?.metadata ?? {}),
+                    metadata: buildMetadata(context?.metadata, {
                         provider: AIProvider.Gemini,
                         model,
                         status: "incomplete",
                         requestId: context?.requestId,
                         language: input.language,
                         ...(latestUsage ?? {})
-                    }
+                    })
                 };
 
                 yield {
@@ -317,15 +312,14 @@ export class GeminiAudioTranscriptionCapabilityImpl
                     id: outputMessage.id,
                     delta: buffer ? [deltaMessage] : [],
                     output: [outputMessage],
-                    metadata: {
-                        ...(context?.metadata ?? {}),
+                    metadata: buildMetadata(context?.metadata, {
                         provider: AIProvider.Gemini,
                         model,
                         status: "incomplete",
                         requestId: context?.requestId,
                         language: input.language,
                         ...(latestUsage ?? {})
-                    }
+                    })
                 };
             }
 
@@ -335,15 +329,14 @@ export class GeminiAudioTranscriptionCapabilityImpl
                 id: finalId,
                 role: "assistant",
                 content: accumulatedText ? [{ type: "text", text: accumulatedText }] : [],
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model,
                     status: "completed",
                     requestId: context?.requestId,
                     language: input.language,
                     ...(latestUsage ?? {})
-                }
+                })
             };
 
             yield {
@@ -352,15 +345,14 @@ export class GeminiAudioTranscriptionCapabilityImpl
                 output: [finalMessage],
                 // Attach final transcript to timeline artifacts for downstream job snapshot consumers.
                 multimodalArtifacts: { chat: [finalMessage] },
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model,
                     status: "completed",
                     requestId: context?.requestId,
                     language: input.language,
                     ...(latestUsage ?? {})
-                }
+                })
             };
         } catch (err) {
             if (signal?.aborted) {
@@ -373,8 +365,7 @@ export class GeminiAudioTranscriptionCapabilityImpl
                 id: responseId ?? context?.requestId ?? crypto.randomUUID(),
                 output: [],
                 delta: [],
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model,
                     status: "error",
@@ -382,7 +373,7 @@ export class GeminiAudioTranscriptionCapabilityImpl
                     language: input.language,
                     error: err instanceof Error ? err.message : String(err),
                     ...(latestUsage ?? {})
-                }
+                })
             };
         }
     }
@@ -449,51 +440,15 @@ export class GeminiAudioTranscriptionCapabilityImpl
         source: ClientAudioTranscriptionRequest["file"],
         mimeHint?: string
     ): Promise<{ base64: string; mimeType: string }> {
-        if (this.isBlobLike(source)) {
-            // Browser/native Blob flow.
-            const mimeType = mimeHint || (source as any).type || "audio/mpeg";
-            const bytes = Buffer.from(await (source as any).arrayBuffer());
-            return { base64: bytes.toString("base64"), mimeType };
-        }
-
-        if (Buffer.isBuffer(source)) {
-            // Node Buffer flow.
-            return { base64: source.toString("base64"), mimeType: mimeHint ?? "audio/mpeg" };
-        }
-
-        if (source instanceof Uint8Array) {
-            // Typed-array flow (common for SDK wrappers and fetch byte payloads).
-            return { base64: Buffer.from(source).toString("base64"), mimeType: mimeHint ?? "audio/mpeg" };
-        }
-
-        if (source instanceof ArrayBuffer) {
-            // Raw ArrayBuffer flow.
-            return { base64: Buffer.from(source).toString("base64"), mimeType: mimeHint ?? "audio/mpeg" };
-        }
-
-        if (typeof source === "string") {
-            if (source.startsWith("data:")) {
-                // Data URL flow: decode payload and keep embedded mime when present.
-                return parseDataUriToBase64(source);
-            }
-
-            if (await this.pathExists(source)) {
-                // Local file flow: read bytes and infer mime from extension when needed.
-                const bytes = await readFile(source);
-                const mimeType = mimeHint ?? this.inferMimeFromPath(source);
-                return { base64: bytes.toString("base64"), mimeType };
-            }
-
-            throw new Error("String audio input must be a data URL or local file path");
-        }
-
-        if (this.isReadableStreamLike(source)) {
-            // Stream flow: consume stream once and inline full payload.
-            const bytes = await this.readNodeStreamToBuffer(source as NodeJS.ReadableStream);
-            return { base64: bytes.toString("base64"), mimeType: mimeHint ?? "audio/mpeg" };
-        }
-
-        throw new Error("Unsupported audio input source for Gemini transcription");
+        const resolved = await resolveBinarySourceToBase64(source, {
+            mimeTypeHint: mimeHint,
+            defaultMimeType: "audio/mpeg",
+            defaultFileName: "audio-input",
+            inferMimeTypeFromPath: (filePath) => this.inferMimeFromPath(filePath),
+            invalidStringMessage: "String audio input must be a data URL or local file path",
+            unsupportedSourceMessage: "Unsupported audio input source for Gemini transcription"
+        });
+        return { base64: resolved.base64, mimeType: resolved.mimeType };
     }
 
     /**
@@ -549,45 +504,6 @@ export class GeminiAudioTranscriptionCapabilityImpl
      * @returns True when value exposes `arrayBuffer`
      * @private
      */
-    private isBlobLike(value: unknown): boolean {
-        return !!value && typeof value === "object" && typeof (value as any).arrayBuffer === "function";
-    }
-
-    /**
-     * Runtime check for Node readable stream inputs.
-     *
-     * @param value Candidate input
-     * @returns True when value looks like a readable stream
-     * @private
-     */
-    private isReadableStreamLike(value: unknown): value is NodeJS.ReadableStream {
-        return (
-            !!value &&
-            typeof value === "object" &&
-            typeof (value as any).pipe === "function" &&
-            typeof (value as any).on === "function"
-        );
-    }
-
-    /**
-     * Reads a Node readable stream into a single in-memory Buffer.
-     *
-     * @param stream Readable stream source
-     * @returns Full stream bytes
-     * @private
-     */
-    private async readNodeStreamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-        const chunks: Buffer[] = [];
-        return await new Promise<Buffer>((resolve, reject) => {
-            // Preserve binary integrity by converting each incoming chunk to Buffer.
-            stream.on("data", (chunk: Buffer | Uint8Array | string) => {
-                chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk));
-            });
-            stream.on("end", () => resolve(Buffer.concat(chunks)));
-            stream.on("error", reject);
-        });
-    }
-
     /**
      * Infers audio mime type from local file extension.
      *
@@ -597,20 +513,5 @@ export class GeminiAudioTranscriptionCapabilityImpl
      */
     private inferMimeFromPath(filePath: string): string {
         return inferMimeTypeFromFilename(filePath, "audio/mpeg")!;
-    }
-
-    /**
-     * Async existence check that avoids blocking the event loop.
-     *
-     * @param filePath Path to test
-     * @returns `true` when path is accessible
-     */
-    private async pathExists(filePath: string): Promise<boolean> {
-        try {
-            await access(filePath);
-            return true;
-        } catch {
-            return false;
-        }
     }
 }

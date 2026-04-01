@@ -1,6 +1,6 @@
 /**
  * @module core/types/timeline/index.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Barrel exports for timeline event, artifact, and snapshot contracts.
  */
 export * from "./TimelineSnapshot.js";
 export * from "./TimelineEvents.js";

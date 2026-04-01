@@ -1,27 +1,44 @@
 /**
  * @module providers/openai/capabilities/shared/OpenAIVideoUtils.ts
- * @description Shared helper utilities for provider video capabilities.
+ * @description Shared OpenAI video polling, normalization, and artifact-building helpers.
  */
 import type OpenAI from "openai";
-import { AIProvider, NormalizedVideo } from "#root/index.js";
+import {
+    AIProvider,
+    NormalizedVideo,
+    buildMetadata,
+    delayWithAbort as sharedDelayWithAbort,
+    resolvePollingWindow as resolveSharedPollingWindow
+} from "#root/index.js";
 
 const MIN_VIDEO_POLL_INTERVAL_MS = 250;
 
 /**
  * @public
- * @description Helper type for OpenAIVideoVariant.
+ * OpenAI video variant identifier.
  */
 export type OpenAIVideoVariant = "video" | "thumbnail" | "spritesheet" | string;
 
 /**
  * @public
- * @description Helper type for OpenAIVideoPollingOptions.
+ * Polling configuration input for OpenAI video operations.
  */
 export type OpenAIVideoPollingOptions = {
     pollIntervalMs?: number;
     maxPollMs?: number;
     defaultPollIntervalMs: number;
     defaultMaxPollMs: number;
+};
+
+/**
+ * @public
+ * Runtime execution-control overrides for OpenAI video capabilities.
+ */
+export type OpenAIVideoExecutionControlsInput = {
+    pollUntilComplete?: boolean;
+    pollIntervalMs?: number;
+    maxPollMs?: number;
+    includeBase64?: boolean;
 };
 
 export type PollOpenAIVideoArgs<TVideo> = {
@@ -67,33 +84,52 @@ export type BuildOpenAIVideoResponseMetadataArgs = {
 
 /**
  * Normalizes poll interval limits so polling behavior is predictable across capabilities.
+ *
+ * @param {OpenAIVideoPollingOptions} options - Polling configuration input.
+ * @returns {{ pollIntervalMs: number; maxPollMs: number }} Normalized polling window.
  */
-/**
- * @public
- * @description Helper utility for resolvePollingWindow.
- * @param options Polling configuration input.
- * @returns Normalized helper result.
- */
-export function resolvePollingWindow(options: OpenAIVideoPollingOptions): {
+export function resolveOpenAIVideoPollingWindow(options: OpenAIVideoPollingOptions): {
     pollIntervalMs: number;
     maxPollMs: number;
 } {
-    const pollIntervalMs = Math.max(
-        MIN_VIDEO_POLL_INTERVAL_MS,
-        Number(options.pollIntervalMs ?? options.defaultPollIntervalMs)
-    );
-    const maxPollMs = Math.max(pollIntervalMs, Number(options.maxPollMs ?? options.defaultMaxPollMs));
-    return { pollIntervalMs, maxPollMs };
+    return resolveSharedPollingWindow({
+        ...options,
+        minPollIntervalMs: MIN_VIDEO_POLL_INTERVAL_MS
+    });
 }
 
 /**
- * Converts OpenAI video size strings (for example: "1280x720") to numeric dimensions.
+ * Resolves runtime polling and payload controls used across OpenAI video capabilities.
+ *
+ * @param {OpenAIVideoExecutionControlsInput | undefined} input - Execution control overrides.
+ * @returns {{ pollUntilComplete: boolean; includeBase64: boolean; pollIntervalMs: number; maxPollMs: number }} Normalized execution controls.
  */
+export function resolveOpenAIVideoExecutionControls(input?: OpenAIVideoExecutionControlsInput): {
+    pollUntilComplete: boolean;
+    includeBase64: boolean;
+    pollIntervalMs: number;
+    maxPollMs: number;
+} {
+    const { pollIntervalMs, maxPollMs } = resolveOpenAIVideoPollingWindow({
+        pollIntervalMs: input?.pollIntervalMs,
+        maxPollMs: input?.maxPollMs,
+        defaultPollIntervalMs: 2_000,
+        defaultMaxPollMs: 300_000
+    });
+
+    return {
+        pollUntilComplete: input?.pollUntilComplete ?? true,
+        includeBase64: input?.includeBase64 ?? false,
+        pollIntervalMs,
+        maxPollMs
+    };
+}
+
 /**
- * @public
- * @description Helper utility for parseVideoSize.
- * @param size Raw provider size value.
- * @returns Normalized helper result.
+ * Converts OpenAI video size strings (for example: `"1280x720"`) to numeric dimensions.
+ *
+ * @param {string} size - Raw provider size value.
+ * @returns {{ width?: number; height?: number }} Parsed width and height values.
  */
 export function parseVideoSize(size: string): { width?: number; height?: number } {
     const [w, h] = size.split("x", 2);
@@ -106,13 +142,10 @@ export function parseVideoSize(size: string): { width?: number; height?: number 
 }
 
 /**
- * Maps download variant to mime type for normalized artifacts.
- */
-/**
- * @public
- * @description Helper utility for resolveVariantMimeType.
- * @param variant Requested provider download variant.
- * @returns Normalized helper result.
+ * Maps an OpenAI download variant to a normalized MIME type.
+ *
+ * @param {OpenAIVideoVariant} variant - Requested provider download variant.
+ * @returns {string} MIME type for the normalized artifact.
  */
 export function resolveVariantMimeType(variant: OpenAIVideoVariant): string {
     if (variant === "thumbnail" || variant === "spritesheet") {
@@ -122,44 +155,12 @@ export function resolveVariantMimeType(variant: OpenAIVideoVariant): string {
 }
 
 /**
- * Sleeps for the requested poll interval and exits early if the request is aborted.
- */
-/**
- * @public
- * @description Helper utility for delayWithAbort.
- * @param ms Delay duration in milliseconds.
- * @param signal Optional abort signal.
- * @param abortMessage Error message used when aborted.
- * @returns Normalized helper result.
- */
-export function delayWithAbort(ms: number, signal: AbortSignal | undefined, abortMessage: string): Promise<void> {
-    if (ms <= 0) {
-        return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-            signal?.removeEventListener("abort", onAbort);
-            resolve();
-        }, ms);
-
-        const onAbort = () => {
-            clearTimeout(timer);
-            reject(new Error(abortMessage));
-        };
-
-        if (signal) {
-            if (signal.aborted) {
-                onAbort();
-                return;
-            }
-            signal.addEventListener("abort", onAbort, { once: true });
-        }
-    });
-}
-
-/**
  * Polls OpenAI videos until the operation reaches a terminal state.
+ *
+ * @template TVideo - Provider video payload type.
+ * @param {PollOpenAIVideoArgs<TVideo>} args - Structured polling arguments.
+ * @returns {Promise<TVideo>} Final terminal video payload.
+ * @throws {Error} When polling is aborted or exceeds the configured timeout.
  */
 export async function pollOpenAIVideoUntilTerminal<TVideo>(args: PollOpenAIVideoArgs<TVideo>): Promise<TVideo> {
     const started = Date.now();
@@ -181,13 +182,19 @@ export async function pollOpenAIVideoUntilTerminal<TVideo>(args: PollOpenAIVideo
         if (args.delay) {
             await args.delay(args.pollIntervalMs, args.signal);
         } else {
-            await delayWithAbort(args.pollIntervalMs, args.signal, args.abortMessage);
+            await sharedDelayWithAbort(args.pollIntervalMs, args.signal, args.abortMessage);
         }
     }
 }
 
 /**
  * Downloads OpenAI video variant content and returns base64 payload.
+ *
+ * @param {OpenAI} client - OpenAI SDK client.
+ * @param {string} videoId - Provider video identifier.
+ * @param {OpenAIVideoVariant} variant - Variant to download.
+ * @param {AbortSignal | undefined} signal - Optional abort signal.
+ * @returns {Promise<string | undefined>} Base64 payload when content is available.
  */
 export async function downloadVariantBase64(
     client: OpenAI,
@@ -201,14 +208,11 @@ export async function downloadVariantBase64(
 }
 
 /**
- * Throws normalized failure message when OpenAI video operation is in failed state.
- */
-/**
- * @public
- * @description Helper utility for throwIfFailedVideoStatus.
- * @param video Provider video payload to validate.
- * @param operationName Operation label for error context.
- * @returns Normalized helper result.
+ * Throws a normalized failure message when an OpenAI video operation is in the failed state.
+ *
+ * @param {OpenAIVideoStatusPayload} video - Provider video payload to validate.
+ * @param {"generation" | "remix"} operationName - Operation label for error context.
+ * @throws {Error} When the provider reports a failed video operation.
  */
 export function throwIfFailedVideoStatus(video: OpenAIVideoStatusPayload, operationName: "generation" | "remix"): void {
     if (video.status !== "failed") {
@@ -224,12 +228,9 @@ export function throwIfFailedVideoStatus(video: OpenAIVideoStatusPayload, operat
 
 /**
  * Creates a normalized OpenAI video artifact with shared metadata.
- */
-/**
- * @public
- * @description Helper utility for buildOpenAIVideoArtifact.
- * @param args Structured helper arguments.
- * @returns Normalized helper result.
+ *
+ * @param {BuildOpenAIVideoArtifactArgs} args - Structured helper arguments.
+ * @returns {NormalizedVideo} Normalized video artifact.
  */
 export function buildOpenAIVideoArtifact(args: BuildOpenAIVideoArtifactArgs): NormalizedVideo {
     return {
@@ -239,24 +240,21 @@ export function buildOpenAIVideoArtifact(args: BuildOpenAIVideoArtifactArgs): No
         durationSeconds: args.durationSeconds,
         ...parseVideoSize(args.size),
         raw: args.raw,
-        metadata: {
+        metadata: buildMetadata(undefined, {
             provider: AIProvider.OpenAI,
             model: args.model,
             status: args.status,
             requestId: args.requestId,
             ...(args.extraMetadata ?? {})
-        }
+        })
     };
 }
 
 /**
  * Builds top-level response metadata for OpenAI video capabilities.
- */
-/**
- * @public
- * @description Helper utility for buildOpenAIVideoResponseMetadata.
- * @param args Structured helper arguments.
- * @returns Normalized helper result.
+ *
+ * @param {BuildOpenAIVideoResponseMetadataArgs} args - Structured helper arguments.
+ * @returns {Record<string, unknown>} Top-level response metadata object.
  */
 export function buildOpenAIVideoResponseMetadata(args: BuildOpenAIVideoResponseMetadataArgs): Record<string, unknown> {
     return {

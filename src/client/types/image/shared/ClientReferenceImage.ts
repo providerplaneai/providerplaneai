@@ -1,14 +1,11 @@
 /**
  * @module client/types/image/shared/ClientReferenceImage.ts
- * @description ProviderPlaneAI source module.
+ * @description Shared client-side image reference contracts used by image, OCR, and video requests.
  */
 /**
- * Represents a reference image.
- * Can be a URL or base64 content.
- */
-/**
+ * Describes a reference image supplied by URL, inline base64, or a provider-native handle.
+ *
  * @public
- * @description Interface contract for ClientReferenceImage.
  */
 export interface ClientReferenceImage {
     id: string;

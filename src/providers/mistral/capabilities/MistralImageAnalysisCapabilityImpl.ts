@@ -18,8 +18,9 @@ import {
     MultiModalExecutionContext,
     NormalizedImage,
     NormalizedImageAnalysis,
-    ensureDataUri,
-    parseBestEffortJson
+    parseBestEffortJson,
+    resolveReferenceMediaUrl,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_MISTRAL_IMAGE_ANALYSIS_MODEL = "mistral-small-latest";
@@ -61,11 +62,9 @@ type MistralImageAnalysisPayload = {
  * and always finishes with one terminal chunk containing the final normalized output.
  *
  * @public
- * @description Provider capability implementation for MistralImageAnalysisCapabilityImpl.
  */
-export class MistralImageAnalysisCapabilityImpl implements 
-    ImageAnalysisCapability<ClientImageAnalysisRequest>, 
-    ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
+export class MistralImageAnalysisCapabilityImpl
+    implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
 {
     /**
      * Creates a new Mistral image analysis capability adapter.
@@ -115,10 +114,7 @@ export class MistralImageAnalysisCapabilityImpl implements
         const analysisRequest = this.buildImageAnalysisRequest(model, images, prompt, merged.modelParams);
         // Vision is modeled as multimodal chat for Mistral, so the adapter keeps
         // the provider-specific prompt/response formatting local here.
-        const response = await this.client.chat.complete(
-            analysisRequest,
-            { signal, ...(merged.providerParams ?? {}) }
-        );
+        const response = await this.client.chat.complete(analysisRequest, { signal, ...(merged.providerParams ?? {}) });
 
         const responseText = this.extractMessageText(response.choices?.[0]?.message?.content ?? undefined);
         // Providers do not always emit perfect JSON even in "json_object" mode;
@@ -130,13 +126,12 @@ export class MistralImageAnalysisCapabilityImpl implements
             output: normalized,
             rawResponse: response,
             id: response.id ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Mistral,
                 model,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
@@ -181,10 +176,7 @@ export class MistralImageAnalysisCapabilityImpl implements
                 throw new Error("Image analysis aborted before request started");
             }
 
-            const stream = await this.client.chat.stream(
-                analysisRequest,
-                { signal, ...(merged.providerParams ?? {}) }
-            );
+            const stream = await this.client.chat.stream(analysisRequest, { signal, ...(merged.providerParams ?? {}) });
 
             for await (const event of stream as AsyncIterable<CompletionEvent>) {
                 if (signal?.aborted) {
@@ -203,9 +195,7 @@ export class MistralImageAnalysisCapabilityImpl implements
                 const parsed = parseBestEffortJson<MistralImageAnalysisPayload>(accumulatedText);
                 const hasStructuredPayload = parsed.some((item) => !!item && typeof item === "object");
                 const deltaAnalyses = this.normalizeAnalyses(parsed, images);
-                const emissionSignature = JSON.stringify(
-                    deltaAnalyses.map(({ id: _id, ...analysis }) => analysis)
-                );
+                const emissionSignature = JSON.stringify(deltaAnalyses.map(({ id: _id, ...analysis }) => analysis));
 
                 // Skip noisy fallback chunks while JSON is still incomplete; wait until we have
                 // at least one parsed object before emitting incremental analysis updates.
@@ -225,13 +215,12 @@ export class MistralImageAnalysisCapabilityImpl implements
                     output: deltaAnalyses,
                     done: false,
                     id: responseId ?? crypto.randomUUID(),
-                    metadata: {
-                        ...(context?.metadata ?? {}),
+                    metadata: buildMetadata(context?.metadata, {
                         provider: AIProvider.Mistral,
                         model,
                         status: "incomplete",
                         requestId: context?.requestId
-                    }
+                    })
                 };
             }
 
@@ -239,9 +228,7 @@ export class MistralImageAnalysisCapabilityImpl implements
                 parseBestEffortJson<MistralImageAnalysisPayload>(accumulatedText),
                 images
             );
-            const finalEmissionSignature = JSON.stringify(
-                finalOutput.map(({ id: _id, ...analysis }) => analysis)
-            );
+            const finalEmissionSignature = JSON.stringify(finalOutput.map(({ id: _id, ...analysis }) => analysis));
             // If the final normalized state is identical to the last incremental emission,
             // keep the terminal chunk authoritative via `output` but avoid repeating it in `delta`.
             const finalDelta = finalEmissionSignature === lastEmissionSignature ? [] : finalOutput;
@@ -251,13 +238,12 @@ export class MistralImageAnalysisCapabilityImpl implements
                 output: finalOutput,
                 done: true,
                 id: responseId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Mistral,
                     model,
                     status: "completed",
                     requestId: context?.requestId
-                }
+                })
             };
         } catch (err) {
             if (signal?.aborted) {
@@ -269,14 +255,13 @@ export class MistralImageAnalysisCapabilityImpl implements
                 output: [],
                 done: true,
                 id: responseId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Mistral,
                     model,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -294,7 +279,11 @@ export class MistralImageAnalysisCapabilityImpl implements
             // Mistral multimodal chat accepts either remote URLs or data URIs for image parts.
             content.push({
                 type: "image_url",
-                imageUrl: image.url ?? ensureDataUri(image.base64 ?? "", image.mimeType)
+                imageUrl: resolveReferenceMediaUrl(
+                    image,
+                    "image/png",
+                    "Mistral image analysis requires image.base64 or image.url"
+                )
             });
         }
         return content;
@@ -390,16 +379,18 @@ export class MistralImageAnalysisCapabilityImpl implements
      * @returns {ClientReferenceImage[]} Request-compatible reference images.
      */
     private toReferenceImages(images: NormalizedImage[]): ClientReferenceImage[] {
-        return images
-            // Ignore context images that have no reusable provider-facing source.
-            .filter((image) => image.url || image.base64)
-            .map((image) => ({
-                id: image.id,
-                sourceType: image.url ? "url" : "base64",
-                url: image.url,
-                base64: image.base64,
-                mimeType: image.mimeType
-            }));
+        return (
+            images
+                // Ignore context images that have no reusable provider-facing source.
+                .filter((image) => image.url || image.base64)
+                .map((image) => ({
+                    id: image.id,
+                    sourceType: image.url ? "url" : "base64",
+                    url: image.url,
+                    base64: image.base64,
+                    mimeType: image.mimeType
+                }))
+        );
     }
 
     /**

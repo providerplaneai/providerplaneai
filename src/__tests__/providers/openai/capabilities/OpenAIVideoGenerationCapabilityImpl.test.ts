@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { delayWithAbort, toOpenAIReferenceImageFile } from "#root/index.js";
+import { parseVideoSize, resolveVariantMimeType } from "#root/providers/openai/capabilities/shared/OpenAIVideoUtils.js";
 import { OpenAIVideoGenerationCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIVideoGenerationCapabilityImpl.js";
 
 function makeProvider() {
@@ -235,27 +237,55 @@ describe("OpenAIVideoGenerationCapabilityImpl", () => {
         }
     });
 
-    it("helper methods cover parsing, mime mapping, delay, and input reference branches", async () => {
-        const cap = new OpenAIVideoGenerationCapabilityImpl(makeProvider(), { videos: {} } as any);
+    it("shared helpers cover parsing, mime mapping, delay, and input reference branches", async () => {
+        expect(parseVideoSize("1280x720")).toEqual({ width: 1280, height: 720 });
+        expect(parseVideoSize("bad")).toEqual({ width: undefined, height: undefined });
 
-        expect((cap as any).parseVideoSize("1280x720")).toEqual({ width: 1280, height: 720 });
-        expect((cap as any).parseVideoSize("bad")).toEqual({ width: undefined, height: undefined });
+        expect(resolveVariantMimeType("video")).toBe("video/mp4");
+        expect(resolveVariantMimeType("thumbnail")).toBe("image/jpeg");
+        expect(resolveVariantMimeType("spritesheet")).toBe("image/jpeg");
 
-        expect((cap as any).resolveMimeTypeForVariant("video")).toBe("video/mp4");
-        expect((cap as any).resolveMimeTypeForVariant("thumbnail")).toBe("image/jpeg");
-        expect((cap as any).resolveMimeTypeForVariant("spritesheet")).toBe("image/jpeg");
-
-        await expect((cap as any).delay(0)).resolves.toBeUndefined();
+        await expect(delayWithAbort(0, undefined, "Video generation polling aborted")).resolves.toBeUndefined();
         const ac = new AbortController();
         ac.abort();
-        await expect((cap as any).delay(10, ac.signal)).rejects.toThrow("Video generation polling aborted");
+        await expect(delayWithAbort(10, ac.signal, "Video generation polling aborted")).rejects.toThrow(
+            "Video generation polling aborted"
+        );
 
-        await expect((cap as any).buildInputReference(undefined)).resolves.toBeUndefined();
-        await expect((cap as any).buildInputReference({ id: "x", sourceType: "base64", base64: "AQID" })).resolves.toBeTruthy();
-        await expect((cap as any).buildInputReference({ id: "x", sourceType: "url", url: "https://example.com/x.png" })).rejects.toThrow(
+        await expect(
+            toOpenAIReferenceImageFile(
+                undefined,
+                "video-reference.png",
+                "OpenAI video input_reference requires uploaded image content; pass referenceImage.base64 (+ mimeType) instead of url",
+                "referenceImage must include either base64 data or be omitted"
+            )
+        ).resolves.toBeUndefined();
+        await expect(
+            toOpenAIReferenceImageFile(
+                { id: "x", sourceType: "base64", base64: "AQID" } as any,
+                "video-reference.png",
+                "OpenAI video input_reference requires uploaded image content; pass referenceImage.base64 (+ mimeType) instead of url",
+                "referenceImage must include either base64 data or be omitted"
+            )
+        ).resolves.toBeTruthy();
+        await expect(
+            toOpenAIReferenceImageFile(
+                { id: "x", sourceType: "url", url: "https://example.com/x.png" } as any,
+                "video-reference.png",
+                "OpenAI video input_reference requires uploaded image content; pass referenceImage.base64 (+ mimeType) instead of url",
+                "referenceImage must include either base64 data or be omitted"
+            )
+        ).rejects.toThrow(
             "OpenAI video input_reference requires uploaded image content"
         );
-        await expect((cap as any).buildInputReference({ id: "x", sourceType: "base64" })).rejects.toThrow(
+        await expect(
+            toOpenAIReferenceImageFile(
+                { id: "x", sourceType: "base64" } as any,
+                "video-reference.png",
+                "OpenAI video input_reference requires uploaded image content; pass referenceImage.base64 (+ mimeType) instead of url",
+                "referenceImage must include either base64 data or be omitted"
+            )
+        ).rejects.toThrow(
             "referenceImage must include either base64 data or be omitted"
         );
     });

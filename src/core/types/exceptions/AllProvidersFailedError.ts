@@ -1,6 +1,6 @@
 /**
  * @module core/types/exceptions/AllProvidersFailedError.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Error type thrown when a provider fallback chain exhausts all options.
  */
 import { ProviderAttemptResult, ProviderRef } from "#root/index.js";
 
@@ -11,7 +11,7 @@ import { ProviderAttemptResult, ProviderRef } from "#root/index.js";
  */
 /**
  * @public
- * @description Implementation class for AllProvidersFailedError.
+ * Error thrown when all providers in a fallback chain fail.
  */
 export class AllProvidersFailedError extends Error {
     /**
@@ -32,9 +32,9 @@ export class AllProvidersFailedError extends Error {
     public readonly attempts: ProviderAttemptResult[];
 
     /**
-     * @param capability The capability being executed (e.g., "chat", "imageAnalysis")
-     * @param providerChain The ordered list of providers that were attempted
-     * @param attempts Contains info from the attempted provider calls
+     * @param {string} capability - The capability being executed.
+     * @param {ProviderRef[]} providerChain - The ordered list of providers that were attempted.
+     * @param {ProviderAttemptResult[]} attempts - Attempt records for the providers that were actually invoked.
      */
     constructor(capability: string, providerChain: ProviderRef[], attempts: ProviderAttemptResult[]) {
         super(
@@ -86,6 +86,8 @@ export class AllProvidersFailedError extends Error {
 
     /**
      * Returns a concise, log-safe summary of provider failures.
+     *
+     * @returns {{ name: string; capability: string; attempts: Array<Record<string, unknown>> }} Summary payload.
      */
     toSummary() {
         return {

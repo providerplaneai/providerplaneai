@@ -18,7 +18,8 @@ import {
     MultiModalExecutionContext,
     NormalizedAudio,
     TextToSpeechCapability,
-    TextToSpeechStreamCapability
+    TextToSpeechStreamCapability,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_MISTRAL_TTS_MODEL = "voxtral-mini-tts-2603";
@@ -30,23 +31,20 @@ const DEFAULT_MISTRAL_TTS_MODEL = "voxtral-mini-tts-2603";
  * audio deltas, normalizing each mode to `NormalizedAudio[]`.
  *
  * @public
- * @description Provider capability implementation for MistralAudioTextToSpeechCapabilityImpl.
  */
-export class MistralAudioTextToSpeechCapabilityImpl implements
-    TextToSpeechCapability<ClientTextToSpeechRequest>,
-    TextToSpeechStreamCapability<ClientTextToSpeechRequest> {
-
+export class MistralAudioTextToSpeechCapabilityImpl
+    implements TextToSpeechCapability<ClientTextToSpeechRequest>, TextToSpeechStreamCapability<ClientTextToSpeechRequest>
+{
     /**
-     * Creates a new Mistral TTS capability delegate.
+     * Creates a new Mistral text-to-speech capability adapter.
      *
      * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
      * @param {Mistral} client Initialized official Mistral SDK client.
-     * @returns {void}
      */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: Mistral
-    ) { }
+    ) {}
 
     /**
      * Synthesizes speech in a single non-streaming request.
@@ -84,7 +82,7 @@ export class MistralAudioTextToSpeechCapabilityImpl implements
         const response = await this.client.audio.speech.complete(speechRequest, {
             signal,
             ...(merged.modelParams ?? {}),
-            ...(merged.providerParams ?? {})            
+            ...(merged.providerParams ?? {})
         });
 
         if (!this.isSpeechResponse(response)) {
@@ -104,13 +102,12 @@ export class MistralAudioTextToSpeechCapabilityImpl implements
             multimodalArtifacts: { tts: [artifact] },
             id: artifact.id,
             rawResponse: response,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Mistral,
                 model,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
@@ -146,13 +143,13 @@ export class MistralAudioTextToSpeechCapabilityImpl implements
         // Mistral accepts provider-specific format tokens; we resolve a best-effort
         // value locally and let the provider reject unsupported ones.
         const format = this.resolveFormat(input.format, merged.modelParams?.responseFormat);
-        const speechRequest = this.buildSpeechRequest(model, input, merged.modelParams, false, format);        
+        const speechRequest = this.buildSpeechRequest(model, input, merged.modelParams, false, format);
 
         try {
             const response = await this.client.audio.speech.complete(speechRequest, {
                 signal,
                 ...(merged.modelParams ?? {}),
-                ...(merged.providerParams ?? {}) 
+                ...(merged.providerParams ?? {})
             });
 
             if (this.isSpeechResponse(response)) {
@@ -188,13 +185,12 @@ export class MistralAudioTextToSpeechCapabilityImpl implements
                         id: responseId,
                         delta: [artifact],
                         output: [artifact],
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.Mistral,
                             model,
                             status: "incomplete",
                             requestId: context?.requestId
-                        }
+                        })
                     };
                     continue;
                 }
@@ -203,7 +199,7 @@ export class MistralAudioTextToSpeechCapabilityImpl implements
                     finalUsage = event.data.usage;
                 }
             }
-            
+
             // Final completion chunk carries the full audio payload for single-artifact consumers.
             const finalArtifact = createAudioArtifact({
                 kind: "tts",
@@ -217,14 +213,13 @@ export class MistralAudioTextToSpeechCapabilityImpl implements
                 id: responseId,
                 output: [finalArtifact],
                 multimodalArtifacts: { tts: [finalArtifact] },
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Mistral,
                     model,
                     status: "complete",
                     requestId: context?.requestId,
                     ...(typeof finalUsage?.totalTokens === "number" ? { totalTokens: finalUsage.totalTokens } : {})
-                }
+                })
             };
         } catch (err) {
             if (signal?.aborted) {
@@ -236,14 +231,13 @@ export class MistralAudioTextToSpeechCapabilityImpl implements
                 delta: [],
                 done: true,
                 id: responseId,
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Mistral,
                     model,
                     status: "error",
-                    requestId: context?.requestId,                    
+                    requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -301,14 +295,15 @@ export class MistralAudioTextToSpeechCapabilityImpl implements
             return {};
         }
 
-        const { 
-            voiceId: _voiceId, 
-            refAudio: _refAudio, 
-            responseFormat: _responseFormat, 
-            model: _model, 
-            input: _input, 
-            stream: _stream, 
-            ...rest } = modelParams;
+        const {
+            voiceId: _voiceId,
+            refAudio: _refAudio,
+            responseFormat: _responseFormat,
+            model: _model,
+            input: _input,
+            stream: _stream,
+            ...rest
+        } = modelParams;
         return rest;
     }
 

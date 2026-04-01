@@ -351,4 +351,29 @@ describe("GenericJob", () => {
         expect(job.isAborted()).toBe(true);
         expect(job.error).toBeUndefined();
     });
+
+    it("returns undefined fingerprint for non-objects or objects without string ids", () => {
+        const job = new GenericJob({ input: 1 }, false, async () => ({ output: "ok" }));
+        const getArtifactFingerprint = (job as any).getArtifactFingerprint.bind(job) as (value: unknown) => string | undefined;
+
+        expect(getArtifactFingerprint(undefined)).toBeUndefined();
+        expect(getArtifactFingerprint("x")).toBeUndefined();
+        expect(getArtifactFingerprint({})).toBeUndefined();
+        expect(getArtifactFingerprint({ id: 123 })).toBeUndefined();
+        expect(getArtifactFingerprint({ id: "abc" })).toBe("id:abc");
+    });
+
+    it("drops unmeasurable raw payloads and treats nullish values as zero-byte payloads", () => {
+        const job = new GenericJob({ input: 1 }, false, async () => ({ output: "ok" }), undefined, 10, {
+            maxRawBytesPerJob: 10,
+            storeRawResponses: true
+        });
+        const applyRawByteBudget = (job as any).applyRawByteBudget.bind(job) as (raw: unknown) => unknown;
+        const estimate = (job as any).estimateRawBytes.bind(job) as (raw: unknown) => number | undefined;
+
+        expect(estimate(null)).toBe(0);
+        expect(estimate(undefined)).toBe(0);
+        expect(applyRawByteBudget(Symbol("x"))).toBeUndefined();
+        expect(applyRawByteBudget(undefined)).toBeUndefined();
+    });
 });

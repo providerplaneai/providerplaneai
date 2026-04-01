@@ -1,10 +1,8 @@
 /**
  * @module core/workflow/WorkflowExporter.ts
- * @description ProviderPlaneAI source module.
+ * @description Workflow graph exporters for Mermaid, DOT, JSON, and D3-friendly formats.
  */
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { WorkflowError, type Workflow } from "#root/index.js";
+import { WorkflowError, ensureParentDirectory, writeFileContent, type Workflow } from "#root/index.js";
 
 /**
  * JSON-exported workflow node shape.
@@ -55,9 +53,10 @@ export interface WorkflowD3Export {
 export type WorkflowExportResult = string | WorkflowJsonExport | WorkflowD3Export;
 
 /**
- * Exports a Workflow definition to a Mermaid diagram, JSON-serializable format, DOT graph, or a D3-compatible format.
- * This can be used for visualization and diagnostic of workflow structures.
- * Note that exported workflows only include node ids and dependencies, not execution logic or metadata.
+ * Exports workflow definitions into visualization-friendly formats.
+ *
+ * Exported workflows include node ids and dependency edges only. Execution logic,
+ * retry policies, and node metadata are intentionally omitted from export output.
  *
  * @public
  */
@@ -302,13 +301,13 @@ export class WorkflowExporter {
     ): Promise<void> {
         // Keep directory creation optional so callers can enforce strict path expectations.
         if (autoCreateDir) {
-            await mkdir(dirname(filePath), { recursive: true });
+            await ensureParentDirectory(filePath);
         }
         const data = this.export(workflow, format);
         if (typeof data === "string") {
-            await writeFile(filePath, data, "utf-8");
+            await writeFileContent(filePath, data, { encoding: "utf8" });
         } else {
-            await writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
+            await writeFileContent(filePath, JSON.stringify(data, null, 2), { encoding: "utf8" });
         }
     }
 }

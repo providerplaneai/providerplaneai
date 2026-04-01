@@ -2,8 +2,6 @@
  * @module providers/mistral/capabilities/MistralAudioTranscriptionCapabilityImpl.ts
  * @description Mistral audio transcription capability adapter.
  */
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { Mistral } from "@mistralai/mistralai";
 import type {
     AudioTranscriptionRequest,
@@ -22,17 +20,16 @@ import {
     CapabilityKeys,
     ClientAudioInputSource,
     ClientAudioTranscriptionRequest,
-    dataUriToUint8Array,
     MultiModalExecutionContext,
-    NormalizedChatMessage
+    NormalizedChatMessage,
+    resolveMistralFileInput,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_MISTRAL_AUDIO_TRANSCRIPTION_MODEL = "voxtral-mini-latest";
 const DEFAULT_AUDIO_FILENAME = "audio-input";
 
-type ResolvedTranscriptionInput =
-    | { file: FileT; fileUrl?: never }
-    | { file?: never; fileUrl: string };
+type ResolvedTranscriptionInput = { file: FileT; fileUrl?: never } | { file?: never; fileUrl: string };
 
 /**
  * Adapts Mistral audio transcription endpoints into ProviderPlaneAI's normalized
@@ -42,7 +39,6 @@ type ResolvedTranscriptionInput =
  * `NormalizedChatMessage[]` so it aligns with the rest of the audio capability contracts.
  *
  * @public
- * @description Provider capability implementation for MistralAudioTranscriptionCapabilityImpl.
  */
 export class MistralAudioTranscriptionCapabilityImpl
     implements
@@ -91,13 +87,7 @@ export class MistralAudioTranscriptionCapabilityImpl
         // inline upload (`file`) or provider-fetched remote source (`fileUrl`).
         const resolvedInput = await this.resolveTranscriptionInput(input.file, input.filename, input.mimeType, signal);
         const response = await this.client.audio.transcriptions.complete(
-            this.buildTranscriptionRequest(
-                model,
-                resolvedInput,
-                input,
-                false,
-                merged.modelParams
-            ) as AudioTranscriptionRequest,
+            this.buildTranscriptionRequest(model, resolvedInput, input, false, merged.modelParams) as AudioTranscriptionRequest,
             {
                 signal,
                 // Keep the transport-level SDK options passthrough behavior unchanged here.
@@ -122,14 +112,13 @@ export class MistralAudioTranscriptionCapabilityImpl
             multimodalArtifacts: { chat: [message] },
             id: responseId,
             rawResponse: response,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Mistral,
                 model,
                 status: "completed",
                 requestId: context?.requestId,
                 ...finalUsage
-            }
+            })
         };
     }
 
@@ -202,21 +191,26 @@ export class MistralAudioTranscriptionCapabilityImpl
                         context,
                         event
                     );
-                    const outputMessage = this.createTranscriptMessage(responseId, accumulatedText, model, "incomplete", context);
+                    const outputMessage = this.createTranscriptMessage(
+                        responseId,
+                        accumulatedText,
+                        model,
+                        "incomplete",
+                        context
+                    );
 
                     yield {
                         done: false,
                         id: responseId,
                         delta: [deltaMessage],
                         output: [outputMessage],
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.Mistral,
                             model,
                             status: "incomplete",
                             requestId: context?.requestId,
                             ...finalUsage
-                        }
+                        })
                     };
                     continue;
                 }
@@ -240,14 +234,13 @@ export class MistralAudioTranscriptionCapabilityImpl
                         id: responseId,
                         output: [message],
                         multimodalArtifacts: { chat: [message] },
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.Mistral,
                             model: finalModel,
                             status: "completed",
                             requestId: context?.requestId,
                             ...finalUsage
-                        }
+                        })
                     };
                     return;
                 }
@@ -268,14 +261,13 @@ export class MistralAudioTranscriptionCapabilityImpl
                 id: responseId,
                 output: [fallbackMessage],
                 multimodalArtifacts: { chat: [fallbackMessage] },
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Mistral,
                     model,
                     status: "completed",
-                    requestId: context?.requestId,                        
+                    requestId: context?.requestId,
                     ...finalUsage
-                }
+                })
             };
         } catch (err) {
             if (signal?.aborted) {
@@ -287,15 +279,14 @@ export class MistralAudioTranscriptionCapabilityImpl
                 id: responseId,
                 output: [],
                 delta: [],
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Mistral,
                     model,
                     status: "error",
                     requestId: context?.requestId,
                     ...(finalUsage ?? {}),
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -354,99 +345,18 @@ export class MistralAudioTranscriptionCapabilityImpl
                 // Remote audio can be fetched directly by Mistral without a local upload hop.
                 return { fileUrl: file };
             }
-
-            if (/^data:/i.test(file)) {
-                return {
-                    file: {
-                        fileName: filename ?? DEFAULT_AUDIO_FILENAME,
-                        // Shared Data URI decoding keeps this path consistent with OCR and other providers.
-                        content: dataUriToUint8Array(file)
-                    }
-                };
-            }
-
-            const bytes = await readFile(file);
-            if (signal?.aborted) {
-                throw new Error("Audio transcription request aborted while reading file input");
-            }
-
-            return {
-                file: {
-                    fileName: filename ?? path.basename(file),
-                    content: new Uint8Array(bytes)
-                }
-            };
         }
-
-        if (typeof Blob !== "undefined" && file instanceof Blob) {
-            return {
-                file: {
-                    fileName: filename ?? this.extractBlobName(file) ?? DEFAULT_AUDIO_FILENAME,
-                    // Preserve the caller MIME override when the Blob itself is untyped.
-                    content: mimeType && !file.type ? new Blob([file], { type: mimeType }) : file
-                }
-            };
-        }
-
-        if (typeof Buffer !== "undefined" && Buffer.isBuffer(file)) {
-            return {
-                file: {
-                    fileName: filename ?? DEFAULT_AUDIO_FILENAME,
-                    content: new Uint8Array(file)
-                }
-            };
-        }
-
-        if (file instanceof Uint8Array) {
-            return {
-                file: {
-                    fileName: filename ?? DEFAULT_AUDIO_FILENAME,
-                    content: file
-                }
-            };
-        }
-
-        if (file instanceof ArrayBuffer) {
-            return {
-                file: {
-                    fileName: filename ?? DEFAULT_AUDIO_FILENAME,
-                    content: new Uint8Array(file)
-                }
-            };
-        }
-
-        if (this.isNodeReadableStream(file)) {
-            return {
-                file: {
-                    fileName: filename ?? DEFAULT_AUDIO_FILENAME,
-                    content: await this.readNodeStream(file, signal)
-                }
-            };
-        }
-
-        throw new Error("Unsupported Mistral transcription input type");
-    }
-
-    /**
-     * Reads a Node readable stream into a single `Uint8Array`.
-     *
-     * @param {NodeJS.ReadableStream} stream Node readable stream input.
-     * @param {AbortSignal} [signal] Optional cancellation signal.
-     * @throws {Error} When aborted while draining the stream.
-     * @returns {Promise<Uint8Array>} Collected stream bytes.
-     */
-    private async readNodeStream(stream: NodeJS.ReadableStream, signal?: AbortSignal): Promise<Uint8Array> {
-        const chunks: Buffer[] = [];
-
-        for await (const chunk of stream as AsyncIterable<Buffer | Uint8Array | string>) {
-            if (signal?.aborted) {
-                throw new Error("Audio transcription request aborted while reading stream input");
-            }
-
-            chunks.push(Buffer.from(chunk));
-        }
-
-        return new Uint8Array(Buffer.concat(chunks));
+        return {
+            file: await resolveMistralFileInput(file, {
+                filenameHint: filename,
+                mimeTypeHint: mimeType,
+                defaultFileName: DEFAULT_AUDIO_FILENAME,
+                signal,
+                fileAbortMessage: "Audio transcription request aborted while reading file input",
+                streamAbortMessage: "Audio transcription request aborted while reading stream input",
+                unsupportedSourceMessage: "Unsupported Mistral transcription input type"
+            })
+        };
     }
 
     /**
@@ -474,15 +384,14 @@ export class MistralAudioTranscriptionCapabilityImpl
             id,
             role: "assistant",
             content: text ? [{ type: "text", text }] : [],
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Mistral,
                 model,
                 status,
                 requestId: context?.requestId,
                 ...(extraMetadata ?? {}),
                 ...(raw !== undefined ? { raw } : {})
-            }
+            })
         };
     }
 
@@ -500,30 +409,5 @@ export class MistralAudioTranscriptionCapabilityImpl
             ...(typeof usage?.totalTokens === "number" ? { totalTokens: usage.totalTokens } : {}),
             ...(language ? { language } : {})
         };
-    }
-
-    /**
-     * Extracts a best-effort filename from a Blob/File-like value.
-     *
-     * @param {Blob} blob Blob or File instance.
-     * @returns {string | undefined} Name when present.
-     */
-    private extractBlobName(blob: Blob): string | undefined {
-        const maybeFile = blob as Blob & { name?: string };
-        return typeof maybeFile.name === "string" && maybeFile.name.length > 0 ? maybeFile.name : undefined;
-    }
-
-    /**
-     * Runtime guard for Node readable stream inputs.
-     *
-     * @param {unknown} value Candidate audio input value.
-     * @returns {value is NodeJS.ReadableStream} True when the value behaves like a Node readable stream.
-     */
-    private isNodeReadableStream(value: unknown): value is NodeJS.ReadableStream {
-        return (
-            typeof value === "object" &&
-            value !== null &&
-            typeof (value as NodeJS.ReadableStream)[Symbol.asyncIterator] === "function"
-        );
     }
 }

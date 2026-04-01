@@ -5,3 +5,4 @@ export * from "./MistralImageAnalysisCapabilityImpl.js";
 export * from "./MistralOCRCapabilityImpl.js";
 export * from "./MistralAudioTranscriptionCapabilityImpl.js";
 export * from "./MistralAudioTextToSpeechCapabilityImpl.js";
+export * from "./shared/index.js";

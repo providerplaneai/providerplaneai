@@ -1,26 +1,35 @@
 /**
  * @module providers/openai/capabilities/OpenAIOCRCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI OCR capability adapter.
  */
-import { access, readFile } from "node:fs/promises";
 import OpenAI from "openai";
-import { toFile } from "openai/uploads";
 import {
     AIProvider,
     AIRequest,
     AIResponse,
     BaseProvider,
+    buildMetadata,
     CapabilityKeys,
     ClientFileInputSource,
     ClientOCRRequest,
     ClientReferenceImage,
     ensureDataUri,
+    extractDataUriMimeType,
+    fileNameFromPath,
     inferMimeTypeFromFilename,
+    isImageMimeType,
+    isLikelyImagePath,
+    isNodeReadableStream,
+    isPdfMimeType,
     MultiModalExecutionContext,
     NormalizedOCRDocument,
     OCRCapability,
     OCRText,
-    parseDataUriToBuffer
+    normalizeOCRTextValue,
+    readFileToBuffer,
+    readNodeReadableStreamToUint8Array,
+    resolveReferenceMediaUrl,
+    toOpenAIUploadableFile
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_OCR_MODEL = "gpt-4.1";
@@ -50,6 +59,17 @@ type OpenAIOCRPayload = {
 };
 
 export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, NormalizedOCRDocument[]> {
+    /**
+     * JSON schema used to constrain OpenAI OCR tool output.
+     *
+     * This adapter routes OCR through the Responses API and normalizes the tool
+     * payload into `NormalizedOCRDocument`.
+     *
+     * Practical format support is intentionally left to the provider. Local
+     * playground validation in this repo has been strongest for PDF plus common
+     * image/document inputs, while some less common image formats such as BMP and
+     * TIFF have failed provider-side.
+     */
     static OPENAI_OCR_SCHEMA = {
         type: "object",
         additionalProperties: false,
@@ -102,7 +122,10 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                         label: { type: "string" },
                         text: { type: "string" },
                         data: {
-                            anyOf: [{ type: "object", additionalProperties: true }, { type: "array", items: {} }]
+                            anyOf: [
+                                { type: "object", additionalProperties: true },
+                                { type: "array", items: {} }
+                            ]
                         },
                         pageNumber: { type: "number" }
                     },
@@ -126,11 +149,33 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         name: "ocr_extract"
     };
 
+    /**
+     * Creates a new OpenAI OCR capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
     ) {}
 
+    /**
+     * Executes OCR through the OpenAI Responses API.
+     *
+     * Responsibilities:
+     * - validate the OCR input shape
+     * - resolve merged model/runtime options
+     * - build multimodal Responses API content from images or file input
+     * - parse structured tool output when available
+     * - normalize parsed or fallback text into `NormalizedOCRDocument`
+     *
+     * @param {AIRequest<ClientOCRRequest>} request Unified OCR request envelope.
+     * @param {MultiModalExecutionContext} _ctx Optional execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedOCRDocument[]>>} Provider-normalized OCR artifacts.
+     * @throws {Error} When input is invalid or the request is aborted before execution.
+     */
     async ocr(
         request: AIRequest<ClientOCRRequest>,
         _ctx: MultiModalExecutionContext,
@@ -168,7 +213,7 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             try {
                 parsed = JSON.parse(item.arguments) as OpenAIOCRPayload;
                 if (this.isDegenerateParsedPayload(parsed)) {
-                    const parsedLanguage = this.normalizeOptionalText(parsed.language);
+                    const parsedLanguage = normalizeOCRTextValue(parsed.language);
                     parsed = parsedLanguage ? { language: parsedLanguage } : undefined;
                     continue;
                 }
@@ -187,16 +232,21 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             multimodalArtifacts: { ocr: [document] },
             rawResponse: response,
             id: responseId,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: response?.status ?? "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
+    /**
+     * Ensures the request contains exactly one OCR source mode.
+     *
+     * @param {ClientOCRRequest} input OCR request input.
+     * @throws {Error} When neither source type is provided or both file and images are supplied together.
+     */
     private assertHasSource(input: ClientOCRRequest): void {
         const imageCount = input.images?.length ?? 0;
         const hasFile = input.file !== undefined;
@@ -208,6 +258,12 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         }
     }
 
+    /**
+     * Builds the Responses API multimodal content array for OCR execution.
+     *
+     * @param {ClientOCRRequest} input OCR request input.
+     * @returns {Promise<any[]>} OpenAI Responses API content parts for the OCR request.
+     */
     private async buildContent(input: ClientOCRRequest): Promise<any[]> {
         const content: any[] = [{ type: "input_text", text: this.buildOCRPrompt(input) }];
 
@@ -222,6 +278,12 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         return content;
     }
 
+    /**
+     * Builds the OCR extraction prompt sent alongside the file or image input.
+     *
+     * @param {ClientOCRRequest} input OCR request input.
+     * @returns {string} Provider instruction text for OCR extraction.
+     */
     private buildOCRPrompt(input: ClientOCRRequest): string {
         const targetShape = [
             "{",
@@ -274,32 +336,41 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         return instructions.join("\n\n");
     }
 
+    /**
+     * Normalizes parsed OCR payload and fallback output text into a unified OCR document.
+     *
+     * @param {ClientOCRRequest} input Original OCR request input.
+     * @param {OpenAIOCRPayload | undefined} parsed Parsed structured OCR payload when available.
+     * @param {string} rawText Fallback plain-text OCR output extracted from the response.
+     * @param {string} responseId Stable response identifier for the normalized artifact.
+     * @returns {NormalizedOCRDocument} Provider-normalized OCR document.
+     */
     private normalizeDocument(
         input: ClientOCRRequest,
         parsed: OpenAIOCRPayload | undefined,
         rawText: string,
         responseId: string
     ): NormalizedOCRDocument {
-        const normalizedParsedFullText = this.normalizeOptionalText(parsed?.fullText);
+        const normalizedParsedFullText = normalizeOCRTextValue(parsed?.fullText);
         const pages = parsed?.pages
             ?.map((page, index) => ({
                 pageNumber: page.pageNumber ?? index + 1,
-                fullText: this.normalizeOptionalText(page.fullText),
-                text: this.normalizeOptionalText(page.fullText)
-                    ? ([{ text: this.normalizeOptionalText(page.fullText)! }] satisfies OCRText[])
+                fullText: normalizeOCRTextValue(page.fullText),
+                text: normalizeOCRTextValue(page.fullText)
+                    ? ([{ text: normalizeOCRTextValue(page.fullText)! }] satisfies OCRText[])
                     : undefined
             }))
             .filter((page) => page.fullText || page.text);
 
         const pageTexts = pages?.map((page) => page.fullText).filter((value): value is string => Boolean(value)) ?? [];
-        const fullText = (normalizedParsedFullText || pageTexts.join("\n\n").trim() || rawText.trim()) || undefined;
+        const fullText = normalizedParsedFullText || pageTexts.join("\n\n").trim() || rawText.trim() || undefined;
 
         return {
             id: responseId,
             fullText,
             text: fullText ? [{ text: fullText }] : undefined,
             pages,
-            language: this.normalizeOptionalText(parsed?.language) ?? input.language,
+            language: normalizeOCRTextValue(parsed?.language) ?? input.language,
             pageCount: pages?.length,
             fileName: input.filename,
             mimeType: input.mimeType,
@@ -309,7 +380,7 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                 .map((annotation) => ({
                     type: annotation.type === "bbox" ? "bbox" : "document",
                     ...(annotation.label ? { label: annotation.label } : {}),
-                    ...(this.normalizeOptionalText(annotation.text) ? { text: this.normalizeOptionalText(annotation.text) } : {}),
+                    ...(normalizeOCRTextValue(annotation.text) ? { text: normalizeOCRTextValue(annotation.text) } : {}),
                     ...(annotation.data ? { data: annotation.data } : {}),
                     ...(annotation.pageNumber ? { pageNumber: annotation.pageNumber } : {})
                 })),
@@ -325,41 +396,12 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                     pageNumber: section.pageNumber ?? index + 1,
                     text: String(section.text)
                 })),
-            metadata: {
+            metadata: buildMetadata(undefined, {
                 provider: AIProvider.OpenAI,
                 status: "completed",
                 rawParsed: parsed
-            }
+            })
         };
-    }
-
-    private normalizeOptionalText(value: unknown): string | undefined {
-        if (typeof value === "string") {
-            const trimmed = value.trim();
-            return trimmed.length > 0 ? trimmed : undefined;
-        }
-
-        if (typeof value === "number" || typeof value === "boolean") {
-            return String(value);
-        }
-
-        if (Array.isArray(value)) {
-            const parts = value
-                .map((item) => this.normalizeOptionalText(item))
-                .filter((item): item is string => Boolean(item));
-            return parts.length > 0 ? parts.join("\n") : undefined;
-        }
-
-        if (value && typeof value === "object") {
-            try {
-                const serialized = JSON.stringify(value);
-                return serialized && serialized !== "{}" && serialized !== "[]" ? serialized : undefined;
-            } catch {
-                return undefined;
-            }
-        }
-
-        return undefined;
     }
 
     private isDegenerateParsedPayload(parsed: OpenAIOCRPayload | undefined): boolean {
@@ -367,14 +409,13 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             return true;
         }
 
-        const fullText = this.normalizeOptionalText(parsed.fullText);
-        const headers = parsed.headers?.some((section) => this.normalizeOptionalText(section?.text)) ?? false;
-        const footers = parsed.footers?.some((section) => this.normalizeOptionalText(section?.text)) ?? false;
-        const pages =
-            parsed.pages?.some((page) => this.normalizeOptionalText(page?.fullText)) ?? false;
+        const fullText = normalizeOCRTextValue(parsed.fullText);
+        const headers = parsed.headers?.some((section) => normalizeOCRTextValue(section?.text)) ?? false;
+        const footers = parsed.footers?.some((section) => normalizeOCRTextValue(section?.text)) ?? false;
+        const pages = parsed.pages?.some((page) => normalizeOCRTextValue(page?.fullText)) ?? false;
         const annotations =
             parsed.annotations?.some(
-                (annotation) => this.normalizeOptionalText(annotation?.text) || annotation?.data !== undefined
+                (annotation) => normalizeOCRTextValue(annotation?.text) || annotation?.data !== undefined
             ) ?? false;
 
         if (fullText && fullText !== "true" && fullText !== "false") {
@@ -385,23 +426,18 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
     }
 
     private toOpenAIImagePart(image: ClientReferenceImage) {
-        if (image.url) {
-            return { type: "input_image", image_url: image.url };
-        }
-        if (image.base64) {
-            return { type: "input_image", image_url: ensureDataUri(image.base64, image.mimeType) };
-        }
-        throw new Error("OpenAI OCR image inputs require image.url or image.base64");
+        return {
+            type: "input_image",
+            image_url: resolveReferenceMediaUrl(image, "image/png", "OpenAI OCR image inputs require image.url or image.base64")
+        };
     }
 
     private async toOpenAISourcePart(file: ClientFileInputSource, mimeType?: string, filename?: string) {
         const resolvedMimeType = mimeType ?? inferMimeTypeFromFilename(filename) ?? "application/octet-stream";
-        const isImageMimeType = (value?: string) => typeof value === "string" && value.startsWith("image/");
-        const isPdfMimeType = (value?: string) => value === "application/pdf";
 
         if (typeof file === "string") {
             if (/^https?:\/\//i.test(file)) {
-                if (isImageMimeType(resolvedMimeType) || this.isLikelyImagePath(file)) {
+                if (isImageMimeType(resolvedMimeType) || isLikelyImagePath(file)) {
                     return {
                         type: "input_image",
                         image_url: file
@@ -414,7 +450,7 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             }
 
             if (/^data:/i.test(file)) {
-                const dataUriMimeType = this.mimeTypeFromDataUri(file) ?? resolvedMimeType;
+                const dataUriMimeType = extractDataUriMimeType(file) ?? resolvedMimeType;
                 if (isImageMimeType(dataUriMimeType)) {
                     return {
                         type: "input_image",
@@ -435,8 +471,7 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                 });
             }
 
-            await access(file);
-            const bytes = await readFile(file);
+            const bytes = await readFileToBuffer(file);
             const inferredMimeType = mimeType ?? inferMimeTypeFromFilename(file) ?? resolvedMimeType;
             const dataUri = ensureDataUri(Buffer.from(bytes).toString("base64"), inferredMimeType);
             if (isImageMimeType(inferredMimeType)) {
@@ -449,13 +484,13 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                 return await this.uploadFileBackedInputPart({
                     source: bytes,
                     mimeType: inferredMimeType,
-                    filename: filename ?? this.basename(file)
+                    filename: filename ?? fileNameFromPath(file, "ocr-input")
                 });
             }
             return await this.uploadFileBackedInputPart({
                 source: bytes,
                 mimeType: inferredMimeType,
-                filename: filename ?? this.basename(file)
+                filename: filename ?? fileNameFromPath(file, "ocr-input")
             });
         }
 
@@ -549,8 +584,8 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             });
         }
 
-        if (this.isNodeReadableStream(file)) {
-            const bytes = await this.readNodeStream(file, undefined);
+        if (isNodeReadableStream(file)) {
+            const bytes = await readNodeReadableStreamToUint8Array(file);
             const dataUri = ensureDataUri(Buffer.from(bytes).toString("base64"), resolvedMimeType);
             if (isImageMimeType(resolvedMimeType)) {
                 return {
@@ -580,7 +615,7 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         mimeType: string;
         filename: string;
     }): Promise<{ type: "input_file"; file_id: string }> {
-        const uploadableFile = await this.toUploadableFile(params.source, params.filename, params.mimeType);
+        const uploadableFile = await toOpenAIUploadableFile(params.source, params.filename, params.mimeType, "ocr-input");
         const uploadedFile = await this.client.files.create({
             file: uploadableFile as any,
             purpose: "user_data"
@@ -605,83 +640,5 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             }
         }
         return texts.join("\n").trim();
-    }
-
-    private isLikelyImagePath(value: string): boolean {
-        const lower = value.toLowerCase();
-        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp");
-    }
-
-    private mimeTypeFromDataUri(value: string): string | undefined {
-        const match = /^data:([^;,]+)[;,]/i.exec(value);
-        return match?.[1];
-    }
-
-    private async toUploadableFile(source: ClientFileInputSource, filename: string, mimeType: string) {
-        if (this.isBlobLike(source)) {
-            return await toFile(source as any, filename, { type: mimeType });
-        }
-
-        if (Buffer.isBuffer(source)) {
-            return await toFile(source, filename, { type: mimeType });
-        }
-
-        if (source instanceof Uint8Array) {
-            return await toFile(Buffer.from(source), filename, { type: mimeType });
-        }
-
-        if (source instanceof ArrayBuffer) {
-            return await toFile(Buffer.from(source), filename, { type: mimeType });
-        }
-
-        if (typeof source === "string") {
-            if (source.startsWith("data:")) {
-                const parsed = parseDataUriToBuffer(source);
-                return await toFile(parsed.bytes, filename, { type: mimeType || parsed.mimeType });
-            }
-
-            if (await this.pathExists(source)) {
-                const bytes = await readFile(source);
-                return await toFile(bytes, filename, { type: mimeType });
-            }
-        }
-
-        return await toFile(source as any, filename, { type: mimeType });
-    }
-
-    private isBlobLike(value: unknown): boolean {
-        if (!value || typeof value !== "object") {
-            return false;
-        }
-        return typeof (value as any).arrayBuffer === "function" && typeof (value as any).type === "string";
-    }
-
-    private async pathExists(path: string): Promise<boolean> {
-        try {
-            await access(path);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    private basename(value: string): string {
-        const parts = value.split(/[\\/]/);
-        return parts[parts.length - 1] || "ocr-input";
-    }
-
-    private isNodeReadableStream(value: unknown): value is NodeJS.ReadableStream {
-        return Boolean(value) && typeof (value as NodeJS.ReadableStream).pipe === "function";
-    }
-
-    private async readNodeStream(stream: NodeJS.ReadableStream, signal?: AbortSignal): Promise<Uint8Array> {
-        const chunks: Buffer[] = [];
-        for await (const chunk of stream as AsyncIterable<Buffer | Uint8Array | string>) {
-            if (signal?.aborted) {
-                throw new Error("OCR request aborted while reading stream input");
-            }
-            chunks.push(Buffer.from(chunk));
-        }
-        return new Uint8Array(Buffer.concat(chunks));
     }
 }

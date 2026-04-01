@@ -1,9 +1,8 @@
 /**
  * @module providers/gemini/capabilities/GeminiOCRCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini OCR capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
-import { access, readFile } from "node:fs/promises";
 import {
     AIProvider,
     AIRequest,
@@ -18,9 +17,12 @@ import {
     NormalizedOCRDocument,
     OCRCapability,
     OCRText,
-    parseDataUri,
+    normalizeOCRAnnotationText,
     parseBestEffortJson,
-    stripDataUriPrefix
+    resolveReferenceMediaSource,
+    resolveBinarySourceToBase64,
+    stripMarkdownCodeFence,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_OCR_MODEL = "gemini-2.5-pro";
@@ -50,22 +52,45 @@ type GeminiOCRPayload = {
 };
 
 /**
- * Gemini OCR capability implementation.
+ * Adapts Gemini OCR responses into ProviderPlaneAI's normalized OCR artifact surface.
  *
  * Gemini does not expose a dedicated OCR endpoint here, so OCR is implemented as
- * prompt-driven multimodal extraction over images/documents via `generateContent`.
+ * prompt-driven multimodal extraction over images and documents via `generateContent`.
  *
- * v1 scope:
- * - plain OCR for local files, data URIs, remote URLs, and image inputs
- * - best-effort structured extraction through `request.structured`
- * - no OCR streaming
+ * Practical support is narrower than Mistral OCR in this repo. The most reliable
+ * document/image path is PDF plus Gemini's supported image formats; some
+ * text-like and office-document inputs can fail slowly at the provider layer.
+ *
+ * @public
  */
 export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, NormalizedOCRDocument[]> {
+    /**
+     * Creates a new Gemini OCR capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {GoogleGenAI} client Initialized Google GenAI SDK client.
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
     ) {}
 
+    /**
+     * Executes OCR through Gemini multimodal content generation.
+     *
+     * Responsibilities:
+     * - validate the OCR input shape
+     * - resolve merged model/runtime options
+     * - build Gemini user content from images or file input
+     * - parse best-effort JSON from the generated response
+     * - normalize parsed or fallback text into `NormalizedOCRDocument`
+     *
+     * @param {AIRequest<ClientOCRRequest>} request Unified OCR request envelope.
+     * @param {MultiModalExecutionContext} _ctx Optional execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedOCRDocument[]>>} Provider-normalized OCR artifacts.
+     * @throws {Error} When input is invalid or the request is aborted before execution.
+     */
     async ocr(
         request: AIRequest<ClientOCRRequest>,
         _ctx: MultiModalExecutionContext,
@@ -96,7 +121,7 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
 
         const responseId = response?.responseId ?? context?.requestId ?? crypto.randomUUID();
         const responseText = this.extractGeminiResponseText(response);
-        const parsedItems = parseBestEffortJson<GeminiOCRPayload>(this.stripMarkdownCodeFence(responseText));
+        const parsedItems = parseBestEffortJson<GeminiOCRPayload>(stripMarkdownCodeFence(responseText));
         const document = this.normalizeOCRDocument(input, parsedItems[0], responseText, responseId);
 
         return {
@@ -104,16 +129,21 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             multimodalArtifacts: { ocr: [document] },
             id: responseId,
             rawResponse: response,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
+    /**
+     * Ensures the request contains exactly one OCR source mode.
+     *
+     * @param {ClientOCRRequest} input OCR request input.
+     * @throws {Error} When neither source type is provided or both file and images are supplied together.
+     */
     private assertHasSource(input: ClientOCRRequest): void {
         const imageCount = input.images?.length ?? 0;
         const hasFile = input.file !== undefined;
@@ -125,6 +155,12 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         }
     }
 
+    /**
+     * Builds the Gemini multimodal user content payload for OCR execution.
+     *
+     * @param {ClientOCRRequest} input OCR request input.
+     * @returns {Promise<{ role: "user"; parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } } | { fileData: { mimeType: string; fileUri: string } }> }>} Gemini user content payload.
+     */
     private async buildGeminiUserContent(input: ClientOCRRequest): Promise<{
         role: "user";
         parts: Array<
@@ -153,6 +189,12 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         };
     }
 
+    /**
+     * Builds the OCR extraction prompt sent alongside the file or image input.
+     *
+     * @param {ClientOCRRequest} input OCR request input.
+     * @returns {string} Provider instruction text for OCR extraction.
+     */
     private buildOCRPrompt(input: ClientOCRRequest): string {
         const basePrompt = [
             "You are an OCR and document extraction system.",
@@ -172,10 +214,7 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             "}"
         ].join("\n");
 
-        const instructions = [
-            basePrompt.join("\n"),
-            `Return JSON matching this shape:\n${targetShape}`
-        ];
+        const instructions = [basePrompt.join("\n"), `Return JSON matching this shape:\n${targetShape}`];
 
         if (input.language) {
             instructions.push(`Language hint: ${input.language}`);
@@ -215,6 +254,15 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         return instructions.join("\n\n");
     }
 
+    /**
+     * Normalizes parsed OCR payload and fallback output text into a unified OCR document.
+     *
+     * @param {ClientOCRRequest} input Original OCR request input.
+     * @param {GeminiOCRPayload | undefined} parsed Parsed structured OCR payload when available.
+     * @param {string} rawText Fallback plain-text OCR output extracted from the response.
+     * @param {string} responseId Stable response identifier for the normalized artifact.
+     * @returns {NormalizedOCRDocument} Provider-normalized OCR document.
+     */
     private normalizeOCRDocument(
         input: ClientOCRRequest,
         parsed: GeminiOCRPayload | undefined,
@@ -230,7 +278,7 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             .filter((page) => page.fullText || page.text);
 
         const pageTexts = parsedPages?.map((page) => page.fullText).filter((value): value is string => Boolean(value)) ?? [];
-        const fullText = (parsed?.fullText?.trim() || pageTexts.join("\n\n").trim() || rawText.trim()) || undefined;
+        const fullText = parsed?.fullText?.trim() || pageTexts.join("\n\n").trim() || rawText.trim() || undefined;
 
         return {
             id: responseId,
@@ -247,8 +295,14 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                 .map((annotation) => ({
                     type: annotation.type === "bbox" ? "bbox" : "document",
                     ...(annotation.label ? { label: annotation.label } : {}),
-                    ...(this.normalizeAnnotationText(annotation.text, annotation.data, input.structured?.annotationPrompt)
-                        ? { text: this.normalizeAnnotationText(annotation.text, annotation.data, input.structured?.annotationPrompt) }
+                    ...(normalizeOCRAnnotationText(annotation.text, annotation.data, input.structured?.annotationPrompt)
+                        ? {
+                              text: normalizeOCRAnnotationText(
+                                  annotation.text,
+                                  annotation.data,
+                                  input.structured?.annotationPrompt
+                              )
+                          }
                         : {}),
                     ...(annotation.data ? { data: annotation.data } : {}),
                     ...(annotation.pageNumber ? { pageNumber: annotation.pageNumber } : {})
@@ -265,147 +319,65 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                     pageNumber: section.pageNumber ?? index + 1,
                     text: String(section.text)
                 })),
-            metadata: {
+            metadata: buildMetadata(undefined, {
                 provider: AIProvider.Gemini,
                 status: "completed",
                 rawParsed: parsed
-            }
+            })
         };
     }
 
-    private normalizeAnnotationText(
-        text: string | undefined,
-        data: Record<string, unknown> | unknown[] | undefined,
-        annotationPrompt: string | undefined
-    ): string | undefined {
-        const normalizedText = typeof text === "string" ? text.trim() : undefined;
-        if (!normalizedText) {
-            return undefined;
-        }
-
-        const normalizedPrompt = annotationPrompt?.trim();
-        if (normalizedPrompt && normalizedText === normalizedPrompt) {
-            return data ? JSON.stringify(data) : undefined;
-        }
-
-        return normalizedText;
-    }
-
     private toGeminiImagePart(img: ClientReferenceImage) {
-        const mimeType = img.mimeType ?? "image/png";
+        const resolved = resolveReferenceMediaSource(
+            img,
+            "image/png",
+            "Gemini OCR image inputs require image.base64 or image.url"
+        );
 
-        if (typeof img.base64 === "string" && img.base64.length > 0) {
+        if (resolved.kind === "base64") {
             return {
                 inlineData: {
-                    mimeType,
-                    data: stripDataUriPrefix(img.base64)
+                    mimeType: resolved.mimeType,
+                    data: resolved.base64
                 }
             };
         }
 
-        if (typeof img.url === "string" && img.url.length > 0) {
-            if (img.url.startsWith("data:")) {
-                const parsed = parseDataUri(img.url);
-                return {
-                    inlineData: {
-                        mimeType: parsed.mimeType ?? mimeType,
-                        data: Buffer.from(parsed.bytes).toString("base64")
-                    }
-                };
+        return {
+            fileData: {
+                mimeType: resolved.mimeType,
+                fileUri: resolved.url
             }
-
-            return {
-                fileData: {
-                    mimeType,
-                    fileUri: img.url
-                }
-            };
-        }
-
-        throw new Error("Gemini OCR image inputs require image.base64 or image.url");
+        };
     }
 
     private async toGeminiFilePart(file: ClientFileInputSource, mimeType?: string, filename?: string) {
         const resolvedMimeType = mimeType ?? inferMimeTypeFromFilename(filename) ?? "application/octet-stream";
 
-        if (typeof file === "string") {
-            if (/^https?:\/\//i.test(file)) {
-                return {
-                    fileData: {
-                        mimeType: resolvedMimeType,
-                        fileUri: file
-                    }
-                };
+        if (typeof file === "string" && /^https?:\/\//i.test(file)) {
+            return {
+                fileData: {
+                    mimeType: resolvedMimeType,
+                    fileUri: file
+                }
+            };
+        }
+
+        const resolved = await resolveBinarySourceToBase64(file, {
+            filenameHint: filename,
+            mimeTypeHint: mimeType,
+            defaultFileName: "ocr-input",
+            defaultMimeType: resolvedMimeType,
+            inferMimeTypeFromPath: (filePath) => inferMimeTypeFromFilename(filePath) ?? resolvedMimeType,
+            invalidStringMessage: "Unsupported Gemini OCR input type"
+        });
+
+        return {
+            inlineData: {
+                mimeType: resolved.mimeType,
+                data: resolved.base64
             }
-
-            if (/^data:/i.test(file)) {
-                const parsed = parseDataUri(file);
-                return {
-                    inlineData: {
-                        mimeType: parsed.mimeType ?? resolvedMimeType,
-                        data: Buffer.from(parsed.bytes).toString("base64")
-                    }
-                };
-            }
-
-            await access(file);
-            const bytes = await readFile(file);
-            return {
-                inlineData: {
-                    mimeType: mimeType ?? inferMimeTypeFromFilename(file) ?? resolvedMimeType,
-                    data: Buffer.from(bytes).toString("base64")
-                }
-            };
-        }
-
-        if (typeof Blob !== "undefined" && file instanceof Blob) {
-            const buffer = Buffer.from(await file.arrayBuffer());
-            return {
-                inlineData: {
-                    mimeType: file.type || resolvedMimeType,
-                    data: buffer.toString("base64")
-                }
-            };
-        }
-
-        if (typeof Buffer !== "undefined" && Buffer.isBuffer(file)) {
-            return {
-                inlineData: {
-                    mimeType: resolvedMimeType,
-                    data: Buffer.from(file).toString("base64")
-                }
-            };
-        }
-
-        if (file instanceof Uint8Array) {
-            return {
-                inlineData: {
-                    mimeType: resolvedMimeType,
-                    data: Buffer.from(file).toString("base64")
-                }
-            };
-        }
-
-        if (file instanceof ArrayBuffer) {
-            return {
-                inlineData: {
-                    mimeType: resolvedMimeType,
-                    data: Buffer.from(file).toString("base64")
-                }
-            };
-        }
-
-        if (this.isNodeReadableStream(file)) {
-            const bytes = await this.readNodeStream(file, undefined);
-            return {
-                inlineData: {
-                    mimeType: resolvedMimeType,
-                    data: Buffer.from(bytes).toString("base64")
-                }
-            };
-        }
-
-        throw new Error("Unsupported Gemini OCR input type");
+        };
     }
 
     private extractGeminiResponseText(response: any): string {
@@ -432,28 +404,5 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         }
 
         return text;
-    }
-
-    private stripMarkdownCodeFence(value: string): string {
-        const trimmed = value.trim();
-        const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-        return match?.[1]?.trim() ?? trimmed;
-    }
-
-    private isNodeReadableStream(value: unknown): value is NodeJS.ReadableStream {
-        return Boolean(value) && typeof (value as NodeJS.ReadableStream).pipe === "function";
-    }
-
-    private async readNodeStream(stream: NodeJS.ReadableStream, signal?: AbortSignal): Promise<Uint8Array> {
-        const chunks: Buffer[] = [];
-
-        for await (const chunk of stream as AsyncIterable<Buffer | Uint8Array | string>) {
-            if (signal?.aborted) {
-                throw new Error("OCR request aborted while reading stream input");
-            }
-            chunks.push(Buffer.from(chunk));
-        }
-
-        return new Uint8Array(Buffer.concat(chunks));
     }
 }

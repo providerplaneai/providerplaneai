@@ -661,6 +661,43 @@ describe("Pipeline", () => {
         );
     });
 
+    it("ocr throws when source bindings resolve only unusable artifacts", async () => {
+        const { runner, ctx } = createPipelineHarness();
+        const workflow = new Pipeline("pipeline-ocr-no-usable-artifact")
+            .custom("bad", "customEcho", { input: { value: { text: "artifact-without-transport" } } })
+            .ocr(
+                "ocr",
+                { language: "en" },
+                {
+                    source: "bad",
+                    select: () => ({ mimeType: "application/pdf" } as any)
+                }
+            )
+            .build();
+
+        await expect(runner.run(workflow, ctx)).rejects.toThrow(
+            "Could not resolve a usable artifact from the configured `source` step(s)."
+        );
+    });
+
+    it("saveFile throws when no artifact candidate can be resolved from the configured source", async () => {
+        const { runner, ctx } = createPipelineHarness();
+        const workflow = new Pipeline("pipeline-save-missing-artifact")
+            .custom("bad", "customEcho", { input: { value: { text: "seed" } } })
+            .saveFile(
+                "save",
+                { path: "test_data/missing.txt" },
+                {
+                    source: { step: "bad", select: () => undefined as any }
+                }
+            )
+            .build();
+
+        await expect(runner.run(workflow, ctx)).rejects.toThrow(
+            "Could not resolve an artifact from the configured `source` step(s)."
+        );
+    });
+
     it("chat supports requestOverrides/inputOverrides function shapes", async () => {
         const { runner, ctx, createCapabilityJob } = createPipelineHarness();
         const workflow = new Pipeline("pipeline-chat-overrides")
@@ -904,6 +941,46 @@ describe("Pipeline", () => {
         const node = workflow.nodes.find((n) => n.id === "a");
         expect(node).toBeDefined();
         expect(Array.isArray(node?.dependsOn)).toBe(true);
+    });
+
+    it("covers helper branches for OCR page extraction and function-based selectors", () => {
+        const pipeline = new Pipeline("pipeline-helper-branches") as any;
+        const values = {
+            seed: { nested: "value" },
+            imageSeed: { custom: true }
+        };
+
+        expect(
+            pipeline.extractOCRText([
+                { pages: [{ fullText: "" }, { fullText: " Page one body " }] },
+                null,
+                { fullText: " Already full text " }
+            ])
+        ).toBe("Page one body\n\nAlready full text");
+
+        expect(
+            pipeline.resolveSourceText(
+                { nested: "value" },
+                values,
+                (sourceValue: any) => `selected:${String(sourceValue.nested)}`
+            )
+        ).toBe("selected:value");
+
+        expect(
+            pipeline.resolveSourceImageReference(
+                { ignored: true },
+                values,
+                (_sourceValue: any) => ({
+                    id: "img-custom",
+                    sourceType: "url",
+                    url: "https://example.com/custom.png"
+                })
+            )
+        ).toEqual({
+            id: "img-custom",
+            sourceType: "url",
+            url: "https://example.com/custom.png"
+        });
     });
 
     it("covers default branches for tts/transcribe/translate helpers", async () => {

@@ -1,6 +1,6 @@
 /**
  * @module core/workflow/WorkflowBuilder.ts
- * @description ProviderPlaneAI source module.
+ * @description Fluent builder for ProviderPlaneAI workflow DAG definitions.
  */
 import {
     AIClient,
@@ -28,6 +28,7 @@ export type WorkflowNodeFn = (
 /**
  * Builder-time options for an individual workflow node.
  *
+ * @public
  */
 export interface WorkflowNodeOptions {
     dependsOn?: string[];
@@ -39,6 +40,7 @@ export interface WorkflowNodeOptions {
 /**
  * Builder-time options for capability-backed node helpers.
  *
+ * @public
  */
 export type WorkflowCapabilityNodeOptions = WorkflowNodeOptions & {
     providerChain?: ProviderRef[];
@@ -78,18 +80,18 @@ export class WorkflowBuilder<TOutput = unknown> {
     private aggregator?: (results: Record<string, unknown>, state: WorkflowState) => TOutput;
 
     /**
-     * @param id Unique workflow ID
+     * @param {string} id Unique workflow identifier.
      */
     constructor(private id: string) {}
 
     /**
      * Adds a workflow node.
      *
-     * @param id Unique node identifier
-     * @param fn Node execution factory
-     * @param options Optional node execution options
-     * @returns Builder instance for chaining
-     * @throws {WorkflowError} When node id is duplicated
+     * @param {string} id Unique node identifier.
+     * @param {WorkflowNodeFn} fn Node execution factory.
+     * @param {WorkflowNodeOptions | undefined} options Optional node execution options.
+     * @returns {this} Builder instance for chaining.
+     * @throws {WorkflowError} When the node id is duplicated.
      */
     node(id: string, fn: WorkflowNodeFn, options?: WorkflowNodeOptions): this {
         if (this.nodes.some((n) => n.id === id)) {
@@ -112,12 +114,12 @@ export class WorkflowBuilder<TOutput = unknown> {
     /**
      * Adds a node with dependencies in a more readable way than manual `dependsOn`.
      *
-     * @param dependencies One dependency id or list of dependency ids
-     * @param id Unique node identifier
-     * @param fn Node execution factory
-     * @param options Additional node options (excluding dependsOn)
-     * @returns Builder instance for chaining
-     * @throws {WorkflowError} When node id is duplicated
+     * @param {string | string[]} dependencies One dependency id or list of dependency ids.
+     * @param {string} id Unique node identifier.
+     * @param {WorkflowNodeFn} fn Node execution factory.
+     * @param {Omit<WorkflowNodeOptions, "dependsOn"> | undefined} options Additional node options, excluding `dependsOn`.
+     * @returns {this} Builder instance for chaining.
+     * @throws {WorkflowError} When the node id is duplicated.
      */
     after(
         dependencies: string | string[],
@@ -136,8 +138,8 @@ export class WorkflowBuilder<TOutput = unknown> {
     /**
      * Registers a final aggregate mapper for workflow output.
      *
-     * @param fn Aggregate function
-     * @returns Builder instance for chaining
+     * @param {(results: Record<string, unknown>, state: WorkflowState) => TOutput} fn Aggregate function.
+     * @returns {this} Builder instance for chaining.
      */
     aggregate(fn: (results: Record<string, unknown>, state: WorkflowState) => TOutput): this {
         this.aggregator = fn;
@@ -148,8 +150,8 @@ export class WorkflowBuilder<TOutput = unknown> {
      * Sets workflow-level default policies used by runner and capability helpers.
      * Calling this multiple times merges values (latest wins per field).
      *
-     * @param defaults Default policy values
-     * @returns Builder instance for chaining
+     * @param {WorkflowDefaults} defaults Default policy values.
+     * @returns {this} Builder instance for chaining.
      */
     defaults(defaults: WorkflowDefaults): this {
         this.defaultPolicies = {
@@ -162,8 +164,8 @@ export class WorkflowBuilder<TOutput = unknown> {
     /**
      * Sets a workflow version identifier used by resume drift checks.
      *
-     * @param value Version value
-     * @returns Builder instance for chaining
+     * @param {string | number} value Version value.
+     * @returns {this} Builder instance for chaining.
      */
     version(value: string | number): this {
         this.workflowVersion = value;

@@ -18,7 +18,6 @@ export class WorkflowError extends Error {
      * Creates a new workflow error instance.
      *
      * @param {string} message Human-readable workflow failure reason.
-     * @returns {void}
      */
     constructor(message: string) {
         super(message);

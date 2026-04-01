@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { delayWithAbort } from "#root/index.js";
+import { parseVideoSize, resolveVariantMimeType } from "#root/providers/openai/capabilities/shared/OpenAIVideoUtils.js";
 import { OpenAIVideoRemixCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIVideoRemixCapabilityImpl.js";
 
 function makeProvider() {
@@ -176,19 +178,19 @@ describe("OpenAIVideoRemixCapabilityImpl", () => {
         ).rejects.toThrow("Video remix failed [policy]: blocked");
     });
 
-    it("helper methods cover size parsing, mime mapping, and abort-aware delay", async () => {
-        const cap = new OpenAIVideoRemixCapabilityImpl(makeProvider(), { videos: {} } as any);
+    it("shared helpers cover size parsing, mime mapping, and abort-aware delay", async () => {
+        expect(parseVideoSize("720x1280")).toEqual({ width: 720, height: 1280 });
+        expect(parseVideoSize("bad")).toEqual({ width: undefined, height: undefined });
 
-        expect((cap as any).parseVideoSize("720x1280")).toEqual({ width: 720, height: 1280 });
-        expect((cap as any).parseVideoSize("bad")).toEqual({ width: undefined, height: undefined });
+        expect(resolveVariantMimeType("video")).toBe("video/mp4");
+        expect(resolveVariantMimeType("thumbnail")).toBe("image/jpeg");
+        expect(resolveVariantMimeType("spritesheet")).toBe("image/jpeg");
 
-        expect((cap as any).resolveMimeTypeForVariant("video")).toBe("video/mp4");
-        expect((cap as any).resolveMimeTypeForVariant("thumbnail")).toBe("image/jpeg");
-        expect((cap as any).resolveMimeTypeForVariant("spritesheet")).toBe("image/jpeg");
-
-        await expect((cap as any).delay(0)).resolves.toBeUndefined();
+        await expect(delayWithAbort(0, undefined, "Video remix polling aborted")).resolves.toBeUndefined();
         const ac = new AbortController();
         ac.abort();
-        await expect((cap as any).delay(25, ac.signal)).rejects.toThrow("Video remix polling aborted");
+        await expect(delayWithAbort(25, ac.signal, "Video remix polling aborted")).rejects.toThrow(
+            "Video remix polling aborted"
+        );
     });
 });

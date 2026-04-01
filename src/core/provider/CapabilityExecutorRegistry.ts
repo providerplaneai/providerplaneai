@@ -20,7 +20,7 @@ import {
 /**
  * Resolves the provider capability interface type for a capability key.
  *
- * @typeParam C Capability key
+ * @typeParam C - Capability key.
  * @remarks For custom keys, falls back to the generic `ProviderCapability` marker.
  */
 export type CapabilityFor<C extends CapabilityKeyType> = C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability;
@@ -38,11 +38,11 @@ export interface StreamingExecutor<C extends CapabilityKeyType, TInput, TOutput>
     streaming: true;
     /**
      * Invokes the streaming capability.
-     * @param capability The provider capability implementation.
-     * @param input The AIRequest input.
-     * @param ctx The multimodal execution context.
-     * @param signal Optional abort signal.
-     * @returns AsyncGenerator yielding response chunks.
+     * @param {CapabilityFor<C>} capability - The provider capability implementation.
+     * @param {AIRequest<TInput>} input - The AIRequest input.
+     * @param {MultiModalExecutionContext} ctx - The multimodal execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {AsyncGenerator<AIResponseChunk<TOutput>>} Async generator yielding response chunks.
      */
     invoke(
         capability: CapabilityFor<C>,
@@ -65,11 +65,11 @@ export interface NonStreamingExecutor<C extends CapabilityKeyType, TInput, TOutp
     streaming: false;
     /**
      * Invokes the non-streaming capability.
-     * @param capability The provider capability implementation.
-     * @param input The AIRequest input.
-     * @param ctx The multimodal execution context.
-     * @param signal Optional abort signal.
-     * @returns Promise resolving to a single AIResponse.
+     * @param {CapabilityFor<C>} capability - The provider capability implementation.
+     * @param {AIRequest<TInput>} input - The AIRequest input.
+     * @param {MultiModalExecutionContext} ctx - The multimodal execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} Promise resolving to a single AIResponse.
      */
     invoke(
         capability: CapabilityFor<C>,
@@ -99,15 +99,22 @@ export class CapabilityExecutorRegistry {
      * Registers a capability executor for a given key.
      * Supports both built-in and custom capability keys.
      *
-     * @param key The capability key.
-     * @param executor The executor instance.
-     * @returns This registry instance.
+     * @param {C} key - The capability key.
+     * @param {CapabilityExecutor<C, TInput, TOutput>} executor - The executor instance.
+     * @returns {this} This registry instance.
      */
     register<C extends BuiltInCapabilityKey, TInput = any, TOutput = any>(
         key: C,
         executor: CapabilityExecutor<C, TInput, TOutput>
     ): this;
 
+    /**
+     * Registers a custom capability executor.
+     *
+     * @param {CustomCapabilityKey} key - Custom capability key.
+     * @param {CapabilityExecutor<any, TInput, TOutput>} executor - The executor instance.
+     * @returns {this} This registry instance.
+     */
     register<TInput = any, TOutput = any>(key: CustomCapabilityKey, executor: CapabilityExecutor<any, TInput, TOutput>): this;
 
     register(key: CapabilityKeyType, executor: CapabilityExecutor<any, any, any>) {
@@ -118,6 +125,8 @@ export class CapabilityExecutorRegistry {
 
     /**
      * Returns the internal map of all executors.
+     *
+     * @returns {Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>} Registered executor map.
      */
     getExecutors() {
         return this.executors;
@@ -126,8 +135,9 @@ export class CapabilityExecutorRegistry {
     /**
      * Retrieves the executor for a given capability key.
      *
-     * @param key The capability key.
-     * @throws Error if the executor is not registered.
+     * @param {C} key - The capability key.
+     * @returns {CapabilityExecutor<C, TInput, TOutput>} Registered executor instance.
+     * @throws {Error} When the executor is not registered.
      */
     get<C extends CapabilityKeyType, TInput = any, TOutput = any>(key: C): CapabilityExecutor<C, TInput, TOutput> {
         const exec = this.executors.get(key);
@@ -140,14 +150,20 @@ export class CapabilityExecutorRegistry {
     /**
      * Sets (adds or replaces) the executor for a given capability key.
      *
-     * @param key The capability key.
-     * @param executor The executor instance.
+     * @param {C} key - The capability key.
+     * @param {CapabilityExecutor<C, TInput, TOutput>} executor - The executor instance.
      */
     set<C extends BuiltInCapabilityKey, TInput = any, TOutput = any>(
         key: C,
         executor: CapabilityExecutor<C, TInput, TOutput>
     ): void;
 
+    /**
+     * Sets a custom capability executor.
+     *
+     * @param {CustomCapabilityKey} key - Custom capability key.
+     * @param {CapabilityExecutor<any, TInput, TOutput>} executor - The executor instance.
+     */
     set<TInput = any, TOutput = any>(key: CustomCapabilityKey, executor: CapabilityExecutor<any, TInput, TOutput>): void;
 
     set(key: CapabilityKeyType, executor: CapabilityExecutor<any, any, any>) {
@@ -158,8 +174,8 @@ export class CapabilityExecutorRegistry {
     /**
      * Checks if an executor is registered for the given capability key.
      *
-     * @param key The capability key.
-     * @returns True if registered, false otherwise.
+     * @param {CapabilityKeyType} key - The capability key.
+     * @returns {boolean} `true` when an executor is registered for the key.
      */
     has(key: CapabilityKeyType): boolean {
         return this.executors.has(key);
@@ -169,7 +185,7 @@ export class CapabilityExecutorRegistry {
 /**
  * Creates a registry pre-populated with default executors for all built-in capabilities.
  *
- * @returns A CapabilityExecutorRegistry instance with default executors registered.
+ * @returns {CapabilityExecutorRegistry} A registry pre-populated with the default built-in executors.
  */
 export function createDefaultExecutors(): CapabilityExecutorRegistry {
     const registry = new CapabilityExecutorRegistry();

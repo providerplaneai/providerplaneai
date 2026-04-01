@@ -1,6 +1,6 @@
 /**
  * @module core/config/ConfigLoader.ts
- * @description ProviderPlaneAI source module.
+ * @description Configuration loading and validation utilities.
  */
 import dotenv from "dotenv";
 import config from "config";
@@ -20,8 +20,8 @@ import {
  * - Resolves API keys from environment variables
  * - Returns a fully resolved AppConfig object
  *
- * @returns AppConfig loaded from config files and environment variables
- * @throws Error if no provider or required config is found
+ * @returns {AppConfig} The resolved application configuration with provider API keys injected from environment variables.
+ * @throws {Error} Thrown when required provider configuration or referenced API key environment variables are missing.
  */
 export function loadAppConfig(): AppConfig {
     dotenv.config({ quiet: true }); // load .env variables

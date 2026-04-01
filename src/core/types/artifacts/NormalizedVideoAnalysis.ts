@@ -1,12 +1,12 @@
 /**
  * @module core/types/artifacts/NormalizedVideoAnalysis.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized video-analysis artifact contracts.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
 /**
  * @public
- * @description Data contract for NormalizedVideoMoment.
+ * Timeline moment extracted from a normalized video-analysis result.
  */
 export interface NormalizedVideoMoment {
     timestampSeconds?: number;
@@ -18,7 +18,7 @@ export interface NormalizedVideoMoment {
  */
 /**
  * @public
- * @description Data contract for NormalizedVideoAnalysis.
+ * Provider-agnostic normalized video-analysis result.
  */
 export interface NormalizedVideoAnalysis extends NormalizedArtifactBase {
     /**

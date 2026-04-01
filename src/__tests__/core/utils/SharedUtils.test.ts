@@ -21,8 +21,6 @@ import {
     ensureDataUri,
     expectArrayForCapability,
     expectObjectForCapability,
-    getMimeTypeForExtensionOrFormat,
-    inferMimeTypeFromFilename,
     logProviderAttempts,
     logRawBudgetDiagnostics,
     parseDataUri,
@@ -37,6 +35,7 @@ import {
     validateBoolean,
     validateNonNegativeInteger
 } from "#root/core/utils/SharedUtils.js";
+import { getMimeTypeForExtensionOrFormat, inferMimeTypeFromFilename } from "#root/core/utils/MimeTypeUtils.js";
 
 function makeReader(chunks: number[][]) {
     const queue = chunks.map((c) => Uint8Array.from(c));

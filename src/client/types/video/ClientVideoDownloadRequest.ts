@@ -1,15 +1,13 @@
 /**
  * @module client/types/video/ClientVideoDownloadRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientRequestBase } from "#root/index.js";
 
 /**
- * Provider-agnostic request for downloading a generated video asset.
- */
-/**
+ * Request payload for downloading a previously generated video asset.
+ *
  * @public
- * @description Interface contract for ClientVideoDownloadRequest.
  */
 export interface ClientVideoDownloadRequest extends ClientRequestBase {
     /**

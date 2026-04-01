@@ -1,43 +1,38 @@
 /**
  * @module client/types/video/ClientVideoGenerationRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Provider-agnostic video generation request contracts.
  */
 import { ClientReferenceImage, ClientRequestBase } from "#root/index.js";
 
 /**
- * Shared duration values used across current providers.
+ * Shared video durations currently exposed across supported providers.
  *
- * Notes:
- * - OpenAI commonly supports 4/8/12.
- * - Gemini (Veo) commonly supports 5-8.
- */
-/**
  * @public
- * @description Type alias for ClientVideoGenerationSeconds.
  */
 export type ClientVideoGenerationSeconds = "4" | "5" | "6" | "7" | "8" | "12";
 /**
+ * OpenAI-supported duration values for video generation.
+ *
  * @public
- * @description Constant value for OPENAI_VIDEO_GENERATION_SECONDS.
  */
 export const OPENAI_VIDEO_GENERATION_SECONDS = ["4", "8", "12"] as const;
 /**
+ * Gemini-supported duration values for video generation.
+ *
  * @public
- * @description Constant value for GEMINI_VIDEO_GENERATION_SECONDS.
  */
 export const GEMINI_VIDEO_GENERATION_SECONDS = ["5", "6", "7", "8"] as const;
 /**
+ * Shared video output sizes currently exposed through the client API.
+ *
  * @public
- * @description Type alias for ClientVideoGenerationSize.
  */
 export type ClientVideoGenerationSize = "720x1280" | "1280x720" | "1024x1792" | "1792x1024";
 
 /**
- * Provider-agnostic video generation request.
- */
-/**
+ * Request payload for provider-agnostic video generation.
+ *
  * @public
- * @description Interface contract for ClientVideoGenerationRequest.
  */
 export interface ClientVideoGenerationRequest extends ClientRequestBase {
     /**

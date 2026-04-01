@@ -2,9 +2,16 @@
  * @module capabilities/SaveFileCapabilityImpl.ts
  * @description ProviderPlaneAI source module.
  */
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { WorkflowError, type AIClient, type AIRequest, type AIResponse, type NonStreamingExecutor } from "#root/index.js";
+import {
+    WorkflowError,
+    writeFileContent,
+    type AIClient,
+    type AIRequest,
+    type AIResponse,
+    type NonStreamingExecutor,
+    buildMetadata
+} from "#root/index.js";
 
 /**
  * Default capability key used when registering the save-file capability.
@@ -162,13 +169,9 @@ export function createSaveFileExecutor(
             const outputPath = resolveAndValidateOutputPath(input.path, options);
             const { contentType, data } = normalizeContent(input);
 
-            if (autoCreateDir) {
-                await mkdir(path.dirname(outputPath), { recursive: true });
-            }
-
             // Only text/json writes use an encoding option. Binary writes pass raw Buffer.
             const encoding = contentType === "text" || contentType === "json" ? (input.encoding ?? "utf8") : undefined;
-            await writeFile(outputPath, data as any, encoding ? { encoding } : undefined);
+            await writeFileContent(outputPath, data as any, { encoding, ensureDir: autoCreateDir });
 
             const bytesWritten = Buffer.isBuffer(data) ? data.byteLength : Buffer.byteLength(data, encoding ?? "utf8");
 
@@ -180,7 +183,7 @@ export function createSaveFileExecutor(
                 },
                 rawResponse: { requestedPath: input.path },
                 id: `${capabilityKey}-${Date.now()}`,
-                metadata: { status: "completed", capabilityKey }
+                metadata: buildMetadata(undefined, { status: "completed", capabilityKey })
             };
         }
     };

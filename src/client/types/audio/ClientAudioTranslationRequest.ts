@@ -1,27 +1,20 @@
 /**
  * @module client/types/audio/ClientAudioTranslationRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientAudioInputSource, ClientRequestBase } from "#root/index.js";
 
 /**
- * Common response formats used by translation-capable providers.
- */
-/**
+ * Output formats commonly supported by audio translation providers.
+ *
  * @public
- * @description Type alias for ClientAudioTranslationResponseFormat.
  */
 export type ClientAudioTranslationResponseFormat = "json" | "text" | "srt" | "verbose_json" | "vtt";
 
 /**
- * Request payload for audio translation.
+ * Request payload for speech-to-text translation.
  *
- * - `file`: Audio content to translate.
- * - `targetLanguage`: Optional target language hint.
- */
-/**
  * @public
- * @description Interface contract for ClientAudioTranslationRequest.
  */
 export interface ClientAudioTranslationRequest extends ClientRequestBase {
     /**

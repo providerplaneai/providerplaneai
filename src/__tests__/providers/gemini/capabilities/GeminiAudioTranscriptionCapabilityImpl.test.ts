@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parseDataUriToBase64 } from "#root/index.js";
+import { isBlobLike, isNodeReadableStream, parseDataUriToBase64, readNodeReadableStreamToBuffer } from "#root/index.js";
 import { GeminiAudioTranscriptionCapabilityImpl } from "#root/providers/gemini/capabilities/GeminiAudioTranscriptionCapabilityImpl.js";
 
 function makeProvider(batchSize: number = 4) {
@@ -254,6 +254,24 @@ describe("GeminiAudioTranscriptionCapabilityImpl", () => {
         expect(chunks[0]?.metadata?.error).toBe("provider string failure");
     });
 
+    it("transcribeAudioStream suppresses terminal error chunks when setup fails after caller aborts", async () => {
+        const controller = new AbortController();
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockImplementation(async () => {
+                    controller.abort();
+                    throw new Error("late aborted setup");
+                })
+            }
+        } as any;
+
+        const cap = new GeminiAudioTranscriptionCapabilityImpl(makeProvider(), client);
+        const chunks = await collect(
+            cap.transcribeAudioStream({ input: { file: Buffer.from("abc") } } as any, {} as any, controller.signal)
+        );
+        expect(chunks).toEqual([]);
+    });
+
     it("transcribeAudioStream returns immediately when already aborted before stream call", async () => {
         const ac = new AbortController();
         ac.abort();
@@ -296,6 +314,247 @@ describe("GeminiAudioTranscriptionCapabilityImpl", () => {
                 topP: 0.9
             })
         );
+    });
+
+    it("transcribeAudioStream carries usage and language metadata across incremental and final chunks", async () => {
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                yield {
+                    responseId: "g-stream-usage",
+                    text: "abcd",
+                    usageMetadata: {
+                        promptTokenCount: 3,
+                        candidatesTokenCount: 2,
+                        totalTokenCount: 5
+                    }
+                };
+                yield {
+                    responseId: "g-stream-usage",
+                    text: "ef",
+                    usageMetadata: {
+                        promptTokenCount: 4,
+                        candidatesTokenCount: 3,
+                        totalTokenCount: 7
+                    }
+                };
+            }
+        };
+
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(stream)
+            }
+        } as any;
+
+        const cap = new GeminiAudioTranscriptionCapabilityImpl(makeProvider(4), client);
+        const chunks = await collect(
+            cap.transcribeAudioStream(
+                {
+                    input: { file: Buffer.from("abc"), language: "fr" },
+                    context: { requestId: "req-stream-usage" }
+                } as any,
+                {} as any
+            )
+        );
+
+        expect(chunks[0]?.metadata).toMatchObject({
+            provider: "gemini",
+            status: "incomplete",
+            language: "fr",
+            inputTokens: 3,
+            outputTokens: 2,
+            totalTokens: 5
+        });
+        expect(chunks.at(-1)?.metadata).toMatchObject({
+            provider: "gemini",
+            status: "completed",
+            language: "fr",
+            inputTokens: 4,
+            outputTokens: 3,
+            totalTokens: 7
+        });
+    });
+
+    it("transcribeAudioStream finalizes with request-id fallback and empty content when no text deltas arrive", async () => {
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                yield { candidates: [{ content: { parts: [{ inlineData: { data: "AQID" } }] } }] };
+            }
+        };
+
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(stream)
+            }
+        } as any;
+
+        const cap = new GeminiAudioTranscriptionCapabilityImpl(makeProvider(), client);
+        const chunks = await collect(
+            cap.transcribeAudioStream(
+                {
+                    input: { file: Buffer.from("abc"), language: "en" },
+                    context: { requestId: "req-stream-empty" }
+                } as any,
+                {} as any
+            )
+        );
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]).toMatchObject({
+            done: true,
+            id: "req-stream-empty",
+            output: [{ id: "req-stream-empty", content: [] }],
+            metadata: {
+                provider: "gemini",
+                status: "completed",
+                requestId: "req-stream-empty",
+                language: "en"
+            }
+        });
+    });
+
+    it("transcribeAudioStream uses request-id fallback across flush and trailing chunks when provider omits responseId", async () => {
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                yield {
+                    text: "abcd",
+                    usageMetadata: {
+                        promptTokenCount: 2,
+                        candidatesTokenCount: 1,
+                        totalTokenCount: 3
+                    }
+                };
+                yield {
+                    text: "ef",
+                    usageMetadata: {
+                        promptTokenCount: 2,
+                        candidatesTokenCount: 2,
+                        totalTokenCount: 4
+                    }
+                };
+            }
+        };
+
+        const provider = makeProvider();
+        provider.getMergedOptions = vi.fn().mockReturnValue({
+            model: undefined,
+            modelParams: { temperature: 0.4 },
+            providerParams: { topP: 0.8 },
+            generalParams: { audioStreamBatchSize: 4 }
+        });
+
+        const generateContentStream = vi.fn().mockResolvedValue(stream);
+        const cap = new GeminiAudioTranscriptionCapabilityImpl(provider, { models: { generateContentStream } } as any);
+        const chunks = await collect(
+            cap.transcribeAudioStream(
+                {
+                    input: { file: Buffer.from("abc"), language: "de" },
+                    context: { requestId: "req-stream-fallback", metadata: { traceId: "trace-1" } }
+                } as any,
+                {} as any
+            )
+        );
+
+        expect(generateContentStream).toHaveBeenCalledWith(
+            expect.objectContaining({
+                model: "gemini-2.5-flash",
+                temperature: 0.4,
+                topP: 0.8
+            })
+        );
+        expect(chunks[0]).toMatchObject({
+            done: false,
+            id: "req-stream-fallback",
+            metadata: {
+                provider: "gemini",
+                requestId: "req-stream-fallback",
+                language: "de",
+                traceId: "trace-1",
+                totalTokens: 3
+            }
+        });
+        expect(chunks[1]).toMatchObject({
+            done: false,
+            id: "req-stream-fallback",
+            delta: [
+                {
+                    content: [{ type: "text", text: "ef" }]
+                }
+            ],
+            output: [
+                {
+                    id: "req-stream-fallback",
+                    content: [{ type: "text", text: "abcdef" }]
+                }
+            ]
+        });
+        expect(chunks[2]).toMatchObject({
+            done: true,
+            id: "req-stream-fallback",
+            output: [
+                {
+                    id: "req-stream-fallback",
+                    content: [{ type: "text", text: "abcdef" }]
+                }
+            ],
+            metadata: {
+                provider: "gemini",
+                status: "completed",
+                requestId: "req-stream-fallback",
+                language: "de",
+                traceId: "trace-1",
+                totalTokens: 4
+            }
+        });
+    });
+
+    it("transcribeAudioStream emits terminal error chunks with request-id fallback and latest usage when streaming fails mid-run", async () => {
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue({
+                    async *[Symbol.asyncIterator]() {
+                        yield {
+                            usageMetadata: {
+                                promptTokenCount: 5,
+                                candidatesTokenCount: 1,
+                                totalTokenCount: 6
+                            }
+                        };
+                        throw new Error("mid-stream failure");
+                    }
+                })
+            }
+        } as any;
+
+        const cap = new GeminiAudioTranscriptionCapabilityImpl(makeProvider(), client);
+        const chunks = await collect(
+            cap.transcribeAudioStream(
+                {
+                    input: { file: Buffer.from("abc"), language: "es" },
+                    context: { requestId: "req-stream-error" }
+                } as any,
+                {} as any
+            )
+        );
+
+        expect(chunks).toEqual([
+            expect.objectContaining({
+                done: true,
+                id: "req-stream-error",
+                output: [],
+                delta: [],
+                metadata: expect.objectContaining({
+                    provider: "gemini",
+                    status: "error",
+                    requestId: "req-stream-error",
+                    language: "es",
+                    error: "mid-stream failure",
+                    inputTokens: 5,
+                    outputTokens: 1,
+                    totalTokens: 6
+                })
+            })
+        ]);
     });
 
     it("helper methods cover extraction, instruction formats, payload parsing, and mime inference", async () => {
@@ -342,12 +601,12 @@ describe("GeminiAudioTranscriptionCapabilityImpl", () => {
         expect(infer("a.webm")).toBe("audio/webm");
         expect(infer("a.mp3")).toBe("audio/mpeg");
 
-        expect((cap as any).isBlobLike({ arrayBuffer: async () => new ArrayBuffer(0), type: "audio/wav" })).toBe(true);
-        expect((cap as any).isBlobLike({})).toBe(false);
-        expect((cap as any).isReadableStreamLike(Readable.from(["a"]))).toBe(true);
-        expect((cap as any).isReadableStreamLike({})).toBe(false);
+        expect(isBlobLike({ arrayBuffer: async () => new ArrayBuffer(0), type: "audio/wav" })).toBe(true);
+        expect(isBlobLike({})).toBe(false);
+        expect(isNodeReadableStream(Readable.from(["a"]))).toBe(true);
+        expect(isNodeReadableStream({})).toBe(false);
 
-        const readBuf = await (cap as any).readNodeStreamToBuffer(Readable.from([Buffer.from([1, 2]), "3"]));
+        const readBuf = await readNodeReadableStreamToBuffer(Readable.from([Buffer.from([1, 2]), "3"]));
         expect(readBuf).toEqual(Buffer.from([1, 2, 51]));
 
         const filePath = path.join(tmpdir(), `gemini-transcription-${Date.now()}.wav`);

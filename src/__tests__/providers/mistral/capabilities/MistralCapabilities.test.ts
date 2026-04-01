@@ -11,7 +11,8 @@ import { MistralImageAnalysisCapabilityImpl } from "#root/providers/mistral/capa
 import { MISTRAL_OCR_FORMATS, MistralOCRCapabilityImpl } from "#root/providers/mistral/capabilities/MistralOCRCapabilityImpl.js";
 import { MistralAudioTranscriptionCapabilityImpl } from "#root/providers/mistral/capabilities/MistralAudioTranscriptionCapabilityImpl.js";
 import { MistralAudioTextToSpeechCapabilityImpl } from "#root/providers/mistral/capabilities/MistralAudioTextToSpeechCapabilityImpl.js";
-import { CapabilityKeys } from "#root/index.js";
+import { tryParseAnnotationJson } from "#root/providers/mistral/capabilities/shared/MistralOCROutputUtils.js";
+import { CapabilityKeys, extractReadableTextFromOCRMarkdown, normalizeOCRMarkdownTableOutput } from "#root/index.js";
 
 function makeProvider(overrides?: Record<string, unknown>) {
     return {
@@ -375,6 +376,28 @@ describe("Mistral capability implementations", () => {
         );
     });
 
+    it("chatStream emits a terminal error chunk when the provider stream fails after startup", async () => {
+        const cap = new MistralChatCapabilityImpl(makeProvider(), {
+            chat: {
+                stream: vi.fn().mockRejectedValue(new Error("stream exploded"))
+            }
+        } as any);
+
+        const chunks = await collect(
+            cap.chatStream({
+                input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] }
+            } as any)
+        );
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0]?.done).toBe(true);
+        expect(chunks[0]?.metadata?.provider).toBe("mistral");
+        expect(chunks[0]?.metadata?.status).toBe("error");
+        expect((chunks[0]?.metadata as any)?.error).toBeInstanceOf(Error);
+        expect(((chunks[0]?.metadata as any)?.error as Error)?.message).toBe("stream exploded");
+        expect(chunks[0]?.delta?.content).toEqual([]);
+    });
+
     it("chat rejects unsupported user and system message parts", async () => {
         const cap = new MistralChatCapabilityImpl(
             makeProvider(),
@@ -716,6 +739,47 @@ describe("Mistral capability implementations", () => {
         expect(chunks[1].output?.[0]?.sourceImageId).toBe("img-stream-source");
     });
 
+    it("image analysis stream skips incomplete and duplicate structured emissions", async () => {
+        const cap = new MistralImageAnalysisCapabilityImpl(makeProvider(), {
+            chat: {
+                stream: vi.fn().mockResolvedValue({
+                    async *[Symbol.asyncIterator]() {
+                        yield {
+                            data: {
+                                id: "img-stream-dup-1",
+                                choices: [{ delta: { content: '[{"imageIndex":0,"description":"same"}]' } }]
+                            }
+                        };
+                        yield {
+                            data: {
+                                id: "img-stream-dup-1",
+                                choices: [{ delta: { content: "" } }]
+                            }
+                        };
+                        yield {
+                            data: {
+                                id: "img-stream-dup-1",
+                                choices: [{ delta: { content: " " } }]
+                            }
+                        };
+                    }
+                })
+            }
+        } as any);
+
+        const chunks = await collect(
+            cap.analyzeImageStream({
+                input: { images: [{ id: "img-stream-dup-source", sourceType: "url", url: "https://example.com/img.png" }] }
+            } as any)
+        );
+
+        expect(chunks).toHaveLength(2);
+        expect(chunks[0]?.done).toBe(false);
+        expect(chunks[0]?.output?.[0]?.description).toBe("same");
+        expect(chunks[1]?.done).toBe(true);
+        expect(chunks[1]?.delta).toEqual([]);
+    });
+
     it("image analysis stream emits a terminal error chunk on provider failure", async () => {
         const cap = new MistralImageAnalysisCapabilityImpl(makeProvider(), {
             chat: {
@@ -741,6 +805,93 @@ describe("Mistral capability implementations", () => {
                 error: "image stream boom"
             }
         });
+    });
+
+    it("image analysis stream validates missing images and pre-aborted requests", async () => {
+        const cap = new MistralImageAnalysisCapabilityImpl(makeProvider(), {
+            chat: {
+                stream: vi.fn()
+            }
+        } as any);
+
+        await expect(collect(cap.analyzeImageStream({ input: {} } as any))).rejects.toThrow(
+            "At least one image is required for analysis"
+        );
+
+        const controller = new AbortController();
+        controller.abort();
+        await expect(
+            collect(
+                cap.analyzeImageStream(
+                    {
+                        input: { images: [{ id: "img-1", sourceType: "url", url: "https://example.com/img.png" }] }
+                    } as any,
+                    undefined,
+                    controller.signal
+                )
+            )
+        ).resolves.toEqual([]);
+    });
+
+    it("image analysis stream exits quietly on mid-stream abort and on setup failure after abort", async () => {
+        const controller = new AbortController();
+        const client = {
+            chat: {
+                stream: vi.fn()
+                    .mockResolvedValueOnce({
+                        async *[Symbol.asyncIterator]() {
+                            yield {
+                                data: {
+                                    id: "img-stream-abort-1",
+                                    choices: [{ delta: { content: '[{"imageIndex":0,"description":"first"}]' } }]
+                                }
+                            };
+                            controller.abort();
+                            yield {
+                                data: {
+                                    id: "img-stream-abort-1",
+                                    choices: [{ delta: { content: '[{"imageIndex":0,"description":"second"}]' } }]
+                                }
+                            };
+                        }
+                    })
+                    .mockImplementationOnce(async () => {
+                        controller.abort();
+                        throw new Error("late aborted image setup");
+                    })
+            }
+        } as any;
+
+        const cap = new MistralImageAnalysisCapabilityImpl(makeProvider(), client);
+
+        const abortedDuringStream = await collect(
+            cap.analyzeImageStream(
+                {
+                    input: { images: [{ id: "img-stream-source", sourceType: "url", url: "https://example.com/img.png" }] }
+                } as any,
+                undefined,
+                controller.signal
+            )
+        );
+
+        expect(abortedDuringStream.length).toBeLessThanOrEqual(1);
+        if (abortedDuringStream[0]) {
+            expect(abortedDuringStream[0]?.done).toBe(false);
+            expect(abortedDuringStream[0]?.output?.[0]?.description).toBe("first");
+        }
+
+        controller.abort();
+        const abortedDuringSetup = await collect(
+            cap.analyzeImageStream(
+                {
+                    input: { images: [{ id: "img-stream-source-2", sourceType: "url", url: "https://example.com/img.png" }] }
+                } as any,
+                undefined,
+                controller.signal
+            )
+        );
+
+        expect(abortedDuringSetup).toEqual([]);
     });
 
     it("image analysis rejects missing images and aborted requests, and parses text chunks", async () => {
@@ -1075,6 +1226,96 @@ describe("Mistral capability implementations", () => {
                 {} as any
             )
         ).rejects.toThrow("structured.annotationSchema");
+    });
+
+    it("ocr region annotation mode also requires a schema for mistral", async () => {
+        const cap = new MistralOCRCapabilityImpl(makeProvider(), {
+            ocr: {
+                process: vi.fn()
+            }
+        } as any);
+
+        await expect(
+            cap.ocr(
+                {
+                    input: {
+                        file: "https://example.com/test.pdf",
+                        structured: {
+                            annotationMode: "regions",
+                            annotationPrompt: "Extract labeled regions."
+                        }
+                    }
+                } as any,
+                {} as any
+            )
+        ).rejects.toThrow("Mistral OCR region annotations require structured.annotationSchema");
+    });
+
+    it("ocr aborts before execution and maps region annotation schema plus includeBoundingBoxes", async () => {
+        const process = vi.fn().mockResolvedValue({
+            model: "mistral-ocr-latest",
+            pages: [{ index: 0, markdown: "hello", images: [], dimensions: null }],
+            usageInfo: { pagesProcessed: 1, docSizeBytes: 16 }
+        });
+
+        const controller = new AbortController();
+        controller.abort();
+        const cap = new MistralOCRCapabilityImpl(makeProvider(), { ocr: { process } } as any);
+
+        await expect(
+            cap.ocr(
+                {
+                    input: {
+                        file: "https://example.com/test.pdf"
+                    }
+                } as any,
+                {} as any,
+                controller.signal
+            )
+        ).rejects.toThrow("OCR request aborted before execution");
+
+        const activeCap = new MistralOCRCapabilityImpl(makeProvider(), { ocr: { process } } as any);
+        await activeCap.ocr(
+            {
+                input: {
+                    file: "https://example.com/test.pdf",
+                    includeBoundingBoxes: true,
+                    structured: {
+                        annotationMode: "regions",
+                        annotationPrompt: "Extract labeled regions.",
+                        annotationSchema: {
+                            name: "region_schema",
+                            description: "Region labels",
+                            strict: true,
+                            schema: {
+                                type: "object",
+                                properties: {
+                                    label: { type: "string" }
+                                }
+                            }
+                        },
+                        tableFormat: "html"
+                    }
+                }
+            } as any,
+            {} as any
+        );
+
+        expect(process).toHaveBeenCalledWith(
+            expect.objectContaining({
+                bboxAnnotationFormat: expect.objectContaining({
+                    type: "json_schema",
+                    jsonSchema: expect.objectContaining({
+                        name: "region_schema",
+                        description: "Region labels",
+                        strict: true
+                    })
+                }),
+                tableFormat: "html",
+                includeImageBase64: true
+            }),
+            expect.any(Object)
+        );
     });
 
     it("ocr validates source cardinality and image payload requirements", async () => {
@@ -1546,10 +1787,10 @@ describe("Mistral capability implementations", () => {
             expect.any(Object)
         );
         expect(process.mock.calls[0][0].document).toEqual({ type: "file", fileId: "mistral-arraybuffer-ocr-1" });
-        expect(helper.isEmptyMarkdownTableRow(undefined)).toBe(false);
-        expect(helper.isMarkdownTableSeparatorRow(undefined)).toBe(false);
-        expect(helper.tryParseAnnotationJson("7")).toBeUndefined();
-        expect(helper.tryParseAnnotationJson("{invalid")).toBeUndefined();
+        expect(normalizeOCRMarkdownTableOutput(undefined)).toBe("");
+        expect(extractReadableTextFromOCRMarkdown("| --- | --- |")).toBe("");
+        expect(tryParseAnnotationJson("7")).toBeUndefined();
+        expect(tryParseAnnotationJson("{invalid")).toBeUndefined();
     });
 
     it("ocr routes url/base64 images, uploads Uint8Array, and aborts after readFile resolves", async () => {

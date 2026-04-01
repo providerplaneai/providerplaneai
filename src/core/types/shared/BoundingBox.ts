@@ -1,6 +1,6 @@
 /**
  * @module core/types/shared/BoundingBox.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Shared normalized bounding-box contract.
  */
 /**
  * Axis-aligned bounding box in normalized image coordinates.
@@ -11,7 +11,7 @@
  */
 /**
  * @public
- * @description Interface contract for BoundingBox.
+ * Axis-aligned bounding box in normalized image coordinates.
  */
 export interface BoundingBox {
     /**

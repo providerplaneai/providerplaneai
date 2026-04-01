@@ -12,7 +12,8 @@ import {
     ClientModerationRequest,
     ModerationCapability,
     MultiModalExecutionContext,
-    NormalizedModeration
+    NormalizedModeration,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_MISTRAL_MODERATION_MODEL = "mistral-moderation-latest";
@@ -26,7 +27,6 @@ const DEFAULT_MISTRAL_MODERATION_MODEL = "mistral-moderation-latest";
  * `flagged`, and `reason` into `NormalizedModeration[]`.
  *
  * @public
- * @description Provider capability implementation for MistralModerationCapabilityImpl.
  */
 export class MistralModerationCapabilityImpl implements ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
     /**
@@ -109,11 +109,11 @@ export class MistralModerationCapabilityImpl implements ModerationCapability<Cli
                 categoryScores,
                 reason: flaggedCategoryNames.length > 0 ? flaggedCategoryNames.join(", ") : undefined,
                 inputIndex: index,
-                metadata: {
+                metadata: buildMetadata(undefined, {
                     provider: AIProvider.Mistral,
                     model,
                     requestId: context?.requestId
-                }
+                })
             };
         });
 
@@ -121,13 +121,12 @@ export class MistralModerationCapabilityImpl implements ModerationCapability<Cli
             output: normalized,
             rawResponse: response,
             id: response.id ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Mistral,
                 model,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 }

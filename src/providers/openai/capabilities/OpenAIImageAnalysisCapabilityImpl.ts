@@ -1,6 +1,6 @@
 /**
  * @module providers/openai/capabilities/OpenAIImageAnalysisCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI image-analysis capability adapter built on the Responses API.
  */
 import OpenAI from "openai";
 import {
@@ -11,11 +11,12 @@ import {
     BaseProvider,
     CapabilityKeys,
     ClientImageAnalysisRequest,
-    ensureDataUri,
     ImageAnalysisCapability,
     ImageAnalysisStreamCapability,
     MultiModalExecutionContext,
-    NormalizedImageAnalysis
+    NormalizedImageAnalysis,
+    resolveReferenceMediaUrl,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_IMAGE_ANALYSIS_MODEL = "gpt-4.1";
@@ -30,9 +31,6 @@ const DEFAULT_OPENAI_IMAGE_ANALYSIS_MODEL = "gpt-4.1";
  * - No reliable bounding boxes, coordinates, or confidence scores
  * - All outputs are normalized defensively before exposure
  *
- * @template TRequest Image analysis request type
- * @returns AIResponse containing normalized images
- * @throws Error if prompt is missing or analysis fails
  */
 export class OpenAIImageAnalysisCapabilityImpl
     implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
@@ -123,8 +121,8 @@ export class OpenAIImageAnalysisCapabilityImpl
     };
 
     /**
-     * @param provider Parent provider instance
-     * @param client Initialized OpenAI SDK client
+     * @param {BaseProvider} provider - Parent provider instance.
+     * @param {OpenAI} client - Initialized OpenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -134,10 +132,10 @@ export class OpenAIImageAnalysisCapabilityImpl
     /**
      * Analyze one or more images using OpenAI vision models.
      *
-     * @param request - Unified AI request containing reference images
-     * @param executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns AIResponse containing normalized image analysis results
+     * @param {AIRequest<ClientImageAnalysisRequest>} request - Unified AI request containing reference images.
+     * @param {MultiModalExecutionContext | undefined} executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<NormalizedImageAnalysis[]>>} AIResponse containing normalized image-analysis results.
      */
     async analyzeImage(
         request: AIRequest<ClientImageAnalysisRequest>,
@@ -212,13 +210,12 @@ export class OpenAIImageAnalysisCapabilityImpl
             output: analyses,
             rawResponse: response,
             id: response.id ?? context?.requestId ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: response?.status ?? "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
@@ -316,13 +313,12 @@ export class OpenAIImageAnalysisCapabilityImpl
                     delta: analyses,
                     done: true,
                     id: responseId ?? context?.requestId ?? crypto.randomUUID(),
-                    metadata: {
-                        ...(context?.metadata ?? {}),
+                    metadata: buildMetadata(context?.metadata, {
                         provider: AIProvider.OpenAI,
                         model: merged.model,
                         status: "completed",
                         requestId: context?.requestId
-                    }
+                    })
                 };
             }
         } catch (err) {
@@ -337,14 +333,13 @@ export class OpenAIImageAnalysisCapabilityImpl
                 delta: [],
                 done: true,
                 id: responseId,
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.OpenAI,
                     model: merged.model,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -380,7 +375,7 @@ export class OpenAIImageAnalysisCapabilityImpl
         const content = new Array(images.length + 1);
         for (let i = 0; i < images.length; i++) {
             const img = images[i];
-            content[i] = { type: "input_image", image_url: ensureDataUri(img.base64!, img.mimeType) };
+            content[i] = { type: "input_image", image_url: resolveReferenceMediaUrl(img, "image/png") };
         }
         content[images.length] = {
             type: "input_text",

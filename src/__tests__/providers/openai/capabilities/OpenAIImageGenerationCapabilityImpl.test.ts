@@ -64,6 +64,23 @@ describe("OpenAIImageGenerationCapabilityImpl", () => {
         expect(res.metadata?.status).toBe("completed");
     });
 
+    it("generateImage throws when the response contains no usable image artifacts", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: "img-empty-artifacts",
+                    status: "completed",
+                    output: [{ type: "image_generation_call", id: "x" }, { type: "other" }]
+                })
+            }
+        };
+        const cap = new OpenAIImageGenerationCapabilityImpl(makeProvider(), client as any);
+
+        await expect(cap.generateImage({ input: { prompt: "draw" } } as any)).rejects.toThrow(
+            "OpenAI image generation returned no image artifacts"
+        );
+    });
+
     it("generateImageStream returns silently when aborted after stream error", async () => {
         const controller = new AbortController();
         const client = {

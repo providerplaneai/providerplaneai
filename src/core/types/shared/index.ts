@@ -1,6 +1,6 @@
 /**
  * @module core/types/shared/index.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Barrel exports for shared low-level normalized type contracts.
  */
 export * from "./BoundingBox.js";
 export * from "./DetectedObject.js";

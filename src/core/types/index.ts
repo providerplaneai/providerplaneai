@@ -1,6 +1,6 @@
 /**
  * @module core/types/index.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Barrel exports for core runtime, artifact, workflow, and exception type contracts.
  */
 export * from "./AIRequest.js";
 export * from "./AIResponse.js";

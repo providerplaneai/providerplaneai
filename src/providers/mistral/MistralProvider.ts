@@ -118,7 +118,6 @@ export class MistralProvider
      *
      * @param {ProviderConnectionConfig} config Provider connection configuration.
      * @throws {Error} When the configured API key is missing.
-     * @returns {void}
      */
     override init(config: ProviderConnectionConfig) {
         console.log("Initializing Mistral Provider");
@@ -367,10 +366,7 @@ export class MistralProvider
         executionContext: MultiModalExecutionContext,
         signal?: AbortSignal
     ): AsyncGenerator<AIResponseChunk<NormalizedChatMessage[]>> {
-        if (
-            !this.audioTranscriptionDelegate ||
-            typeof this.audioTranscriptionDelegate.transcribeAudioStream !== "function"
-        ) {
+        if (!this.audioTranscriptionDelegate || typeof this.audioTranscriptionDelegate.transcribeAudioStream !== "function") {
             throw new CapabilityUnsupportedError(this.providerType, CapabilityKeys.AudioTranscriptionStreamCapabilityKey);
         }
         return this.audioTranscriptionDelegate.transcribeAudioStream(req, executionContext, signal);

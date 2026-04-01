@@ -1,9 +1,8 @@
 /**
  * @module providers/gemini/capabilities/GeminiAudioTranslationCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini audio translation capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
-import { readFile, access } from "node:fs/promises";
 import {
     AIProvider,
     AIRequest,
@@ -15,21 +14,41 @@ import {
     inferMimeTypeFromFilename,
     MultiModalExecutionContext,
     NormalizedChatMessage,
-    parseDataUriToBase64
+    resolveBinarySourceToBase64,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_AUDIO_TRANSLATION_MODEL = "gemini-2.5-flash";
 
 /**
+ * Adapts Gemini audio translation responses into ProviderPlaneAI's normalized chat artifact surface.
+ *
+ * Gemini does not expose a dedicated translation endpoint, so this adapter sends
+ * audio plus an instruction prompt through `models.generateContent`.
+ *
  * @public
- * @description Provider capability implementation for GeminiAudioTranslationCapabilityImpl.
  */
 export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCapability<ClientAudioTranslationRequest> {
+    /**
+     * Creates a new Gemini audio translation capability adapter.
+     *
+     * @param {BaseProvider} _provider Owning provider instance used for initialization checks and merged config access.
+     * @param {GoogleGenAI} _client Initialized Google GenAI SDK client.
+     */
     constructor(
         private readonly _provider: BaseProvider,
         private readonly _client: GoogleGenAI
     ) {}
 
+    /**
+     * Executes a Gemini audio translation request.
+     *
+     * @param {AIRequest<ClientAudioTranslationRequest>} request Unified translation request envelope.
+     * @param {MultiModalExecutionContext} _ctx Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedChatMessage[]>>} Provider-normalized translated chat message artifacts.
+     * @throws {Error} When input is invalid or the request is aborted before execution.
+     */
     async translateAudio(
         request: AIRequest<ClientAudioTranslationRequest>,
         _ctx: MultiModalExecutionContext,
@@ -80,15 +99,14 @@ export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCap
             id: responseId,
             role: "assistant",
             content: text ? [{ type: "text", text }] : [],
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model,
                 status: "completed",
                 requestId: context?.requestId,
                 targetLanguage: input.targetLanguage ?? "english",
                 ...usage
-            }
+            })
         };
 
         return {
@@ -96,18 +114,23 @@ export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCap
             multimodalArtifacts: { chat: [message] },
             id: responseId,
             rawResponse: response,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model,
                 status: "completed",
                 requestId: context?.requestId,
                 targetLanguage: input.targetLanguage ?? "english",
                 ...usage
-            }
+            })
         };
     }
 
+    /**
+     * Extracts Gemini token usage counters when available.
+     *
+     * @param {any} response Raw Gemini SDK response.
+     * @returns {{ inputTokens?: number; outputTokens?: number; totalTokens?: number; }} Normalized usage counters.
+     */
     private extractUsage(response: any): {
         inputTokens?: number;
         outputTokens?: number;
@@ -124,50 +147,36 @@ export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCap
         };
     }
 
+    /**
+     * Resolves the caller's audio source into Gemini inline audio payload fields.
+     *
+     * @param {ClientAudioTranslationRequest["file"]} source Audio source provided by the caller.
+     * @param {string | undefined} mimeHint Optional MIME type hint.
+     * @returns {Promise<{ base64: string; mimeType: string }>} Base64 audio payload plus resolved MIME type.
+     */
     private async resolveAudioPayload(
         source: ClientAudioTranslationRequest["file"],
         mimeHint?: string
     ): Promise<{ base64: string; mimeType: string }> {
-        if (this.isBlobLike(source)) {
-            const mimeType = mimeHint || (source as any).type || "audio/mpeg";
-            const bytes = Buffer.from(await (source as any).arrayBuffer());
-            return { base64: bytes.toString("base64"), mimeType };
-        }
-
-        if (Buffer.isBuffer(source)) {
-            return { base64: source.toString("base64"), mimeType: mimeHint ?? "audio/mpeg" };
-        }
-
-        if (source instanceof Uint8Array) {
-            return { base64: Buffer.from(source).toString("base64"), mimeType: mimeHint ?? "audio/mpeg" };
-        }
-
-        if (source instanceof ArrayBuffer) {
-            return { base64: Buffer.from(source).toString("base64"), mimeType: mimeHint ?? "audio/mpeg" };
-        }
-
-        if (typeof source === "string") {
-            if (source.startsWith("data:")) {
-                return parseDataUriToBase64(source);
-            }
-
-            if (await this.pathExists(source)) {
-                const bytes = await readFile(source);
-                const mimeType = mimeHint ?? this.inferMimeFromPath(source);
-                return { base64: bytes.toString("base64"), mimeType };
-            }
-
-            throw new Error("String audio input must be a data URL or local file path");
-        }
-
-        if (this.isReadableStreamLike(source)) {
-            const bytes = await this.readNodeStreamToBuffer(source as NodeJS.ReadableStream);
-            return { base64: bytes.toString("base64"), mimeType: mimeHint ?? "audio/mpeg" };
-        }
-
-        throw new Error("Unsupported audio input source for Gemini translation");
+        const resolved = await resolveBinarySourceToBase64(source, {
+            mimeTypeHint: mimeHint,
+            defaultMimeType: "audio/mpeg",
+            defaultFileName: "audio-input",
+            inferMimeTypeFromPath: (filePath) => this.inferMimeFromPath(filePath),
+            invalidStringMessage: "String audio input must be a data URL or local file path",
+            unsupportedSourceMessage: "Unsupported audio input source for Gemini translation"
+        });
+        return { base64: resolved.base64, mimeType: resolved.mimeType };
     }
 
+    /**
+     * Builds the translation instruction sent alongside the inline audio payload.
+     *
+     * @param {string | undefined} targetLanguage Optional target language hint.
+     * @param {string | undefined} prompt Optional caller-supplied style guidance.
+     * @param {ClientAudioTranslationRequest["responseFormat"] | undefined} responseFormat Desired response format hint.
+     * @returns {string} Consolidated instruction text for Gemini.
+     */
     private buildTranslationInstruction(
         targetLanguage?: string,
         prompt?: string,
@@ -183,46 +192,13 @@ export class GeminiAudioTranslationCapabilityImpl implements AudioTranslationCap
         return [`Translate the provided audio into ${target}.`, formatHint, promptHint].filter(Boolean).join(" ");
     }
 
-    private isBlobLike(value: unknown): boolean {
-        return !!value && typeof value === "object" && typeof (value as any).arrayBuffer === "function";
-    }
-
-    private isReadableStreamLike(value: unknown): value is NodeJS.ReadableStream {
-        return (
-            !!value &&
-            typeof value === "object" &&
-            typeof (value as any).pipe === "function" &&
-            typeof (value as any).on === "function"
-        );
-    }
-
-    private async readNodeStreamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-        const chunks: Buffer[] = [];
-        return await new Promise<Buffer>((resolve, reject) => {
-            stream.on("data", (chunk: Buffer | Uint8Array | string) => {
-                chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk));
-            });
-            stream.on("end", () => resolve(Buffer.concat(chunks)));
-            stream.on("error", reject);
-        });
-    }
-
+    /**
+     * Infers a fallback audio MIME type from a local file path.
+     *
+     * @param {string} filePath Local file path.
+     * @returns {string} Resolved audio MIME type.
+     */
     private inferMimeFromPath(filePath: string): string {
         return inferMimeTypeFromFilename(filePath, "audio/mpeg")!;
-    }
-
-    /**
-     * Async existence check that avoids blocking the event loop.
-     *
-     * @param filePath Path to test
-     * @returns `true` when path is accessible
-     */
-    private async pathExists(filePath: string): Promise<boolean> {
-        try {
-            await access(filePath);
-            return true;
-        } catch {
-            return false;
-        }
     }
 }

@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedImage.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized image artifact contract.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
@@ -11,7 +11,7 @@ import { NormalizedArtifactBase } from "#root/index.js";
  */
 /**
  * @public
- * @description Data contract for NormalizedImage.
+ * Normalized representation of a generated or referenced image.
  */
 export interface NormalizedImage extends NormalizedArtifactBase {
     base64?: string;

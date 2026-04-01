@@ -1,6 +1,6 @@
 /**
  * @module providers/gemini/capabilities/GeminiVideoAnalysisCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini video analysis capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
 import {
@@ -12,8 +12,10 @@ import {
     ClientVideoAnalysisRequest,
     MultiModalExecutionContext,
     NormalizedVideoAnalysis,
+    resolveReferenceMediaSource,
     VideoAnalysisCapability,
-    parseBestEffortJson
+    parseBestEffortJson,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_VIDEO_ANALYSIS_MODEL = "gemini-2.5-pro";
@@ -116,14 +118,13 @@ export class GeminiVideoAnalysisCapabilityImpl implements VideoAnalysisCapabilit
             multimodalArtifacts: { videoAnalysis: output },
             rawResponse: rawResponses,
             id: context?.requestId ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model: merged.model ?? DEFAULT_GEMINI_VIDEO_ANALYSIS_MODEL,
                 status: "completed",
                 requestId: context?.requestId,
                 analyzedVideos: output.length
-            }
+            })
         };
     }
 
@@ -164,22 +165,22 @@ export class GeminiVideoAnalysisCapabilityImpl implements VideoAnalysisCapabilit
             parts.push({ text: promptText });
         }
 
-        if (video.base64) {
+        const resolved = resolveReferenceMediaSource(video, defaultMimeType, "Each video must include either base64 or url");
+
+        if (resolved.kind === "base64") {
             parts.push({
                 inlineData: {
-                    mimeType: video.mimeType ?? defaultMimeType,
-                    data: video.base64
-                }
-            });
-        } else if (video.url) {
-            parts.push({
-                fileData: {
-                    mimeType: video.mimeType ?? defaultMimeType,
-                    fileUri: video.url
+                    mimeType: resolved.mimeType,
+                    data: resolved.base64
                 }
             });
         } else {
-            throw new Error("Each video must include either base64 or url");
+            parts.push({
+                fileData: {
+                    mimeType: resolved.mimeType,
+                    fileUri: resolved.url
+                }
+            });
         }
 
         return [{ role: "user", parts }];

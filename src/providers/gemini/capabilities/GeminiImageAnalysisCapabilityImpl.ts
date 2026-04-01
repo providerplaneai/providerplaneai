@@ -1,6 +1,6 @@
 /**
  * @module providers/gemini/capabilities/GeminiImageAnalysisCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini image-analysis capability adapter built on multimodal generation.
  */
 import { GoogleGenAI } from "@google/genai";
 import {
@@ -15,9 +15,9 @@ import {
     ImageAnalysisStreamCapability,
     MultiModalExecutionContext,
     NormalizedImageAnalysis,
-    parseDataUri,
     parseBestEffortJson,
-    stripDataUriPrefix
+    resolveReferenceMediaSource,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_IMAGE_ANALYSIS_MODEL = "gemini-2.5-pro";
@@ -66,28 +66,24 @@ type GeminiImageAnalysisPayload = {
 };
 
 /**
- * Gemini image analysis capability.
+ * Adapts Gemini image analysis responses into ProviderPlaneAI's normalized image-analysis artifact surface.
  *
- * Uses Gemini multimodal generation to analyze images and
- * returns best-effort structured results by prompting the
- * model to emit strict JSON.
+ * Uses Gemini multimodal generation to analyze images and returns best-effort
+ * structured results by prompting the model to emit strict JSON.
  *
  * NOTE:
- * - Gemini does NOT support tool/function calling
- * - Gemini does not support native JSON schema tools like OpenAI.
+ * - Gemini does not support tool/function calling in this path
  * - JSON structure is enforced via prompting only
  * - Bounding boxes and confidence scores are optional / best-effort
- */
-/**
+ *
  * @public
- * @description Provider capability implementation for GeminiImageAnalysisCapabilityImpl.
  */
 export class GeminiImageAnalysisCapabilityImpl
     implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
 {
     /**
-     * @param provider Parent provider instance
-     * @param client Initialized GoogleGenAI client
+     * @param {BaseProvider} provider - Parent provider instance.
+     * @param {GoogleGenAI} client - Initialized GoogleGenAI client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -97,10 +93,10 @@ export class GeminiImageAnalysisCapabilityImpl
     /**
      * Analyze one or more images using Gemini multimodal models.
      *
-     * @param request Unified AI request containing images to analyze
-     * @param executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns Provider-agnostic normalized image analysis results
+     * @param {AIRequest<ClientImageAnalysisRequest>} request - Unified AI request containing images to analyze.
+     * @param {MultiModalExecutionContext | undefined} executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<NormalizedImageAnalysis[]>>} Provider-agnostic normalized image-analysis results.
      */
     async analyzeImage(
         request: AIRequest<ClientImageAnalysisRequest>,
@@ -144,14 +140,13 @@ export class GeminiImageAnalysisCapabilityImpl
             output: normalized,
             rawResponse: response,
             id: response.responseId ?? context?.requestId ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model: merged.model,
                 status: "completed",
                 requestId: context?.requestId,
                 countsMatch: normalized.length === images.length
-            }
+            })
         };
     }
 
@@ -208,14 +203,13 @@ export class GeminiImageAnalysisCapabilityImpl
                 delta: normalized,
                 done: true,
                 id: responseId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model: merged.model,
                     status: "completed",
                     requestId: context?.requestId,
                     countsMatch: normalized.length === images.length
-                }
+                })
             };
         } catch (err) {
             if (signal?.aborted) {
@@ -227,14 +221,13 @@ export class GeminiImageAnalysisCapabilityImpl
                 delta: [],
                 done: true,
                 id: responseId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model: merged.model,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -288,38 +281,27 @@ export class GeminiImageAnalysisCapabilityImpl
      * Converts provider-agnostic image input into Gemini content part shape.
      */
     private toGeminiImagePart(img: { base64?: string; url?: string; mimeType?: string }) {
-        const mimeType = img.mimeType ?? "image/png";
+        const resolved = resolveReferenceMediaSource(
+            img,
+            "image/png",
+            "Gemini image analysis requires image.base64 or image.url"
+        );
 
-        if (typeof img.base64 === "string" && img.base64.length > 0) {
+        if (resolved.kind === "base64") {
             return {
                 inlineData: {
-                    mimeType,
-                    data: stripDataUriPrefix(img.base64)
+                    mimeType: resolved.mimeType,
+                    data: resolved.base64
                 }
             };
         }
 
-        if (typeof img.url === "string" && img.url.length > 0) {
-            // Data URIs are not valid fileUri values for Gemini; convert them to inlineData.
-            if (img.url.startsWith("data:")) {
-                const parsed = parseDataUri(img.url);
-                return {
-                    inlineData: {
-                        mimeType: parsed.mimeType ?? mimeType,
-                        data: Buffer.from(parsed.bytes).toString("base64")
-                    }
-                };
+        return {
+            fileData: {
+                mimeType: resolved.mimeType,
+                fileUri: resolved.url
             }
-
-            return {
-                fileData: {
-                    mimeType,
-                    fileUri: img.url
-                }
-            };
-        }
-
-        throw new Error("Gemini image analysis requires image.base64 or image.url");
+        };
     }
 
     /**

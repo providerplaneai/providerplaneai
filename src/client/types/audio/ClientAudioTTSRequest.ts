@@ -1,37 +1,27 @@
 /**
  * @module client/types/audio/ClientAudioTTSRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientRequestBase } from "#root/index.js";
 
 /**
- * Common output formats used by text-to-speech providers.
- */
-/**
+ * Output formats commonly supported by text-to-speech providers.
+ *
  * @public
- * @description Type alias for ClientTextToSpeechFormat.
  */
 export type ClientTextToSpeechFormat = "mp3" | "opus" | "aac" | "flac" | "wav" | "pcm";
 
 /**
- * Stream transport format for providers that support streamed TTS.
- */
-/**
+ * Streaming transport formats used by providers that can emit TTS output incrementally.
+ *
  * @public
- * @description Type alias for ClientTextToSpeechStreamFormat.
  */
 export type ClientTextToSpeechStreamFormat = "sse" | "audio";
 
 /**
- * Request payload for text-to-speech (TTS) synthesis.
+ * Request payload for text-to-speech synthesis.
  *
- * - `text`: The text to synthesize.
- * - `voice`: Optional voice selection.
- * - `format`: Optional output format (e.g., mp3, wav).
- */
-/**
  * @public
- * @description Interface contract for ClientTextToSpeechRequest.
  */
 export interface ClientTextToSpeechRequest extends ClientRequestBase {
     /**

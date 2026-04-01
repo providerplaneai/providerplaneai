@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/index.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Barrel exports for normalized multimodal artifact contracts.
  */
 export * from "./NormalizedArtifactBase.js";
 export * from "./NormalizedChatMessage.js";

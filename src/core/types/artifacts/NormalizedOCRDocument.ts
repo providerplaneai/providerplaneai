@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedOCRDocument.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized OCR document, page, table, and annotation contracts.
  */
 import { BoundingBox, NormalizedArtifactBase, OCRText } from "#root/index.js";
 
@@ -91,7 +91,7 @@ export interface NormalizedOCRPageSection {
  */
 /**
  * @public
- * @description Data contract for NormalizedOCRPage.
+ * OCR content extracted from a single page.
  */
 export interface NormalizedOCRPage {
     /**
@@ -120,7 +120,7 @@ export interface NormalizedOCRPage {
  */
 /**
  * @public
- * @description Data contract for NormalizedOCRDocument.
+ * Provider-agnostic OCR or document-extraction artifact.
  */
 export interface NormalizedOCRDocument extends NormalizedArtifactBase {
     /**

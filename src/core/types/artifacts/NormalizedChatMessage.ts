@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedChatMessage.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized multimodal chat message contracts.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
@@ -9,7 +9,7 @@ import { NormalizedArtifactBase } from "#root/index.js";
  */
 /**
  * @public
- * @description Data contract for NormalizedTextPart.
+ * Canonical provider-normalized text part.
  */
 export interface NormalizedTextPart {
     type: "text";
@@ -21,7 +21,7 @@ export interface NormalizedTextPart {
  */
 /**
  * @public
- * @description Data contract for NormalizedImagePart.
+ * Canonical provider-normalized image part.
  */
 export interface NormalizedImagePart {
     type: "image";
@@ -36,7 +36,7 @@ export interface NormalizedImagePart {
  */
 /**
  * @public
- * @description Data contract for NormalizedAudioPart.
+ * Canonical provider-normalized audio part.
  */
 export interface NormalizedAudioPart {
     type: "audio";
@@ -50,7 +50,7 @@ export interface NormalizedAudioPart {
  */
 /**
  * @public
- * @description Data contract for NormalizedVideoPart.
+ * Canonical provider-normalized video part.
  */
 export interface NormalizedVideoPart {
     type: "video";
@@ -64,7 +64,7 @@ export interface NormalizedVideoPart {
  */
 /**
  * @public
- * @description Data contract for NormalizedFilePart.
+ * Canonical provider-normalized file part.
  */
 export interface NormalizedFilePart {
     type: "file";
@@ -79,7 +79,7 @@ export interface NormalizedFilePart {
  */
 /**
  * @public
- * @description Alias type for NormalizedMessagePart.
+ * Union type covering all normalized chat content parts.
  */
 export type NormalizedMessagePart =
     | NormalizedTextPart
@@ -94,7 +94,7 @@ export type NormalizedMessagePart =
  */
 /**
  * @public
- * @description Data contract for NormalizedChatMessage.
+ * Canonical provider-normalized chat message artifact.
  */
 export interface NormalizedChatMessage extends NormalizedArtifactBase {
     role: "system" | "user" | "assistant";

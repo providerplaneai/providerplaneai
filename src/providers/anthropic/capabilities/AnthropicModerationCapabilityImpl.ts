@@ -1,6 +1,6 @@
 /**
  * @module providers/anthropic/capabilities/AnthropicModerationCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Anthropic moderation capability adapter.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import {
@@ -12,14 +12,12 @@ import {
     ClientModerationRequest,
     ModerationCapability,
     MultiModalExecutionContext,
-    NormalizedModeration
+    NormalizedModeration,
+    buildMetadata
 } from "#root/index.js";
 
 /**
- * AnthropicModerationCapabilityImpl: Implements moderation for Anthropic via structured prompt and JSON response.
- *
- * Claude does not provide a native moderation API; moderation is performed via a structured prompt and JSON response.
- * This interface represents the expected JSON schema.
+ * Parsed moderation shape returned by Claude for structured moderation prompts.
  */
 interface AnthropicModerationResult {
     flagged: boolean;
@@ -36,11 +34,7 @@ interface AnthropicModerationResult {
 }
 
 /**
- * Anthropic-specific moderation result format.
- *
- * Claude does not provide a native moderation API, so moderation
- * is performed via a structured prompt and JSON response.
- * This interface represents the expected JSON schema.
+ * Prompt template used to coerce Claude into a deterministic moderation JSON response.
  */
 const MODERATION_PROMPT = `You are a content moderator. Analyze the following user content and determine if it violates any policies.
 
@@ -71,26 +65,22 @@ User content to moderate: {{CONTENT}}`;
 const DEFAULT_ANTHROPIC_MODERATION_MODEL = "claude-sonnet-4-20250514";
 
 /**
- * Anthropic moderation capability implementation.
+ * Adapts Anthropic moderation responses into ProviderPlaneAI's normalized moderation artifact surface.
  *
- * Important:
- * Anthropic does NOT expose a native moderation endpoint.
- * This implementation performs moderation by:
- * - Prompting Claude with a structured moderation instruction
- * - Parsing deterministic JSON output
- * - Normalizing results into a provider-agnostic ModerationResult
- */
-/**
+ * Anthropic does not expose a native moderation endpoint, so this adapter prompts
+ * Claude for deterministic JSON and normalizes the parsed result.
+ *
  * @public
- * @description Provider capability implementation for AnthropicModerationCapabilityImpl.
  */
 export class AnthropicModerationCapabilityImpl implements ModerationCapability<
     ClientModerationRequest,
     NormalizedModeration[]
 > {
     /**
-     * @param provider - Parent provider instance (for lifecycle + config access)
-     * @param client - Initialized Anthropic SDK client
+     * Creates a new Anthropic moderation capability adapter.
+     *
+     * @param {BaseProvider} provider Parent provider instance used for initialization checks and merged config access.
+     * @param {Anthropic} client Initialized Anthropic SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -98,20 +88,20 @@ export class AnthropicModerationCapabilityImpl implements ModerationCapability<
     ) {}
 
     /**
-     * Performs moderation on one or more input strings.
+     * Executes an Anthropic moderation request.
      *
      * Responsibilities:
-     * - Validate and normalize input
-     * - Resolve merged model and provider options
-     * - Execute moderation prompts in parallel
-     * - Parse and normalize structured JSON responses
-     * - Aggregate token usage and metadata
+     * - validate moderation input
+     * - resolve merged model/runtime options
+     * - execute one Claude moderation prompt per input string
+     * - parse deterministic JSON output into normalized moderation artifacts
+     * - aggregate token usage and attach provider/request metadata
      *
-     * @template TModerationInput
-     * @param request - Unified moderation request
-     * @param _executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns AIResponse containing moderation result(s)
+     * @param {AIRequest<ClientModerationRequest>} request Unified moderation request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedModeration[]>>} Provider-normalized moderation artifacts.
+     * @throws {Error} When input is invalid, aborted, or Claude returns no text moderation payload.
      */
     async moderation(
         request: AIRequest<ClientModerationRequest>,
@@ -180,12 +170,12 @@ export class AnthropicModerationCapabilityImpl implements ModerationCapability<
                 categories: parsed.categories,
                 categoryScores,
                 reason: parsed.explanation || undefined,
-                metadata: {
+                metadata: buildMetadata(undefined, {
                     provider: AIProvider.Anthropic,
                     model: merged.model,
                     inputIndex: index,
                     requestId: context?.requestId
-                }
+                })
             };
         });
 
@@ -201,14 +191,13 @@ export class AnthropicModerationCapabilityImpl implements ModerationCapability<
             output: normalized,
             rawResponse: responses,
             id: crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Anthropic,
                 model: merged.model,
                 status: "completed",
                 tokensUsed: totalTokens,
                 requestId: context?.requestId
-            }
+            })
         };
     }
 }

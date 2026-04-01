@@ -1,17 +1,11 @@
 /**
  * @module client/types/shared/ClientRequestBase.ts
- * @description ProviderPlaneAI source module.
+ * @description Shared base request shape used by provider-agnostic client request contracts.
  */
 /**
- * Base request interface shared across all client request types.
+ * Common fields shared by all client-facing capability requests.
  *
- * - `model`: Optional provider-agnostic model name.
- * - `options`: Optional tuning options (temperature, max tokens, etc.).
- * - `context`: Optional execution context (requestId, metadata, etc.).
- */
-/**
  * @public
- * @description Interface contract for ClientRequestBase.
  */
 export interface ClientRequestBase {
     model?: string;

@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
+import { delayWithAbort } from "#root/index.js";
 import {
     buildOpenAIVideoArtifact,
     buildOpenAIVideoResponseMetadata,
-    delayWithAbort,
     downloadVariantBase64,
     parseVideoSize,
     pollOpenAIVideoUntilTerminal,
-    resolvePollingWindow,
+    resolveOpenAIVideoPollingWindow,
     resolveVariantMimeType,
     throwIfFailedVideoStatus
 } from "#root/providers/openai/capabilities/shared/OpenAIVideoUtils.js";
 
 describe("OpenAIVideoUtils", () => {
-    it("resolvePollingWindow clamps poll interval and max poll window", () => {
-        const out = resolvePollingWindow({
+    it("resolveOpenAIVideoPollingWindow clamps poll interval and max poll window", () => {
+        const out = resolveOpenAIVideoPollingWindow({
             pollIntervalMs: 1,
             maxPollMs: 5,
             defaultPollIntervalMs: 2000,

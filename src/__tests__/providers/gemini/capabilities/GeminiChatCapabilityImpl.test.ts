@@ -224,5 +224,33 @@ describe("GeminiChatCapabilityImpl", () => {
         expect(() =>
             cap.buildContents([{ role: "user", content: [{ type: "unknown", value: 1 }] }])
         ).toThrow("Unsupported Gemini chat part");
+        expect(() =>
+            cap.buildContents([{ role: "user", content: [{ type: "image", caption: "missing source" }] }])
+        ).toThrow("image part must have url or base64");
+        expect(mapped[0]).toMatchObject({ type: "text", text: "x" });
+        expect(mapped[1]).toMatchObject({ type: "image", image_url: "u", caption: "c" });
+        expect(mapped[2]).toMatchObject({ type: "audio", audio_url: "a", mime_type: "audio/wav" });
+        expect(mapped[3]).toMatchObject({ type: "video", video_url: "v", mime_type: "video/mp4" });
+        expect(mapped[4]).toMatchObject({ type: "file", file_url: "f", filename: "n", mime_type: "text/plain" });
+    });
+
+    it("buildContents strips Data URI wrappers from Gemini base64 media parts", () => {
+        const cap = new GeminiChatCapabilityImpl(makeProvider(), { models: {} } as any) as any;
+        const mapped = cap.buildContents([
+            {
+                role: "user",
+                content: [
+                    { type: "image", base64: "data:image/png;base64,QUJD" },
+                    { type: "audio", base64: "data:audio/wav;base64,REVG", mimeType: "audio/wav" },
+                    { type: "video", base64: "data:video/mp4;base64,R0hJ", mimeType: "video/mp4" },
+                    { type: "file", base64: "data:text/plain;base64,SktM", filename: "n.txt", mimeType: "text/plain" }
+                ]
+            }
+        ]);
+
+        expect(mapped[0]).toMatchObject({ type: "image", image_base64: "QUJD" });
+        expect(mapped[1]).toMatchObject({ type: "audio", audio_base64: "REVG", mime_type: "audio/wav" });
+        expect(mapped[2]).toMatchObject({ type: "video", video_base64: "R0hJ", mime_type: "video/mp4" });
+        expect(mapped[3]).toMatchObject({ type: "file", file_base64: "SktM", filename: "n.txt", mime_type: "text/plain" });
     });
 });

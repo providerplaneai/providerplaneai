@@ -1,10 +1,8 @@
 /**
  * @module providers/openai/capabilities/OpenAIAudioTranscriptionCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI audio transcription capability adapter.
  */
 import OpenAI from "openai";
-import { toFile } from "openai/uploads";
-import { readFile, access } from "node:fs/promises";
 import {
     AIProvider,
     AIRequest,
@@ -18,21 +16,19 @@ import {
     MultiModalExecutionContext,
     NormalizedChatMessage,
     NormalizedTextPart,
-    parseDataUriToBuffer
+    buildMetadata,
+    toOpenAIUploadableFile
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
 
 /**
- * OpenAI audio transcription capability implementation.
+ * Adapts OpenAI audio transcription responses into ProviderPlaneAI's normalized chat artifact surface.
  *
- * Uses the dedicated Audio Transcriptions endpoint (`/v1/audio/transcriptions`).
+ * Uses the dedicated Audio Transcriptions endpoint (`/v1/audio/transcriptions`)
+ * for both non-streaming and streaming transcription flows.
  *
- * This implementation intentionally does not use the Responses API for transcription.
- */
-/**
  * @public
- * @description Provider capability implementation for OpenAIAudioTranscriptionCapabilityImpl.
  */
 export class OpenAIAudioTranscriptionCapabilityImpl
     implements
@@ -40,10 +36,10 @@ export class OpenAIAudioTranscriptionCapabilityImpl
         AudioTranscriptionStreamCapability<ClientAudioTranscriptionRequest>
 {
     /**
-     * Creates a new OpenAI audio transcription capability delegate.
+     * Creates a new OpenAI audio transcription capability adapter.
      *
-     * @param provider Parent provider for lifecycle/config access
-     * @param client Initialized OpenAI SDK client
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -60,11 +56,11 @@ export class OpenAIAudioTranscriptionCapabilityImpl
      * - Call OpenAI transcription endpoint
      * - Normalize transcript to chat artifact output
      *
-     * @param request Unified AI request containing transcription input/options/context
-     * @param _ctx Optional multimodal execution context (unused by this capability)
-     * @param signal Optional abort signal
-     * @returns Provider-normalized transcription output as chat message artifacts
-     * @throws {Error} If input is invalid, request is aborted, or upload conversion fails
+     * @param {AIRequest<ClientAudioTranscriptionRequest>} request Unified transcription request envelope.
+     * @param {MultiModalExecutionContext} _ctx Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedChatMessage[]>>} Provider-normalized transcription artifacts.
+     * @throws {Error} If input is invalid, request is aborted, or upload conversion fails.
      */
     async transcribeAudio(
         request: AIRequest<ClientAudioTranscriptionRequest>,
@@ -87,7 +83,13 @@ export class OpenAIAudioTranscriptionCapabilityImpl
         const model = merged.model ?? DEFAULT_OPENAI_AUDIO_TRANSCRIPTION_MODEL;
 
         // Normalize all supported caller file shapes into OpenAI upload format.
-        const uploadFile = await this.toUploadableAudioFile(input.file, input.filename, input.mimeType);
+        const uploadFile = await toOpenAIUploadableFile(
+            input.file,
+            input.filename,
+            input.mimeType,
+            "audio-input",
+            "String audio input must be a data URL or local file path"
+        );
         // Dedicated transcription endpoint for speech-to-text (not Responses API).
         const response = await this.client.audio.transcriptions.create(
             {
@@ -122,13 +124,12 @@ export class OpenAIAudioTranscriptionCapabilityImpl
             multimodalArtifacts: { chat: [message] },
             id: responseId,
             rawResponse: response,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
@@ -140,11 +141,11 @@ export class OpenAIAudioTranscriptionCapabilityImpl
      * - one terminal `done: true` chunk on `transcript.text.done`
      * - one terminal `done: true` error chunk on failure
      *
-     * @param request Unified AI request containing transcription input/options/context
-     * @param _ctx Optional multimodal execution context (unused by this capability)
-     * @param signal Optional abort signal
-     * @returns Async generator of transcription delta and completion chunks
-     * @throws {Error} If input is invalid or streaming response shape is unexpected
+     * @param {AIRequest<ClientAudioTranscriptionRequest>} request Unified transcription request envelope.
+     * @param {MultiModalExecutionContext} _ctx Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedChatMessage[]>>} Async generator of transcription delta and completion chunks.
+     * @throws {Error} If input is invalid or streaming response shape is unexpected.
      */
     async *transcribeAudioStream(
         request: AIRequest<ClientAudioTranscriptionRequest>,
@@ -170,7 +171,13 @@ export class OpenAIAudioTranscriptionCapabilityImpl
                 return;
             }
 
-            const uploadFile = await this.toUploadableAudioFile(input.file, input.filename, input.mimeType);
+            const uploadFile = await toOpenAIUploadableFile(
+                input.file,
+                input.filename,
+                input.mimeType,
+                "audio-input",
+                "String audio input must be a data URL or local file path"
+            );
             // Request event stream from OpenAI transcription endpoint.
             const streamOrResponse = await this.client.audio.transcriptions.create(
                 {
@@ -230,13 +237,12 @@ export class OpenAIAudioTranscriptionCapabilityImpl
                         id: responseId,
                         delta: [deltaMessage],
                         output: [outputMessage],
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.OpenAI,
                             model,
                             status: "incomplete",
                             requestId: context?.requestId
-                        }
+                        })
                     };
                     continue;
                 }
@@ -260,13 +266,12 @@ export class OpenAIAudioTranscriptionCapabilityImpl
                         id: responseId,
                         output: [finalMessage],
                         multimodalArtifacts: { chat: [finalMessage] },
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.OpenAI,
                             model,
                             status: "completed",
                             requestId: context?.requestId
-                        }
+                        })
                     };
                     return;
                 }
@@ -287,13 +292,12 @@ export class OpenAIAudioTranscriptionCapabilityImpl
                 id: responseId,
                 output: [fallbackMessage],
                 multimodalArtifacts: { chat: [fallbackMessage] },
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.OpenAI,
                     model,
                     status: "completed",
                     requestId: context?.requestId
-                }
+                })
             };
         } catch (err) {
             // Abort is treated as caller-controlled cancellation, not a provider error event.
@@ -307,14 +311,13 @@ export class OpenAIAudioTranscriptionCapabilityImpl
                 id: responseId,
                 output: [],
                 delta: [],
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.OpenAI,
                     model,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -322,8 +325,8 @@ export class OpenAIAudioTranscriptionCapabilityImpl
     /**
      * Extracts transcription text from OpenAI non-streaming transcription response variants.
      *
-     * @param response Raw transcription response
-     * @returns Extracted transcript text
+     * @param {unknown} response Raw transcription response.
+     * @returns {string} Extracted transcript text.
      * @private
      * @remarks
      * Handles SDK variants: object payload (`{ text }`) or plain string response formats.
@@ -344,8 +347,15 @@ export class OpenAIAudioTranscriptionCapabilityImpl
     /**
      * Builds a normalized assistant text message for transcription outputs.
      *
-     * @param params Message construction parameters
-     * @returns Normalized assistant chat message
+     * @param {{
+     *   id: string;
+     *   text: string;
+     *   model: string;
+     *   status: "incomplete" | "completed";
+     *   requestContext?: AIRequest<ClientAudioTranscriptionRequest>["context"];
+     *   raw?: unknown;
+     * }} params Message construction parameters.
+     * @returns {NormalizedChatMessage} Normalized assistant transcript message.
      * @private
      */
     private createAssistantTextMessage(params: {
@@ -362,128 +372,20 @@ export class OpenAIAudioTranscriptionCapabilityImpl
             id: params.id,
             role: "assistant",
             content,
-            metadata: {
-                ...(params.requestContext?.metadata ?? {}),
+            metadata: buildMetadata(params.requestContext?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: params.model,
                 finishReason: params.status
-            },
+            }),
             ...(params.raw !== undefined ? { raw: params.raw } : {})
         };
     }
 
     /**
-     * Converts supported audio input source variants to an OpenAI uploadable file object.
-     *
-     * @param source Input audio source
-     * @param filenameHint Optional filename hint
-     * @param mimeTypeHint Optional MIME type hint
-     * @returns Uploadable file object for OpenAI SDK
-     * @throws {Error} If string input is neither a data URL nor local file path
-     * @private
-     *
-     * @remarks
-     * Supports browser and Node source types so callers can pass native runtime inputs.
-     */
-    private async toUploadableAudioFile(
-        source: ClientAudioTranscriptionRequest["file"],
-        filenameHint?: string,
-        mimeTypeHint?: string
-    ) {
-        if (this.isBlobLike(source)) {
-            const fileName = filenameHint ?? "audio-input";
-            return await toFile(source as any, fileName, mimeTypeHint ? { type: mimeTypeHint } : undefined);
-        }
-
-        if (Buffer.isBuffer(source)) {
-            const fileName = filenameHint ?? "audio-input";
-            return await toFile(source, fileName, mimeTypeHint ? { type: mimeTypeHint } : undefined);
-        }
-
-        if (source instanceof Uint8Array) {
-            const fileName = filenameHint ?? "audio-input";
-            return await toFile(Buffer.from(source), fileName, mimeTypeHint ? { type: mimeTypeHint } : undefined);
-        }
-
-        if (source instanceof ArrayBuffer) {
-            const fileName = filenameHint ?? "audio-input";
-            return await toFile(Buffer.from(source), fileName, mimeTypeHint ? { type: mimeTypeHint } : undefined);
-        }
-
-        if (typeof source === "string") {
-            if (source.startsWith("data:")) {
-                // Data URL path: decode payload and preserve caller mime override when provided.
-                const parsed = parseDataUriToBuffer(source);
-                const fileName = filenameHint ?? "audio-input";
-                return await toFile(parsed.bytes, fileName, { type: mimeTypeHint ?? parsed.mimeType });
-            }
-
-            if (await this.pathExists(source)) {
-                // Local path path: read bytes and infer upload filename from basename.
-                const bytes = await readFile(source);
-                const fileName = filenameHint ?? this.fileNameFromPath(source);
-                return await toFile(bytes, fileName, mimeTypeHint ? { type: mimeTypeHint } : undefined);
-            }
-
-            if (source.startsWith("http://") || source.startsWith("https://")) {
-                throw new Error("String audio input must be a data URL or local file path");
-            }
-
-            throw new Error("String audio input must be a data URL or local file path");
-        }
-
-        const fileName = filenameHint ?? "audio-input";
-        // Fallback for stream-like values accepted by OpenAI `toFile`.
-        return await toFile(source as any, fileName, mimeTypeHint ? { type: mimeTypeHint } : undefined);
-    }
-
-    /**
-     * Lightweight runtime check for File/Blob-like objects.
-     *
-     * @param value Candidate input source
-     * @returns True when value has Blob/File-like shape
-     * @private
-     */
-    private isBlobLike(value: unknown): boolean {
-        if (!value || typeof value !== "object") {
-            return false;
-        }
-        return typeof (value as any).arrayBuffer === "function" && typeof (value as any).type === "string";
-    }
-
-    /**
-     * Extracts a filename from a local file path.
-     *
-     * @param filePath Local file path
-     * @returns Basename fallback for uploads
-     * @private
-     */
-    private fileNameFromPath(filePath: string): string {
-        const normalized = filePath.replace(/\\/g, "/");
-        const name = normalized.split("/").pop();
-        return name && name.length > 0 ? name : "audio-input";
-    }
-
-    /**
-     * Async existence check that avoids blocking the event loop.
-     *
-     * @param filePath Path to test
-     * @returns `true` when path is accessible
-     */
-    private async pathExists(filePath: string): Promise<boolean> {
-        try {
-            await access(filePath);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    /**
      * Runtime guard for async-iterable stream responses.
      *
-     * @param value Candidate stream response
-     * @returns True when value implements `Symbol.asyncIterator`
+     * @param {unknown} value Candidate stream response.
+     * @returns {value is AsyncIterable<unknown>} True when value implements `Symbol.asyncIterator`.
      * @private
      */
     private isAsyncIterable(value: unknown): value is AsyncIterable<any> {

@@ -1,6 +1,6 @@
 /**
  * @module client/types/image/analysis/ImageAnalysisFeatures.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 /**
  * Feature flags controlling which analysis outputs are requested.
@@ -8,8 +8,9 @@
  * Providers may ignore unsupported features.
  */
 /**
+ * Feature flags describing which analysis dimensions the caller wants from an image-analysis capability.
+ *
  * @public
- * @description Interface contract for ImageAnalysisFeatures.
  */
 export interface ImageAnalysisFeatures {
     /**

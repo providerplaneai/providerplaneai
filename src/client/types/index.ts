@@ -1,6 +1,6 @@
 /**
  * @module client/types/index.ts
- * @description ProviderPlaneAI source module.
+ * @description Barrel exports for all client-facing request and helper types.
  */
 // Re-export all client-side type modules for unified import.
 export * from "./audio/index.js"; // Audio request/response types

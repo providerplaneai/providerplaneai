@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedModeration.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized moderation artifact contract.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
@@ -9,7 +9,7 @@ import { NormalizedArtifactBase } from "#root/index.js";
  */
 /**
  * @public
- * @description Data contract for NormalizedModeration.
+ * Provider-agnostic moderation result for a single input item.
  */
 export interface NormalizedModeration extends NormalizedArtifactBase {
     /**

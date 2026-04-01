@@ -1,24 +1,25 @@
 /**
  * @module core/utils/WithRequestContext.ts
- * @description ProviderPlaneAI source module.
+ * @description Helpers for attaching request-scoped tracing metadata to capability calls.
  */
 import { v4 as uuidv4 } from "uuid";
 import { AIRequest, AIResponse, AIResponseChunk } from "#root/index.js";
 
 /**
- * Wraps a non-streaming async provider call with request-scoped context metadata.
+ * Wraps a non-streaming provider call with request-scoped tracing metadata.
  *
  * - Generates a unique requestId and start time
  * - Injects request context into the AIRequest
  * - Attaches timing and request metadata to the AIResponse
  *
- * Intended for provider implementations to ensure consistent tracing and observability.
+ * Intended for provider implementations to ensure consistent tracing and observability across
+ * capability adapters without duplicating request-timing logic.
  *
- * @template TInput - The input payload type sent to the provider
- * @template TOutput - The output payload type returned by the provider
- * @param req - Unified AI request containing input, options, and optional context
- * @param fn - Provider execution function to wrap
- * @returns A promise resolving to a unified AIResponse with metadata attached
+ * @template TInput - The input payload type sent to the provider.
+ * @template TOutput - The output payload type returned by the provider.
+ * @param {AIRequest<TInput>} req - Unified AI request containing input, options, and optional context.
+ * @param {(req: AIRequest<TInput>) => Promise<AIResponse<TOutput>>} fn - Provider execution function to wrap.
+ * @returns {Promise<AIResponse<TOutput>>} A promise resolving to a unified AIResponse with metadata attached.
  */
 export async function withRequestContext<TInput, TOutput>(
     req: AIRequest<TInput>,
@@ -40,7 +41,8 @@ export async function withRequestContext<TInput, TOutput>(
 
     const response = await fn(req);
 
-    // Add request metadata to the response
+    // Responses inherit the generated request identifier and elapsed timing so callers can correlate
+    // provider output with the originating request envelope.
     response.metadata = {
         ...(response.metadata || {}),
         requestId,
@@ -52,7 +54,7 @@ export async function withRequestContext<TInput, TOutput>(
 }
 
 /**
- * Wraps a streaming async provider call (AsyncIterable) with request-scoped context metadata.
+ * Wraps a streaming provider call with request-scoped tracing metadata.
  *
  * This helper:
  * - Generates a unique requestId
@@ -60,14 +62,14 @@ export async function withRequestContext<TInput, TOutput>(
  * - Injects request context into the AIRequest
  * - Attaches timing and request metadata to each streamed chunk
  *
- * Designed for streaming chat, image generation, or any
- * provider API that emits incremental results.
+ * Designed for streaming chat, image generation, or any provider API that emits incremental
+ * results.
  *
- * @template TInput - The input payload type sent to the provider
- * @template TOutput - The output payload type for each streamed chunk
- * @param req - Unified AI request containing input, options, and optional context
- * @param fn - Provider streaming execution function to wrap
- * @returns An AsyncGenerator emitting AIResponseChunk objects with metadata attached
+ * @template TInput - The input payload type sent to the provider.
+ * @template TOutput - The output payload type for each streamed chunk.
+ * @param {AIRequest<TInput>} req - Unified AI request containing input, options, and optional context.
+ * @param {(req: AIRequest<TInput>) => AsyncGenerator<AIResponseChunk<TOutput>>} fn - Provider streaming execution function to wrap.
+ * @returns {AsyncGenerator<AIResponseChunk<TOutput>>} An async generator emitting response chunks with metadata attached.
  */
 export async function* withRequestContextStream<TInput, TOutput>(
     req: AIRequest<TInput>,
@@ -76,7 +78,8 @@ export async function* withRequestContextStream<TInput, TOutput>(
     const requestId = uuidv4();
     const startTime = Date.now();
 
-    // Inject request context metadata into the request
+    // Stream handlers mutate the shared request object for the same reason as the non-streaming
+    // variant: all downstream layers should observe the same request envelope.
     req.context = {
         ...(req.context || {}),
         requestId,
@@ -86,19 +89,19 @@ export async function* withRequestContextStream<TInput, TOutput>(
         }
     };
 
-    // Stream chunks while attaching request metadata
+    // Each chunk receives timing metadata at emission time so consumers can measure stream latency
+    // without reconstructing timing information themselves.
     for await (const chunk of fn(req)) {
         const now = Date.now();
 
-        // Attach request context metadata to each chunk
         const chunkWithContext: AIResponseChunk<TOutput> = {
             ...chunk,
             metadata: {
                 ...(chunk.metadata || {}),
                 requestId,
-                timestamp: now, //When this chunk was produced
-                requestStartTime: startTime, // Start of the full request
-                requestTimeMs: now - startTime // Time since request start
+                timestamp: now,
+                requestStartTime: startTime,
+                requestTimeMs: now - startTime
             }
         };
 

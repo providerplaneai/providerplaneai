@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedAudio.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized audio artifact contract shared by TTS and audio-processing capabilities.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
@@ -10,7 +10,7 @@ import { NormalizedArtifactBase } from "#root/index.js";
  */
 /**
  * @public
- * @description Data contract for NormalizedAudio.
+ * Provider-agnostic audio artifact.
  */
 export interface NormalizedAudio extends NormalizedArtifactBase {
     kind?: "tts" | "audio";

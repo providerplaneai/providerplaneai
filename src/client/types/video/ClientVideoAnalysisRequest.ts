@@ -1,15 +1,13 @@
 /**
  * @module client/types/video/ClientVideoAnalysisRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Provider-agnostic video analysis request contracts.
  */
 import { ClientRequestBase } from "#root/index.js";
 
 /**
- * Video reference passed to provider video-analysis capabilities.
- */
-/**
+ * Describes a video input supplied to a provider video-analysis request.
+ *
  * @public
- * @description Interface contract for ClientVideoInput.
  */
 export interface ClientVideoInput {
     /**
@@ -31,11 +29,9 @@ export interface ClientVideoInput {
 }
 
 /**
- * Provider-agnostic video analysis request.
- */
-/**
+ * Request payload for provider-agnostic video analysis.
+ *
  * @public
- * @description Interface contract for ClientVideoAnalysisRequest.
  */
 export interface ClientVideoAnalysisRequest extends ClientRequestBase {
     /**

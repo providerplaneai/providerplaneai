@@ -5,19 +5,18 @@
 import { AIRequest, AIResponse, MultiModalExecutionContext, NormalizedVideo, ProviderCapability } from "#root/index.js";
 
 /**
- * Provider-agnostic video generation capability.
- */
-/**
+ * Provider-agnostic video generation capability contract.
+ *
  * @public
- * @description Capability contract for VideoGenerationCapability.
  */
 export interface VideoGenerationCapability<TInput = unknown, TOutput = NormalizedVideo[]> extends ProviderCapability {
     /**
      * Generate video output from a request prompt and optional provider-specific params.
      *
-     * @param request Unified AI request
-     * @param ctx Execution context
-     * @param signal Optional abort signal
+     * @param {AIRequest<TInput>} request - Unified AI request.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} Promise resolving to normalized generated video artifacts.
      */
     generateVideo(
         request: AIRequest<TInput>,
@@ -27,37 +26,35 @@ export interface VideoGenerationCapability<TInput = unknown, TOutput = Normalize
 }
 
 /**
- * Provider-agnostic video remix capability.
- */
-/**
+ * Provider-agnostic video remix capability contract.
+ *
  * @public
- * @description Capability contract for VideoRemixCapability.
  */
 export interface VideoRemixCapability<TInput = unknown, TOutput = NormalizedVideo[]> extends ProviderCapability {
     /**
      * Remix an existing provider video using a new prompt.
      *
-     * @param request Unified AI request
-     * @param ctx Execution context
-     * @param signal Optional abort signal
+     * @param {AIRequest<TInput>} request - Unified AI request.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} Promise resolving to normalized remixed video artifacts.
      */
     remixVideo(request: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<AIResponse<TOutput>>;
 }
 
 /**
- * Provider-agnostic video download capability.
- */
-/**
+ * Provider-agnostic video download capability contract.
+ *
  * @public
- * @description Capability contract for VideoDownloadCapability.
  */
 export interface VideoDownloadCapability<TInput = unknown, TOutput = NormalizedVideo[]> extends ProviderCapability {
     /**
      * Download video bytes or related rendered assets for an existing provider video id.
      *
-     * @param request Unified AI request
-     * @param ctx Execution context
-     * @param signal Optional abort signal
+     * @param {AIRequest<TInput>} request - Unified AI request.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} Promise resolving to downloaded video artifacts.
      */
     downloadVideo(
         request: AIRequest<TInput>,
@@ -67,19 +64,18 @@ export interface VideoDownloadCapability<TInput = unknown, TOutput = NormalizedV
 }
 
 /**
- * Provider-agnostic video extension capability.
- */
-/**
+ * Provider-agnostic video extension capability contract.
+ *
  * @public
- * @description Capability contract for VideoExtendCapability.
  */
 export interface VideoExtendCapability<TInput = unknown, TOutput = NormalizedVideo[]> extends ProviderCapability {
     /**
      * Extend an existing video clip.
      *
-     * @param request Unified AI request
-     * @param ctx Execution context
-     * @param signal Optional abort signal
+     * @param {AIRequest<TInput>} request - Unified AI request.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} Promise resolving to normalized extended video artifacts.
      */
     extendVideo(
         request: AIRequest<TInput>,
@@ -89,19 +85,18 @@ export interface VideoExtendCapability<TInput = unknown, TOutput = NormalizedVid
 }
 
 /**
- * Provider-agnostic video analysis capability.
- */
-/**
+ * Provider-agnostic video analysis capability contract.
+ *
  * @public
- * @description Capability contract for VideoAnalysisCapability.
  */
 export interface VideoAnalysisCapability<TInput = unknown, TOutput = unknown> extends ProviderCapability {
     /**
      * Analyze an existing video and return structured analysis output.
      *
-     * @param request Unified AI request
-     * @param ctx Execution context
-     * @param signal Optional abort signal
+     * @param {AIRequest<TInput>} request - Unified AI request.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} Promise resolving to provider-normalized video analysis output.
      */
     analyzeVideo(
         request: AIRequest<TInput>,

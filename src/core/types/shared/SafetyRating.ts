@@ -1,6 +1,6 @@
 /**
  * @module core/types/shared/SafetyRating.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Shared normalized safety-rating contract.
  */
 import { AIProviderType } from "#root/index.js";
 
@@ -22,7 +22,7 @@ import { AIProviderType } from "#root/index.js";
  */
 /**
  * @public
- * @description Interface contract for SafetyRating.
+ * Provider-agnostic normalized safety or content-risk assessment.
  */
 export interface SafetyRating {
     /**

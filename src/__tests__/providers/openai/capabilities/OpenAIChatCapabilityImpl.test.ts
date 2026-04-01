@@ -74,6 +74,52 @@ describe("OpenAIChatCapabilityImpl", () => {
         expect(res.output.content).toEqual([]);
     });
 
+    it("chat omits usage metadata and generates a message id when OpenAI omits id and usage", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: undefined,
+                    status: undefined,
+                    output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "fallback" }] }]
+                })
+            }
+        };
+
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] },
+            context: { requestId: "chat-fallback-id" }
+        } as any);
+
+        expect(res.id).toBeUndefined();
+        expect(res.output.id).toBeTypeOf("string");
+        expect((res.output.metadata as any)?.usage).toBeUndefined();
+        expect(res.metadata?.status).toBeUndefined();
+    });
+
+    it("chat ignores non-message output items and assistant messages without output_text content", async () => {
+        const client = {
+            responses: {
+                create: vi.fn().mockResolvedValue({
+                    id: "r-non-message",
+                    status: "completed",
+                    output: [
+                        { type: "reasoning", summary: [] },
+                        { type: "message", role: "assistant", content: [{ type: "refusal", refusal: "nope" }] },
+                        { type: "message", role: "assistant", content: [{ type: "output_text", text: "usable" }] }
+                    ]
+                })
+            }
+        };
+
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), client as any);
+        const res = await cap.chat({
+            input: { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] }
+        } as any);
+
+        expect(res.output.content).toEqual([{ type: "text", text: "usable" }]);
+    });
+
     it("chatStream emits batched, flush, and final chunks", async () => {
         const streamObj = {
             async *[Symbol.asyncIterator]() {
@@ -179,5 +225,21 @@ describe("OpenAIChatCapabilityImpl", () => {
         expect(parts[0].type).toBe("input_text");
         expect(parts[1].type).toBe("input_image");
         expect(parts[4].type).toBe("input_file");
+    });
+
+    it("mapParts supports URL-backed media parts", () => {
+        const cap = new OpenAIChatCapabilityImpl(makeProvider(), { responses: {} } as any) as any;
+
+        const parts = cap.mapParts([
+            { type: "image", url: "https://example.com/image.png" },
+            { type: "audio", url: "https://example.com/audio.wav" },
+            { type: "video", url: "https://example.com/video.mp4" },
+            { type: "file", url: "https://example.com/file.txt" }
+        ]);
+
+        expect(parts[0]).toMatchObject({ type: "input_image", image_url: "https://example.com/image.png" });
+        expect(parts[1]).toMatchObject({ type: "input_audio", audio_url: "https://example.com/audio.wav" });
+        expect(parts[2]).toMatchObject({ type: "input_video", video_url: "https://example.com/video.mp4" });
+        expect(parts[3]).toMatchObject({ type: "input_file", file_url: "https://example.com/file.txt" });
     });
 });

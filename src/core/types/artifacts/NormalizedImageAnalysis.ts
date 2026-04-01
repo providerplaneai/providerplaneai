@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedImageAnalysis.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized image-analysis artifact contract.
  */
 import { DetectedObject, NormalizedArtifactBase, OCRText, SafetyRating } from "#root/index.js";
 
@@ -9,7 +9,7 @@ import { DetectedObject, NormalizedArtifactBase, OCRText, SafetyRating } from "#
  */
 /**
  * @public
- * @description Data contract for NormalizedImageAnalysis.
+ * Provider-agnostic normalized image-analysis result.
  */
 export interface NormalizedImageAnalysis extends NormalizedArtifactBase {
     /**

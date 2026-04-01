@@ -1,10 +1,9 @@
 /**
  * @module providers/openai/capabilities/OpenAIVideoRemixCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI video remix capability adapter.
  */
 import OpenAI from "openai";
 import {
-    AIProvider,
     AIRequest,
     AIResponse,
     BaseProvider,
@@ -12,32 +11,28 @@ import {
     ClientVideoRemixRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
-    VideoRemixCapability
+    VideoRemixCapability,
+    delayWithAbort,
+    pollOpenAIVideoUntilTerminal,
+    buildOpenAIVideoArtifact,
+    buildOpenAIVideoResponseMetadata,
+    resolveOpenAIVideoExecutionControls
 } from "#root/index.js";
-import { delayWithAbort, pollOpenAIVideoUntilTerminal } from "#root/providers/openai/capabilities/shared/OpenAIVideoUtils.js";
-/**
- * Default polling cadence when no request/config override is provided.
- */
-const DEFAULT_VIDEO_POLL_INTERVAL_MS = 2_000;
-/**
- * Default polling timeout (5 minutes) when no request/config override is provided.
- */
-const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
 
 /**
- * OpenAI video remix capability implementation.
+ * Adapts OpenAI video remix responses into ProviderPlaneAI's normalized video artifact surface.
  *
- * Uses OpenAI Videos API (`videos.remix`, `videos.retrieve`, `videos.downloadContent`)
- * and normalizes job output into `NormalizedVideo[]`.
- */
-/**
+ * Uses OpenAI's Videos API for remix job creation, optional polling, and optional
+ * binary download before normalizing the result into `NormalizedVideo[]`.
+ *
  * @public
- * @description Provider capability implementation for OpenAIVideoRemixCapabilityImpl.
  */
 export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<ClientVideoRemixRequest, NormalizedVideo[]> {
     /**
-     * @param provider Initialized provider wrapper used for config and lifecycle guards.
-     * @param client OpenAI SDK client instance.
+     * Creates a new OpenAI video remix capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -47,11 +42,11 @@ export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<Clie
     /**
      * Creates a remixed video from an existing OpenAI video id.
      *
-     * @param request Unified request containing `sourceVideoId`, `prompt`, and optional remix params.
-     * @param _executionContext Optional multimodal execution context (unused in this capability).
-     * @param signal Optional abort signal to cancel remix/poll/download operations.
-     * @returns Normalized video artifact plus provider metadata.
-     * @throws Error when required input is missing, polling times out, operation is aborted, or provider returns failed status.
+     * @param {AIRequest<ClientVideoRemixRequest>} request Unified video remix request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal for remix, polling, and download steps.
+     * @returns {Promise<AIResponse<NormalizedVideo[]>>} Provider-normalized remixed video artifacts.
+     * @throws {Error} When required input is missing, polling times out, operation is aborted, or the provider returns failed status.
      */
     async remixVideo(
         request: AIRequest<ClientVideoRemixRequest>,
@@ -78,16 +73,12 @@ export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<Clie
         // OpenAI remix endpoint currently accepts prompt + source video id only.
         const created = await this.client.videos.remix(input.sourceVideoId.trim(), { prompt: input.prompt }, { signal });
 
-        const pollUntilComplete = input.params?.pollUntilComplete ?? true;
-        const pollIntervalMs = Math.max(
-            250,
-            Number(input.params?.pollIntervalMs ?? merged.generalParams?.pollIntervalMs ?? DEFAULT_VIDEO_POLL_INTERVAL_MS)
-        );
-        const maxPollMs = Math.max(
-            pollIntervalMs,
-            Number(input.params?.maxPollMs ?? merged.generalParams?.maxPollMs ?? DEFAULT_VIDEO_MAX_POLL_MS)
-        );
-        const includeBase64 = input.params?.includeBase64 ?? false;
+        const { pollUntilComplete, pollIntervalMs, maxPollMs, includeBase64 } = resolveOpenAIVideoExecutionControls({
+            pollUntilComplete: input.params?.pollUntilComplete,
+            pollIntervalMs: input.params?.pollIntervalMs ?? merged.generalParams?.pollIntervalMs,
+            maxPollMs: input.params?.maxPollMs ?? merged.generalParams?.maxPollMs,
+            includeBase64: input.params?.includeBase64
+        });
         const variant = input.params?.downloadVariant ?? "video";
 
         // For non-poll flows, return the initial operation payload directly.
@@ -121,21 +112,18 @@ export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<Clie
         }
 
         const output: NormalizedVideo[] = [
-            {
+            buildOpenAIVideoArtifact({
                 id: video.id,
-                mimeType: this.resolveMimeTypeForVariant(variant),
+                variant,
                 base64,
                 durationSeconds: Number(video.seconds),
-                ...this.parseVideoSize(video.size),
+                size: video.size,
                 raw: video,
-                metadata: {
-                    provider: AIProvider.OpenAI,
-                    model: video.model,
-                    status: video.status,
-                    remixedFromVideoId: video.remixed_from_video_id,
-                    requestId: context?.requestId
-                }
-            }
+                model: video.model,
+                status: video.status,
+                requestId: context?.requestId,
+                extraMetadata: { remixedFromVideoId: video.remixed_from_video_id }
+            })
         ];
 
         return {
@@ -143,61 +131,17 @@ export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<Clie
             multimodalArtifacts: { video: output },
             rawResponse: video,
             id: video.id,
-            metadata: {
-                ...(context?.metadata ?? {}),
-                provider: AIProvider.OpenAI,
+            metadata: buildOpenAIVideoResponseMetadata({
+                contextMetadata: context?.metadata,
                 model: video.model,
                 status: video.status,
-                remixedFromVideoId: video.remixed_from_video_id,
                 requestId: context?.requestId,
                 progress: video.progress,
                 createdAt: video.created_at,
                 completedAt: video.completed_at,
-                expiresAt: video.expires_at
-            }
+                expiresAt: video.expires_at,
+                extraMetadata: { remixedFromVideoId: video.remixed_from_video_id }
+            })
         };
-    }
-
-    /**
-     * Parses OpenAI size format (`{width}x{height}`) into numeric dimensions.
-     *
-     * @param size Raw size string from provider payload.
-     * @returns Parsed width/height when valid; otherwise `undefined` values.
-     */
-    private parseVideoSize(size: string): { width?: number; height?: number } {
-        const [w, h] = size.split("x", 2);
-        const width = Number.parseInt(w, 10);
-        const height = Number.parseInt(h, 10);
-        return {
-            width: Number.isFinite(width) ? width : undefined,
-            height: Number.isFinite(height) ? height : undefined
-        };
-    }
-
-    /**
-     * Backward-compatible abort-aware delay helper used by tests and internal callers.
-     *
-     * @param ms Delay duration in milliseconds.
-     * @param signal Optional abort signal.
-     * @returns Promise that resolves after delay or rejects on abort.
-     */
-    private delay(ms: number, signal?: AbortSignal): Promise<void> {
-        return delayWithAbort(ms, signal, "Video remix polling aborted");
-    }
-
-    /**
-     * Resolves normalized MIME type for a download variant.
-     *
-     * @param variant OpenAI download variant.
-     * @returns MIME type mapped to normalized artifact expectations.
-     */
-    private resolveMimeTypeForVariant(variant: string): string {
-        if (variant === "thumbnail") {
-            return "image/jpeg";
-        }
-        if (variant === "spritesheet") {
-            return "image/jpeg";
-        }
-        return "video/mp4";
     }
 }

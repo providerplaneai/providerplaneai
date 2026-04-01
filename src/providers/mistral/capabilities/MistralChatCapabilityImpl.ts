@@ -28,7 +28,7 @@ import {
     ClientMessagePart,
     MultiModalExecutionContext,
     NormalizedChatMessage,
-    ensureDataUri
+    resolveReferenceMediaUrl
 } from "#root/index.js";
 
 const DEFAULT_MISTRAL_CHAT_MODEL = "mistral-small-latest";
@@ -42,11 +42,11 @@ const DEFAULT_MISTRAL_CHAT_MODEL = "mistral-small-latest";
  * streaming failures while keeping Mistral SDK event details local to the adapter.
  *
  * @public
- * @description Provider capability implementation for MistralChatCapabilityImpl.
  */
-export class MistralChatCapabilityImpl implements
-    ChatCapability<ClientChatRequest, NormalizedChatMessage>,
-    ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
+export class MistralChatCapabilityImpl
+    implements
+        ChatCapability<ClientChatRequest, NormalizedChatMessage>,
+        ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
 {
     /**
      * Creates a new Mistral chat capability adapter.
@@ -95,10 +95,7 @@ export class MistralChatCapabilityImpl implements
         const completionRequest = this.buildChatCompletionRequest(model, input.messages, merged.modelParams);
         // Keep the SDK call narrow: merged model/provider params are the only
         // provider-specific escape hatches that should leak into the request.
-        const response = await this.client.chat.complete(
-            completionRequest,
-            { signal, ...(merged.providerParams ?? {}) }
-        );
+        const response = await this.client.chat.complete(completionRequest, { signal, ...(merged.providerParams ?? {}) });
 
         // Mistral may return either a plain string or typed content chunks;
         // normalize both into the single text surface PPAI expects for chat.
@@ -362,7 +359,7 @@ export class MistralChatCapabilityImpl implements
                     // Mistral accepts either remote URLs or data URIs for multimodal chat inputs.
                     return {
                         type: "image_url",
-                        imageUrl: part.url ?? ensureDataUri(part.base64 ?? "", part.mimeType)
+                        imageUrl: resolveReferenceMediaUrl(part, "image/png", "image part must have url or base64")
                     };
                 default:
                     throw new Error(`Mistral chat does not support '${part.type}' message parts in v1`);

@@ -1,6 +1,6 @@
 /**
  * @module client/types/image/analysis/index.ts
- * @description ProviderPlaneAI source module.
+ * @description Barrel exports for a client type namespace.
  */
 export * from "./ClientImageAnalysisRequest.js";
 export * from "./ImageAnalysisFeatures.js";

@@ -1,10 +1,9 @@
 /**
  * @module providers/gemini/capabilities/GeminiVideoGenerationCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini video generation capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
 import {
-    AIProvider,
     AIRequest,
     AIResponse,
     BaseProvider,
@@ -12,29 +11,34 @@ import {
     ClientVideoGenerationRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
-    assertSafeRemoteHttpUrl,
+    resolveReferenceMediaUrl,
     resolveImageToBytes,
     VideoGenerationCapability
 } from "#root/index.js";
 import {
-    delayWithAbort,
-    downloadGeminiFileViaApi,
-    extractGeminiFileName,
-    pollGeminiVideoOperationUntilDone
+    buildGeminiVideoArtifact,
+    buildGeminiVideoResponseMetadata,
+    extractGeneratedVideoOrThrow,
+    resolveGeminiOperationId,
+    resolveGeminiDurationSeconds,
+    resolveGeminiOperationResult,
+    resolveGeminiVideoBase64,
+    resolveGeminiVideoExecutionControls,
+    throwIfGeminiOperationFailed
 } from "#root/providers/gemini/capabilities/shared/GeminiVideoUtils.js";
 
 const DEFAULT_GEMINI_VIDEO_MODEL = "veo-3.1-generate-preview";
-const DEFAULT_VIDEO_POLL_INTERVAL_MS = 2_000;
-const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
 const GEMINI_VIDEO_MIN_DURATION_SECONDS = 4;
 const GEMINI_VIDEO_MAX_DURATION_SECONDS = 8;
 
 /**
  * Gemini video generation capability implementation.
- */
-/**
+ *
+ * Uses Gemini's long-running video generation API, optionally polls until the
+ * operation completes, and normalizes the generated video into
+ * `NormalizedVideo[]`.
+ *
  * @public
- * @description Provider capability implementation for GeminiVideoGenerationCapabilityImpl.
  */
 export class GeminiVideoGenerationCapabilityImpl implements VideoGenerationCapability<
     ClientVideoGenerationRequest,
@@ -45,6 +49,14 @@ export class GeminiVideoGenerationCapabilityImpl implements VideoGenerationCapab
         private readonly client: GoogleGenAI
     ) {}
 
+    /**
+     * Creates a Gemini video generation job and optionally waits for a terminal result.
+     *
+     * @param request Unified generation request containing prompt, optional reference image, and runtime params.
+     * @param _executionContext Optional multimodal execution context. Unused directly in this adapter.
+     * @param signal Optional abort signal for request, polling, and download cancellation.
+     * @returns Normalized video artifacts plus provider metadata.
+     */
     async generateVideo(
         request: AIRequest<ClientVideoGenerationRequest>,
         _executionContext?: MultiModalExecutionContext,
@@ -64,15 +76,19 @@ export class GeminiVideoGenerationCapabilityImpl implements VideoGenerationCapab
             generalParams: options?.generalParams
         });
 
+        const model = merged.model ?? DEFAULT_GEMINI_VIDEO_MODEL;
         const source: Record<string, unknown> = {
             prompt: input.prompt
         };
 
         if (input.referenceImage) {
-            const referenceUrl = input.referenceImage.url ?? input.referenceImage.base64;
-            if (!referenceUrl) {
-                throw new Error("referenceImage must include url or base64");
-            }
+            // Gemini generation accepts a reference image as inline bytes, so
+            // normalize URL/base64 input and embed the image payload directly.
+            const referenceUrl = resolveReferenceMediaUrl(
+                input.referenceImage,
+                "image/png",
+                "referenceImage must include url or base64"
+            );
             const referenceBytes = await resolveImageToBytes(referenceUrl);
             source.image = {
                 imageBytes: referenceBytes.toString("base64"),
@@ -80,158 +96,90 @@ export class GeminiVideoGenerationCapabilityImpl implements VideoGenerationCapab
             };
         }
 
-        const durationSeconds = this.resolveDuration(input.params?.seconds);
+        const durationSeconds = resolveGeminiDurationSeconds(
+            input.params?.seconds,
+            GEMINI_VIDEO_MIN_DURATION_SECONDS,
+            GEMINI_VIDEO_MAX_DURATION_SECONDS
+        );
+        const aspectRatio = this.mapSizeToAspectRatio(input.params?.size);
 
         const operation = await (this.client.models as any).generateVideos({
-            model: merged.model ?? DEFAULT_GEMINI_VIDEO_MODEL,
+            model,
             source,
             config: {
                 durationSeconds,
-                aspectRatio: this.mapSizeToAspectRatio(input.params?.size),
+                aspectRatio,
                 ...(merged.modelParams ?? {}),
                 ...(merged.providerParams ?? {})
             }
         });
 
-        const pollUntilComplete = input.params?.pollUntilComplete ?? true;
-        const pollIntervalMs = Math.max(
-            250,
-            Number(input.params?.pollIntervalMs ?? merged.generalParams?.pollIntervalMs ?? DEFAULT_VIDEO_POLL_INTERVAL_MS)
-        );
-        const maxPollMs = Math.max(
-            pollIntervalMs,
-            Number(input.params?.maxPollMs ?? merged.generalParams?.maxPollMs ?? DEFAULT_VIDEO_MAX_POLL_MS)
-        );
-        const includeBase64 = input.params?.includeBase64 ?? false;
+        const { pollUntilComplete, pollIntervalMs, maxPollMs, includeBase64 } = resolveGeminiVideoExecutionControls({
+            pollUntilComplete: input.params?.pollUntilComplete,
+            pollIntervalMs: input.params?.pollIntervalMs ?? merged.generalParams?.pollIntervalMs,
+            maxPollMs: input.params?.maxPollMs ?? merged.generalParams?.maxPollMs,
+            includeBase64: input.params?.includeBase64
+        });
 
-        const finalOperation = pollUntilComplete
-            ? await this.pollUntilTerminal(operation, pollIntervalMs, maxPollMs, signal)
-            : operation;
-
-        if (finalOperation?.error) {
-            throw new Error(`Gemini video generation failed: ${JSON.stringify(finalOperation.error)}`);
-        }
-
-        const generatedVideo = finalOperation?.response?.generatedVideos?.[0]?.video as
-            | { uri?: string; videoBytes?: string; mimeType?: string }
-            | undefined;
-        if (!generatedVideo) {
-            throw new Error("Gemini video generation response did not include a generated video");
-        }
-
-        const base64 = includeBase64 ? await this.resolveVideoBase64(generatedVideo, signal) : undefined;
-
-        const output: NormalizedVideo[] = [
-            {
-                id: finalOperation?.name ?? crypto.randomUUID(),
-                mimeType: generatedVideo.mimeType ?? "video/mp4",
-                ...(generatedVideo.uri ? { url: generatedVideo.uri } : {}),
-                ...(base64 ? { base64 } : {}),
-                ...(durationSeconds ? { durationSeconds } : {}),
-                raw: generatedVideo,
-                metadata: {
-                    provider: AIProvider.Gemini,
-                    model: merged.model ?? DEFAULT_GEMINI_VIDEO_MODEL,
-                    operationName: finalOperation?.name,
-                    done: finalOperation?.done,
-                    requestId: context?.requestId
-                }
-            }
-        ];
-
-        return {
-            output,
-            multimodalArtifacts: { video: output },
-            rawResponse: finalOperation,
-            id: finalOperation?.name ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
-                provider: AIProvider.Gemini,
-                model: merged.model ?? DEFAULT_GEMINI_VIDEO_MODEL,
-                operationName: finalOperation?.name,
-                done: finalOperation?.done,
-                requestId: context?.requestId
-            }
-        };
-    }
-
-    private async pollUntilTerminal(operation: any, pollIntervalMs: number, maxPollMs: number, signal?: AbortSignal) {
-        return await pollGeminiVideoOperationUntilDone({
+        const finalOperation = await resolveGeminiOperationResult({
             client: this.client,
             operation,
+            pollUntilComplete,
             pollIntervalMs,
             maxPollMs,
             signal,
             abortMessage: "Gemini video generation polling aborted",
             timeoutMessage: (operationName) => `Timed out waiting for Gemini video operation '${operationName}'`
         });
+
+        throwIfGeminiOperationFailed(finalOperation, "Gemini video generation failed");
+        const operationId = resolveGeminiOperationId(finalOperation);
+        const generatedVideo = extractGeneratedVideoOrThrow(
+            finalOperation,
+            "Gemini video generation response did not include a generated video"
+        );
+        const base64 = includeBase64
+            ? await resolveGeminiVideoBase64({
+                  client: this.client,
+                  video: generatedVideo,
+                  signal,
+                  fetchFailureLabel: "Failed to fetch generated video from URI"
+              })
+            : undefined;
+
+        const output: NormalizedVideo[] = [
+            buildGeminiVideoArtifact({
+                id: operationId,
+                video: generatedVideo,
+                base64,
+                durationSeconds,
+                model,
+                operationName: finalOperation?.name,
+                done: finalOperation?.done,
+                requestId: context?.requestId
+            })
+        ];
+
+        return {
+            output,
+            multimodalArtifacts: { video: output },
+            rawResponse: finalOperation,
+            id: operationId,
+            metadata: buildGeminiVideoResponseMetadata({
+                contextMetadata: context?.metadata,
+                model,
+                operationName: finalOperation?.name,
+                done: finalOperation?.done,
+                requestId: context?.requestId
+            })
+        };
     }
-
-    private async resolveVideoBase64(
-        video: { uri?: string; videoBytes?: string; mimeType?: string },
-        signal?: AbortSignal
-    ): Promise<string | undefined> {
-        if (video.videoBytes) {
-            return video.videoBytes;
-        }
-
-        if (!video.uri) {
-            return undefined;
-        }
-
-        if (video.uri.startsWith("data:")) {
-            const b64 = video.uri.split(",", 2)[1];
-            return b64 || undefined;
-        }
-
-        if (video.uri.startsWith("http://") || video.uri.startsWith("https://")) {
-            await assertSafeRemoteHttpUrl(video.uri);
-            const response = await fetch(video.uri, { signal });
-            if (response.ok) {
-                const bytes = Buffer.from(await response.arrayBuffer());
-                return bytes.length > 0 ? bytes.toString("base64") : undefined;
-            }
-
-            if (response.status === 401 || response.status === 403) {
-                const fileName = this.extractGeminiFileName(video.uri);
-                if (!fileName) {
-                    throw new Error(`Failed to fetch generated video from URI: ${response.status} ${response.statusText}`);
-                }
-                const bytes = await this.downloadViaFilesApi(fileName, signal);
-                return bytes.length > 0 ? bytes.toString("base64") : undefined;
-            }
-
-            throw new Error(`Failed to fetch generated video from URI: ${response.status} ${response.statusText}`);
-        }
-
-        const bytes = await this.downloadViaFilesApi(video.uri, signal);
-        return bytes.length > 0 ? bytes.toString("base64") : undefined;
-    }
-
-    private extractGeminiFileName(source: string): string | undefined {
-        return extractGeminiFileName(source);
-    }
-
-    private async downloadViaFilesApi(fileRefOrName: string, signal?: AbortSignal): Promise<Buffer> {
-        return await downloadGeminiFileViaApi(this.client, fileRefOrName, signal);
-    }
-
-    private resolveDuration(value?: string): number | undefined {
-        if (!value) {
-            return undefined;
-        }
-        const parsed = Number.parseInt(value, 10);
-        if (!Number.isFinite(parsed)) {
-            return undefined;
-        }
-        if (parsed < GEMINI_VIDEO_MIN_DURATION_SECONDS || parsed > GEMINI_VIDEO_MAX_DURATION_SECONDS) {
-            throw new Error(
-                `Gemini video durationSeconds must be between ${GEMINI_VIDEO_MIN_DURATION_SECONDS} and ${GEMINI_VIDEO_MAX_DURATION_SECONDS} (received ${parsed})`
-            );
-        }
-        return parsed;
-    }
-
+    /**
+     * Maps ProviderPlaneAI size strings to Gemini's supported aspect-ratio hints.
+     *
+     * @param size Requested video size.
+     * @returns Gemini aspect ratio when the size maps cleanly; otherwise `undefined`.
+     */
     private mapSizeToAspectRatio(size?: string): "16:9" | "9:16" | undefined {
         if (!size) {
             return undefined;
@@ -243,9 +191,5 @@ export class GeminiVideoGenerationCapabilityImpl implements VideoGenerationCapab
             return "9:16";
         }
         return undefined;
-    }
-
-    private delay(ms: number, signal?: AbortSignal): Promise<void> {
-        return delayWithAbort(ms, signal, "Gemini video generation polling aborted");
     }
 }

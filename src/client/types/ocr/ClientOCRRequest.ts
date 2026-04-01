@@ -1,6 +1,6 @@
 /**
  * @module client/types/ocr/ClientOCRRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Provider-agnostic OCR request contracts.
  */
 import { ClientFileInputSource, ClientReferenceImage, ClientRequestBase } from "#root/index.js";
 
@@ -93,18 +93,9 @@ export interface ClientOCRStructuredOptions {
 }
 
 /**
- * Provider-agnostic OCR request.
+ * Request payload for OCR and document extraction operations.
  *
- * Intended for text extraction from:
- * - one or more images
- * - a document/file source such as a local file, bytes, stream, or URL string
- *
- * v1 keeps the shape narrow so providers with native OCR endpoints and providers
- * that emulate OCR through vision/document prompts can share the same request model.
- */
-/**
  * @public
- * @description Interface contract for ClientOCRRequest.
  */
 export interface ClientOCRRequest extends ClientRequestBase {
     /**

@@ -1,6 +1,6 @@
 /**
  * @module core/types/MultiModalExecutionContext.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Timeline-backed execution context for multi-turn, multimodal workflows.
  */
 import {
     TimelineEvent,
@@ -38,7 +38,7 @@ import {
  */
 /**
  * @public
- * @description Implementation class for MultiModalExecutionContext.
+ * Timeline-backed execution context for multi-turn multimodal sessions.
  */
 export class MultiModalExecutionContext {
     /**
@@ -52,6 +52,8 @@ export class MultiModalExecutionContext {
 
     /**
      * Enables or disables timeline artifact payload sanitization.
+     *
+     * @param {boolean} enabled - Whether binary-heavy artifact fields should be stripped before storage.
      */
     setStripBinaryPayloadsInTimeline(enabled: boolean): void {
         this.stripBinaryPayloadsInTimeline = enabled;
@@ -61,7 +63,7 @@ export class MultiModalExecutionContext {
      * Begin a new logical turn with a canonical user input.
      * Input can be a chat message, image request, or any other request type.
      *
-     * @param input - The user input for this turn
+     * @param {NormalizedUserInput} input - The canonical user input for this turn.
      */
     beginTurn(input: NormalizedUserInput): void {
         const event: UserMessageEvent = {
@@ -76,7 +78,9 @@ export class MultiModalExecutionContext {
     }
 
     /**
-     * Apply final assistant output
+     * Applies a final assistant chat message to the timeline.
+     *
+     * @param {NormalizedChatMessage} message - Final assistant message to append.
      * Chat is the only modality that produces a canonical "assistantMessage".
      */
     applyAssistantMessage(message: NormalizedChatMessage): void {
@@ -90,7 +94,9 @@ export class MultiModalExecutionContext {
         this.timeline.push(event);
     }
     /**
-     * Attach multimodal artifacts without producing a chat message
+     * Attaches multimodal artifacts without producing a chat message.
+     *
+     * @param {Partial<TimelineArtifacts> | undefined} artifacts - Artifacts to append to the timeline.
      */
     attachArtifacts(artifacts?: Partial<TimelineArtifacts>): void {
         const event: SystemEvent = {
@@ -105,8 +111,12 @@ export class MultiModalExecutionContext {
     }
 
     /**
-     * Attach multimodal artifacts with metadata sourced from an internal AIResponse.
+     * Attaches multimodal artifacts with metadata sourced from an internal AI response.
      * Intended for internal orchestration use only.
+     *
+     * @template T - Response output type.
+     * @param {AIResponse<T>} response - Source response whose artifacts and metadata should be attached.
+     * @param {Partial<TimelineArtifacts> | undefined} artifacts - Additional artifacts to merge on top of the response artifacts.
      */
     attachArtifactsFromResponse<T>(response: AIResponse<T>, artifacts?: Partial<TimelineArtifacts>): void {
         const baseWithResponseArtifacts = this.mergeArtifacts(this.createEmptyArtifacts(), response.multimodalArtifacts);
@@ -124,8 +134,9 @@ export class MultiModalExecutionContext {
     }
 
     /**
-     * Streaming helper.
-     * Chunks are forwarded but NOT persisted as AIResponses.
+     * Records streamed artifacts without materializing them as full AI responses.
+     *
+     * @param {Partial<TimelineArtifacts> | undefined} artifacts - Streamed artifacts to append or coalesce.
      */
     yieldArtifacts(artifacts?: Partial<TimelineArtifacts>): void {
         if (!artifacts) {
@@ -156,19 +167,25 @@ export class MultiModalExecutionContext {
         this.timeline.push(event);
     }
     /**
-     * Reset the entire session
+     * Resets the entire session timeline.
      */
     reset(): void {
         this.timeline = [];
     }
     /**
-     * Read-only view of timeline
+     * Returns a read-only view of the current timeline.
+     *
+     * @returns {readonly TimelineEvent[]} Timeline events in chronological order.
      */
     getTimeline(): readonly TimelineEvent[] {
         return this.timeline;
     }
     /**
-     * Merge two TimelineArtifacts objects safely
+     * Merges two `TimelineArtifacts` objects safely.
+     *
+     * @param {TimelineArtifacts} base - Existing artifact set.
+     * @param {Partial<TimelineArtifacts> | undefined} addition - Additional artifacts to merge.
+     * @returns {TimelineArtifacts} Merged artifact set.
      */
     private mergeArtifacts(base: TimelineArtifacts, addition?: Partial<TimelineArtifacts>): TimelineArtifacts {
         addition = addition ?? {};
@@ -196,7 +213,9 @@ export class MultiModalExecutionContext {
         };
     }
     /**
-     * Create an empty TimelineArtifacts object
+     * Creates an empty `TimelineArtifacts` object.
+     *
+     * @returns {TimelineArtifacts} Empty artifact container.
      */
     private createEmptyArtifacts(): TimelineArtifacts {
         return {
@@ -218,7 +237,10 @@ export class MultiModalExecutionContext {
     }
 
     /**
-     * Returns true when all artifact arrays are empty.
+     * Returns `true` when all artifact arrays are empty.
+     *
+     * @param {TimelineArtifacts} artifacts - Artifact set to inspect.
+     * @returns {boolean} `true` when all artifact arrays are empty.
      */
     private isArtifactsEmpty(artifacts: TimelineArtifacts): boolean {
         const sizeOf = (value: unknown): number => (Array.isArray(value) ? value.length : 0);

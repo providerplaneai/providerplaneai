@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedEmbedding.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized embedding artifact contract.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
@@ -10,7 +10,7 @@ import { NormalizedArtifactBase } from "#root/index.js";
  */
 /**
  * @public
- * @description Data contract for NormalizedEmbedding.
+ * Canonical provider-agnostic embedding artifact.
  */
 export interface NormalizedEmbedding extends NormalizedArtifactBase {
     /**

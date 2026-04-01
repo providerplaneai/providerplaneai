@@ -1,6 +1,6 @@
 /**
  * @module core/provider/capabilities/OCRCapability.ts
- * @description Provider implementations and capability adapters.
+ * @description Provider-agnostic OCR capability contracts.
  */
 import {
     AIRequest,
@@ -19,20 +19,16 @@ import {
  */
 /**
  * @public
- * @description Capability contract for OCRCapability.
+ * OCR capability contract.
  */
 export interface OCRCapability<TInput = ClientOCRRequest, TOutput = NormalizedOCRDocument[]> extends ProviderCapability {
     /**
      * Extracts OCR/document text from the supplied request.
      *
-     * @param request Unified OCR request envelope.
-     * @param ctx Execution context.
-     * @param signal Optional abort signal.
-     * @returns AIResponse containing normalized OCR document artifacts.
+     * @param {AIRequest<TInput>} request - Unified OCR request envelope.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} AIResponse containing normalized OCR document artifacts.
      */
-    ocr(
-        request: AIRequest<TInput>,
-        ctx: MultiModalExecutionContext,
-        signal?: AbortSignal
-    ): Promise<AIResponse<TOutput>>;
+    ocr(request: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<AIResponse<TOutput>>;
 }

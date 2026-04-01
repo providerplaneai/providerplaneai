@@ -419,7 +419,6 @@ export class Pipeline<TOutput = unknown> {
      *
      * @param {string} id Workflow identifier.
      * @param {PipelineOptions=} options Optional pipeline defaults.
-     * @returns {void}
      */
     constructor(id: string, options?: PipelineOptions) {
         this.builder = new WorkflowBuilder<TOutput>(id);

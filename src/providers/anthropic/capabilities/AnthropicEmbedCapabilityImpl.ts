@@ -1,6 +1,6 @@
 /**
  * @module providers/anthropic/capabilities/AnthropicEmbedCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Anthropic embedding capability adapter backed by Voyage AI.
  */
 import {
     AIProvider,
@@ -11,13 +11,14 @@ import {
     ClientEmbeddingRequest,
     EmbedCapability,
     MultiModalExecutionContext,
-    NormalizedEmbedding
+    NormalizedEmbedding,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_ANTHROPIC_EMBED_MODEL = "voyage-3";
 
 /**
- * Typed representation of Voyage AI embeddings API response (used for Anthropic embeddings).
+ * Typed representation of the Voyage AI embeddings API response.
  *
  * This is intentionally minimal and only includes fields required for normalization and metadata reporting.
  */
@@ -35,33 +36,28 @@ interface VoyageEmbeddingResponse {
 }
 
 /**
- * AnthropicEmbedCapabilityImpl: Implements embedding capability for Anthropic via Voyage AI.
+ * Adapts Anthropic embeddings into ProviderPlaneAI by proxying requests to Voyage AI.
  *
- * Anthropic does not natively provide embeddings; this class proxies requests to Voyage AI.
+ * Anthropic does not currently expose a native embeddings endpoint, so this
+ * capability uses Voyage AI while preserving Anthropic as the normalized provider.
  *
- * - Implements the unified IEmbedCapability interface
- * - Transparently proxies embedding requests to Voyage AI
- * - Normalizes the response into ProviderPlaneAI's AIResponse format
- * - Preserves provider identity as "Anthropic" for consistency
- *
- * @template TEmbedInput
- * @template TEmbedOutput
+ * @public
  */
 export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
     /**
-     * Voyage AI API key (required)
+     * Voyage AI API key used for proxied embedding requests.
      */
     private readonly voyageApiKey: string;
     /**
-     * Base URL for Voyage AI REST API
+     * Base URL for the Voyage AI REST API.
      */
     private readonly voyageBaseUrl: string = "https://api.voyageai.com/v1";
 
     /**
-     * Creates a new Anthropic embedding capability.
+     * Creates a new Anthropic embedding capability adapter.
      *
-     * @param provider - Parent provider instance used for lifecycle validation
-     * @throws Error if VOYAGE_API_KEY is missing
+     * @param {BaseProvider} provider Parent provider instance used for lifecycle validation and option resolution.
+     * @throws {Error} When `VOYAGE_API_KEY` is not configured.
      */
     constructor(private readonly provider: BaseProvider) {
         // Get Voyage API key from environment variable
@@ -76,21 +72,20 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
     }
 
     /**
-     * Generates embeddings for one or more input strings.
+     * Executes a Voyage-backed embedding request for Anthropic.
      *
      * Responsibilities:
-     * - Validate input
-     * - Initialize capability execution context
-     * - Normalize input shape for Voyage API
-     * - Execute HTTP request
-     * - Normalize response shape
-     * - Attach metadata and error handling
+     * - validate embedding input
+     * - resolve merged model/runtime options
+     * - normalize scalar input into Voyage's array-based request shape
+     * - execute the HTTP request and normalize returned vectors
+     * - attach Anthropic-facing metadata plus the underlying embedding provider
      *
-     * @template TEmbedInput
-     * @param request - Unified embedding request
-     * @param _executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns AIResponse containing a single vector or array of vectors
+     * @param {AIRequest<ClientEmbeddingRequest>} request Unified embedding request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedEmbedding[]>>} Provider-normalized embedding artifacts.
+     * @throws {Error} When input is invalid, aborted, or Voyage AI returns an error.
      */
     async embed(
         request: AIRequest<ClientEmbeddingRequest>,
@@ -176,29 +171,28 @@ export class AnthropicEmbedCapabilityImpl implements EmbedCapability<ClientEmbed
             dimensions: vector.length,
             inputId: Array.isArray(input.input) ? undefined : (input as any).inputId,
             purpose: (request as any)?.purpose ?? "embedding",
-            metadata: {
+            metadata: buildMetadata(undefined, {
                 provider: AIProvider.Anthropic,
                 model: merged.model ?? voyageResponse.model,
                 status: "completed",
                 tokensUsed: voyageResponse.usage?.total_tokens,
                 requestId: context?.requestId,
                 embeddingProvider: "voyage-ai"
-            }
+            })
         }));
 
         // Return a fully normalized response
         return {
             output: Array.isArray(input.input) ? normalized : normalized[0] ? [normalized[0]] : [],
             rawResponse: voyageResponse,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Anthropic,
                 model: merged.model ?? voyageResponse.model,
                 status: "completed",
                 tokensUsed: voyageResponse.usage?.total_tokens,
                 requestId: context?.requestId,
                 embeddingProvider: "voyage-ai" // Track that we used Voyage AI
-            }
+            })
         };
     }
 }
