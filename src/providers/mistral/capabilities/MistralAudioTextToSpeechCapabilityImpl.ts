@@ -81,7 +81,6 @@ export class MistralAudioTextToSpeechCapabilityImpl
 
         const response = await this.client.audio.speech.complete(speechRequest, {
             signal,
-            ...(merged.modelParams ?? {}),
             ...(merged.providerParams ?? {})
         });
 
@@ -148,7 +147,6 @@ export class MistralAudioTextToSpeechCapabilityImpl
         try {
             const response = await this.client.audio.speech.complete(speechRequest, {
                 signal,
-                ...(merged.modelParams ?? {}),
                 ...(merged.providerParams ?? {})
             });
 

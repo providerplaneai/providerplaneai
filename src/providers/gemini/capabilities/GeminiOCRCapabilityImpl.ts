@@ -123,7 +123,8 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         const responseId = response?.responseId ?? context?.requestId ?? crypto.randomUUID();
         const responseText = this.extractGeminiResponseText(response);
         const parsedItems = parseBestEffortJson<GeminiOCRPayload>(stripMarkdownCodeFence(responseText));
-        const document = this.normalizeOCRDocument(input, parsedItems[0], responseText, responseId);
+        const parsedPayload = this.isDegenerateParsedPayload(parsedItems[0]) ? undefined : parsedItems[0];
+        const document = this.normalizeOCRDocument(input, parsedPayload, responseText, responseId);
 
         return {
             output: [document],
@@ -282,7 +283,8 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             .filter((page) => page.fullText || page.text);
 
         const pageTexts = parsedPages?.map((page) => page.fullText).filter((value): value is string => Boolean(value)) ?? [];
-        const fullText = normalizeOCRTextValue(parsed?.fullText) || pageTexts.join("\n\n").trim() || rawText.trim() || undefined;
+        const fullText =
+            normalizeOCRTextValue(parsed?.fullText) || pageTexts.join("\n\n").trim() || rawText.trim() || undefined;
 
         return {
             id: responseId,
@@ -297,7 +299,11 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             annotations: parsed?.annotations
                 ?.filter((annotation) => annotation && (annotation.text || annotation.data))
                 .map((annotation) => {
-                    const annotationText = normalizeOCRAnnotationText(annotation.text, annotation.data, input.structured?.annotationPrompt);
+                    const annotationText = normalizeOCRAnnotationText(
+                        annotation.text,
+                        annotation.data,
+                        input.structured?.annotationPrompt
+                    );
                     return {
                         type: annotation.type === "bbox" ? "bbox" : "document",
                         ...(annotation.label ? { label: annotation.label } : {}),
@@ -320,10 +326,27 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                 })),
             metadata: buildMetadata(undefined, {
                 provider: AIProvider.Gemini,
-                status: "completed",
-                rawParsed: parsed
+                status: "completed"
             })
         };
+    }
+
+    private isDegenerateParsedPayload(parsed: GeminiOCRPayload | undefined): boolean {
+        if (!parsed || typeof parsed !== "object") {
+            return false;
+        }
+        const fullText = normalizeOCRTextValue(parsed.fullText);
+        const hasPages = parsed.pages?.some((page) => normalizeOCRTextValue(page?.fullText)) ?? false;
+        const hasAnnotations =
+            parsed.annotations?.some(
+                (annotation) => normalizeOCRTextValue(annotation?.text) || annotation?.data !== undefined
+            ) ?? false;
+        const hasHeaders = parsed.headers?.some((section) => normalizeOCRTextValue(section?.text)) ?? false;
+        const hasFooters = parsed.footers?.some((section) => normalizeOCRTextValue(section?.text)) ?? false;
+        if (fullText && fullText !== "true" && fullText !== "false") {
+            return false;
+        }
+        return !(hasPages || hasAnnotations || hasHeaders || hasFooters);
     }
 
     private toGeminiImagePart(img: ClientReferenceImage) {

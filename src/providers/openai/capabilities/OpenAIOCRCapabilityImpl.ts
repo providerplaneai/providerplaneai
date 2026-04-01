@@ -357,13 +357,14 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
     ): NormalizedOCRDocument {
         const normalizedParsedFullText = normalizeOCRTextValue(parsed?.fullText);
         const pages = parsed?.pages
-            ?.map((page, index) => ({
-                pageNumber: page.pageNumber ?? index + 1,
-                fullText: normalizeOCRTextValue(page.fullText),
-                text: normalizeOCRTextValue(page.fullText)
-                    ? ([{ text: normalizeOCRTextValue(page.fullText)! }] satisfies OCRText[])
-                    : undefined
-            }))
+            ?.map((page, index) => {
+                const pageFullText = normalizeOCRTextValue(page.fullText);
+                return {
+                    pageNumber: page.pageNumber ?? index + 1,
+                    fullText: pageFullText,
+                    text: pageFullText ? ([{ text: pageFullText }] satisfies OCRText[]) : undefined
+                };
+            })
             .filter((page) => page.fullText || page.text);
 
         const pageTexts = pages?.map((page) => page.fullText).filter((value): value is string => Boolean(value)) ?? [];
@@ -402,8 +403,7 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
                 })),
             metadata: buildMetadata(undefined, {
                 provider: AIProvider.OpenAI,
-                status: "completed",
-                rawParsed: parsed
+                status: "completed"
             })
         };
     }
