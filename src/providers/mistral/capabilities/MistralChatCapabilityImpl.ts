@@ -428,9 +428,9 @@ export class MistralChatCapabilityImpl
         });
 
         return {
+            ...(modelParams ?? {}),
             model,
-            messages: constructedMessages,
-            ...(modelParams ?? {})
+            messages: constructedMessages
         } as ChatCompletionRequest | ChatCompletionStreamRequest;
     }
 }

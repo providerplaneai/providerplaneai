@@ -147,6 +147,7 @@ export class MistralOCRCapabilityImpl implements OCRCapability<ClientOCRRequest,
         const annotationPrompt = structured?.annotationPrompt ?? input.prompt;
 
         return {
+            ...(modelParams ?? {}),
             model,
             document,
             ...(bboxAnnotationFormat ? { bboxAnnotationFormat } : {}),
@@ -156,8 +157,7 @@ export class MistralOCRCapabilityImpl implements OCRCapability<ClientOCRRequest,
             ...(structured?.pages?.length ? { pages: structured.pages.map((page) => Math.max(0, page - 1)) } : {}),
             ...(structured?.extractHeaders ? { extractHeader: true } : {}),
             ...(structured?.extractFooters ? { extractFooter: true } : {}),
-            ...(input.includeBoundingBoxes ? { includeImageBase64: true } : {}),
-            ...(modelParams ?? {})
+            ...(input.includeBoundingBoxes ? { includeImageBase64: true } : {})
         } as OCRRequest;
     }
 

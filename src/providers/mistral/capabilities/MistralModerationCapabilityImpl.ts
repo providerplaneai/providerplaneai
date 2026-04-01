@@ -112,6 +112,7 @@ export class MistralModerationCapabilityImpl implements ModerationCapability<Cli
                 metadata: buildMetadata(undefined, {
                     provider: AIProvider.Mistral,
                     model,
+                    status: "completed",
                     requestId: context?.requestId
                 })
             };

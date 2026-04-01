@@ -414,12 +414,12 @@ export class MistralImageAnalysisCapabilityImpl
         };
 
         return {
+            ...(modelParams ?? {}),
             model,
             messages: [userMessage],
             // Mistral does not expose OpenAI-style tool schemas here, so JSON output is
             // steered through prompt design plus the provider's `json_object` response format.
-            responseFormat: { type: "json_object" },
-            ...(modelParams ?? {})
+            responseFormat: { type: "json_object" }
         } as ChatCompletionRequest;
     }
 }

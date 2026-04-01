@@ -134,9 +134,9 @@ export class MistralEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddi
         modelParams?: Record<string, unknown>
     ): EmbeddingRequest {
         return {
+            ...(modelParams ?? {}),
             model,
-            inputs: input,
-            ...(modelParams ?? {})
+            inputs: input
         } as EmbeddingRequest;
     }
 

@@ -165,8 +165,8 @@ export class MistralAudioTranscriptionCapabilityImpl
                 ) as AudioTranscriptionRequestStream,
                 {
                     signal,
-                    // Keep the current stream-call passthrough behavior unchanged here.
-                    ...(merged.modelParams ?? {})
+                    // Keep the transport-level SDK options passthrough behavior unchanged here.
+                    ...(merged.providerParams ?? {})
                 }
             );
 

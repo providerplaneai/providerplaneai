@@ -382,13 +382,16 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             sourceImageId: input.images?.[0]?.id,
             annotations: parsed?.annotations
                 ?.filter((annotation) => annotation && (annotation.text || annotation.data))
-                .map((annotation) => ({
-                    type: annotation.type === "bbox" ? "bbox" : "document",
-                    ...(annotation.label ? { label: annotation.label } : {}),
-                    ...(normalizeOCRTextValue(annotation.text) ? { text: normalizeOCRTextValue(annotation.text) } : {}),
-                    ...(annotation.data ? { data: annotation.data } : {}),
-                    ...(annotation.pageNumber ? { pageNumber: annotation.pageNumber } : {})
-                })),
+                .map((annotation) => {
+                    const annotationText = normalizeOCRTextValue(annotation.text);
+                    return {
+                        type: annotation.type === "bbox" ? "bbox" : "document",
+                        ...(annotation.label ? { label: annotation.label } : {}),
+                        ...(annotationText ? { text: annotationText } : {}),
+                        ...(annotation.data ? { data: annotation.data } : {}),
+                        ...(annotation.pageNumber ? { pageNumber: annotation.pageNumber } : {})
+                    };
+                }),
             headers: parsed?.headers
                 ?.filter((section) => section?.text)
                 .map((section, index) => ({
