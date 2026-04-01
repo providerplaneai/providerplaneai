@@ -29,7 +29,7 @@ Include description, tags, safety, and identified objects for each image.
 Do not merge images.
 Use imageIndex based on the order provided.
 `;
-const DEFAULT_ANTHROPIC_IMAGE_ANALYSIS_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_ANTHROPIC_IMAGE_ANALYSIS_MODEL = "claude-sonnet-4";
 
 /**
  * Adapts Anthropic image analysis responses into ProviderPlaneAI's normalized image-analysis artifact surface.

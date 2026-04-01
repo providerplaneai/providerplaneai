@@ -22,7 +22,8 @@ import {
     resolveReferenceMediaSource,
     resolveBinarySourceToBase64,
     stripMarkdownCodeFence,
-    buildMetadata
+    buildMetadata,
+    normalizeOCRTextValue
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_OCR_MODEL = "gemini-2.5-pro";
@@ -270,43 +271,41 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         responseId: string
     ): NormalizedOCRDocument {
         const parsedPages = parsed?.pages
-            ?.map((page, index) => ({
-                pageNumber: page.pageNumber ?? index + 1,
-                fullText: page.fullText?.trim() || undefined,
-                text: page.fullText?.trim() ? ([{ text: page.fullText.trim() }] satisfies OCRText[]) : undefined
-            }))
+            ?.map((page, index) => {
+                const pageFullText = normalizeOCRTextValue(page.fullText);
+                return {
+                    pageNumber: page.pageNumber ?? index + 1,
+                    fullText: pageFullText,
+                    text: pageFullText ? ([{ text: pageFullText }] satisfies OCRText[]) : undefined
+                };
+            })
             .filter((page) => page.fullText || page.text);
 
         const pageTexts = parsedPages?.map((page) => page.fullText).filter((value): value is string => Boolean(value)) ?? [];
-        const fullText = parsed?.fullText?.trim() || pageTexts.join("\n\n").trim() || rawText.trim() || undefined;
+        const fullText = normalizeOCRTextValue(parsed?.fullText) || pageTexts.join("\n\n").trim() || rawText.trim() || undefined;
 
         return {
             id: responseId,
             fullText,
             text: fullText ? [{ text: fullText }] : undefined,
             pages: parsedPages,
-            language: parsed?.language ?? input.language,
+            language: normalizeOCRTextValue(parsed?.language) ?? input.language,
             pageCount: parsedPages?.length,
             fileName: input.filename,
             mimeType: input.mimeType,
             sourceImageId: input.images?.[0]?.id,
             annotations: parsed?.annotations
                 ?.filter((annotation) => annotation && (annotation.text || annotation.data))
-                .map((annotation) => ({
-                    type: annotation.type === "bbox" ? "bbox" : "document",
-                    ...(annotation.label ? { label: annotation.label } : {}),
-                    ...(normalizeOCRAnnotationText(annotation.text, annotation.data, input.structured?.annotationPrompt)
-                        ? {
-                              text: normalizeOCRAnnotationText(
-                                  annotation.text,
-                                  annotation.data,
-                                  input.structured?.annotationPrompt
-                              )
-                          }
-                        : {}),
-                    ...(annotation.data ? { data: annotation.data } : {}),
-                    ...(annotation.pageNumber ? { pageNumber: annotation.pageNumber } : {})
-                })),
+                .map((annotation) => {
+                    const annotationText = normalizeOCRAnnotationText(annotation.text, annotation.data, input.structured?.annotationPrompt);
+                    return {
+                        type: annotation.type === "bbox" ? "bbox" : "document",
+                        ...(annotation.label ? { label: annotation.label } : {}),
+                        ...(annotationText ? { text: annotationText } : {}),
+                        ...(annotation.data ? { data: annotation.data } : {}),
+                        ...(annotation.pageNumber ? { pageNumber: annotation.pageNumber } : {})
+                    };
+                }),
             headers: parsed?.headers
                 ?.filter((section) => section?.text)
                 .map((section, index) => ({

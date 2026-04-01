@@ -35,36 +35,6 @@ export function summarizeSnapshot(snapshot: JobSnapshot<any, any>) {
 }
 
 /**
- * Logs provider-attempt metadata for debugging provider fallback chains.
- *
- * @param {string} label - Log label prefix.
- * @param {Record<string, any> | undefined} metadata - Metadata object that may contain `providerAttempts`.
- */
-export function logProviderAttempts(label: string, metadata: Record<string, any> | undefined) {
-    const attempts = metadata?.providerAttempts;
-    if (!Array.isArray(attempts) || attempts.length === 0) {
-        console.log(`[${label}] providerAttempts: none`);
-        return;
-    }
-    console.log(`[${label}] providerAttempts:`, attempts, null, 2);
-}
-
-/**
- * Logs raw-payload budget diagnostics for a job or provider.
- *
- * @param {string} label - Log label prefix.
- * @param {Record<string, any> | undefined} metadata - Metadata object that may contain raw payload counters.
- */
-export function logRawBudgetDiagnostics(label: string, metadata: Record<string, any> | undefined) {
-    console.log(`[${label}] raw diagnostics:`, {
-        rawPayloadDropped: metadata?.rawPayloadDropped,
-        rawPayloadDroppedCount: metadata?.rawPayloadDroppedCount,
-        rawPayloadDroppedBytes: metadata?.rawPayloadDroppedBytes,
-        rawPayloadStoredBytes: metadata?.rawPayloadStoredBytes
-    });
-}
-
-/**
  * Validates that a value is a boolean when provided.
  *
  * @param {unknown} value - Value to validate.

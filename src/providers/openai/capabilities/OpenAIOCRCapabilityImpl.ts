@@ -206,6 +206,7 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         );
 
         let parsed: OpenAIOCRPayload | undefined;
+        let salvageLanguage: string | undefined;
         for (const item of response.output ?? []) {
             if (item.type !== "function_call" || item.name !== "ocr_extract") {
                 continue;
@@ -213,14 +214,17 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             try {
                 parsed = JSON.parse(item.arguments) as OpenAIOCRPayload;
                 if (this.isDegenerateParsedPayload(parsed)) {
-                    const parsedLanguage = normalizeOCRTextValue(parsed.language);
-                    parsed = parsedLanguage ? { language: parsedLanguage } : undefined;
+                    salvageLanguage = normalizeOCRTextValue(parsed.language) ?? salvageLanguage;
+                    parsed = undefined;
                     continue;
                 }
                 break;
             } catch {
                 // ignore invalid tool payloads and fall back to response output text
             }
+        }
+        if (!parsed && salvageLanguage) {
+            parsed = { language: salvageLanguage };
         }
 
         const responseId = response.id ?? context?.requestId ?? crypto.randomUUID();

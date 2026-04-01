@@ -86,8 +86,6 @@ export class AnthropicProvider
      * @throws Error if the API key is missing or invalid
      */
     override init(config: ProviderConnectionConfig) {
-        console.log(`Initializing Anthropic Provider`);
-
         // Initialization logic for Anthropic provider`
         if (!config.apiKey) {
             throw new Error(`Anthropic API key ${config.apiKeyEnvVar} required but not found in config. Check .env file`);

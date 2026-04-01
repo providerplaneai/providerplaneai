@@ -15,14 +15,12 @@ import {
     resolveMistralFileInput
 } from "#root/index.js";
 
-export type MistralOCRFormatSupportLevel = "documented" | "tested" | "experimental";
 export type MistralOCRTransportClass = "image" | "document";
 
 export type MistralOCRFormatDescriptor = {
     extension: string;
     mimeType: string;
     transport: MistralOCRTransportClass;
-    supportLevel: MistralOCRFormatSupportLevel;
 };
 
 export type MistralOCRDocumentInput =
@@ -31,69 +29,47 @@ export type MistralOCRDocumentInput =
     | { type: "file"; fileId: string };
 
 /**
- * Known Mistral OCR format buckets grouped by observed support level.
- *
- * `tested` reflects formats exercised in this project, `documented` reflects provider documentation,
- * and `experimental` captures additional formats that may work but are not relied on.
+ * Mistral OCR formats exercised and relied on in this project.
  */
-export const MISTRAL_OCR_FORMATS = {
-    tested: [
-        { extension: "png", mimeType: "image/png", transport: "image", supportLevel: "tested" },
-        { extension: "jpg", mimeType: "image/jpeg", transport: "image", supportLevel: "tested" },
-        { extension: "jpeg", mimeType: "image/jpeg", transport: "image", supportLevel: "tested" },
-        { extension: "webp", mimeType: "image/webp", transport: "image", supportLevel: "tested" },
-        { extension: "gif", mimeType: "image/gif", transport: "image", supportLevel: "tested" },
-        { extension: "bmp", mimeType: "image/bmp", transport: "image", supportLevel: "tested" },
-        { extension: "tiff", mimeType: "image/tiff", transport: "image", supportLevel: "tested" },
-        { extension: "heic", mimeType: "image/heic", transport: "image", supportLevel: "tested" },
-        { extension: "heif", mimeType: "image/heif", transport: "image", supportLevel: "tested" },
-        { extension: "avif", mimeType: "image/avif", transport: "image", supportLevel: "tested" },
-        { extension: "pdf", mimeType: "application/pdf", transport: "document", supportLevel: "tested" },        
-        {
-            extension: "docx",
-            mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            transport: "document",
-            supportLevel: "tested"
-        },
-        {
-            extension: "pptx",
-            mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            transport: "document",
-            supportLevel: "tested"
-        },
-        {
-            extension: "odt",
-            mimeType: "application/vnd.oasis.opendocument.text",
-            transport: "document",
-            supportLevel: "tested"
-        },
-        {
-            extension: "xlsx",
-            mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            transport: "document",
-            supportLevel: "tested"
-        }
-    ],
-    documented: [],
-    experimental: [
-        { extension: "jpe", mimeType: "image/jpeg", transport: "image", supportLevel: "experimental" },
-        { extension: "jfif", mimeType: "image/jpeg", transport: "image", supportLevel: "experimental" },
-        { extension: "tif", mimeType: "image/tiff", transport: "image", supportLevel: "experimental" },
-        { extension: "rtf", mimeType: "application/rtf", transport: "document", supportLevel: "experimental" }
-    ]
-} as const satisfies Record<MistralOCRFormatSupportLevel, readonly MistralOCRFormatDescriptor[]>;
-
-const MISTRAL_OCR_FORMAT_LIST = [
-    ...MISTRAL_OCR_FORMATS.tested,
-    ...MISTRAL_OCR_FORMATS.documented,
-    ...MISTRAL_OCR_FORMATS.experimental
+export const MISTRAL_OCR_FORMATS = [
+    { extension: "png", mimeType: "image/png", transport: "image" },
+    { extension: "jpg", mimeType: "image/jpeg", transport: "image" },
+    { extension: "jpeg", mimeType: "image/jpeg", transport: "image" },
+    { extension: "webp", mimeType: "image/webp", transport: "image" },
+    { extension: "gif", mimeType: "image/gif", transport: "image" },
+    { extension: "bmp", mimeType: "image/bmp", transport: "image" },
+    { extension: "tiff", mimeType: "image/tiff", transport: "image" },
+    { extension: "heic", mimeType: "image/heic", transport: "image" },
+    { extension: "heif", mimeType: "image/heif", transport: "image" },
+    { extension: "avif", mimeType: "image/avif", transport: "image" },
+    { extension: "pdf", mimeType: "application/pdf", transport: "document" },
+    {
+        extension: "docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        transport: "document"
+    },
+    {
+        extension: "pptx",
+        mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        transport: "document"
+    },
+    {
+        extension: "odt",
+        mimeType: "application/vnd.oasis.opendocument.text",
+        transport: "document"
+    },
+    {
+        extension: "xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        transport: "document"
+    }
 ] as const satisfies readonly MistralOCRFormatDescriptor[];
 
 const MISTRAL_OCR_EXTENSION_TO_FORMAT = new Map<string, MistralOCRFormatDescriptor>(
-    MISTRAL_OCR_FORMAT_LIST.map((format) => [format.extension, format] satisfies [string, MistralOCRFormatDescriptor])
+    MISTRAL_OCR_FORMATS.map((format) => [format.extension, format] satisfies [string, MistralOCRFormatDescriptor])
 );
 const MISTRAL_OCR_MIME_TO_FORMAT = new Map<string, MistralOCRFormatDescriptor>(
-    MISTRAL_OCR_FORMAT_LIST.map((format) => [format.mimeType, format] satisfies [string, MistralOCRFormatDescriptor])
+    MISTRAL_OCR_FORMATS.map((format) => [format.mimeType, format] satisfies [string, MistralOCRFormatDescriptor])
 );
 
 /**

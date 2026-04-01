@@ -29,7 +29,7 @@ import {
     stripDataUriPrefix
 } from "#root/index.js";
 
-const DEFAULT_ANTHROPIC_OCR_MODEL = "claude-sonnet-4-5-20250929";
+const DEFAULT_ANTHROPIC_OCR_MODEL = "claude-sonnet-4-5";
 
 type AnthropicOCRPayload = {
     fullText?: string;
@@ -273,21 +273,16 @@ export class AnthropicOCRCapabilityImpl implements OCRCapability<ClientOCRReques
             sourceImageId: input.images?.[0]?.id,
             annotations: parsed?.annotations
                 ?.filter((annotation) => annotation && (annotation.text || annotation.data))
-                .map((annotation) => ({
-                    type: annotation.type === "bbox" ? "bbox" : "document",
-                    ...(annotation.label ? { label: annotation.label } : {}),
-                    ...(normalizeOCRAnnotationText(annotation.text, annotation.data, input.structured?.annotationPrompt)
-                        ? {
-                              text: normalizeOCRAnnotationText(
-                                  annotation.text,
-                                  annotation.data,
-                                  input.structured?.annotationPrompt
-                              )
-                          }
-                        : {}),
-                    ...(annotation.data ? { data: annotation.data } : {}),
-                    ...(annotation.pageNumber ? { pageNumber: annotation.pageNumber } : {})
-                })),
+                .map((annotation) => {
+                    const annotationText = normalizeOCRAnnotationText(annotation.text, annotation.data, input.structured?.annotationPrompt);
+                    return {
+                        type: annotation.type === "bbox" ? "bbox" : "document",
+                        ...(annotation.label ? { label: annotation.label } : {}),
+                        ...(annotationText ? { text: annotationText } : {}),
+                        ...(annotation.data ? { data: annotation.data } : {}),
+                        ...(annotation.pageNumber ? { pageNumber: annotation.pageNumber } : {})
+                    };
+                }),
             headers: parsed?.headers
                 ?.filter((section) => section?.text)
                 .map((section, index) => ({

@@ -1,4 +1,14 @@
 import { vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
+
+// Node 18 vitest worker threads do not expose `crypto` or `File` as globals — polyfill both.
+if (typeof globalThis.crypto === 'undefined') {
+    Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
+}
+if (typeof globalThis.File === 'undefined') {
+    const { File } = await import('node:buffer');
+    Object.defineProperty(globalThis, 'File', { value: File });
+}
 
 // Fully mock OpenAIProvider
 /*vi.mock('#root/providers/openai/OpenAIProvider.js', () => ({

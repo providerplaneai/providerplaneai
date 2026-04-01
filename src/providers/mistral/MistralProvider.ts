@@ -120,8 +120,6 @@ export class MistralProvider
      * @throws {Error} When the configured API key is missing.
      */
     override init(config: ProviderConnectionConfig) {
-        console.log("Initializing Mistral Provider");
-
         if (!config.apiKey) {
             throw new Error(`Mistral API key ${config.apiKeyEnvVar} required but not found in config. Check .env file`);
         }

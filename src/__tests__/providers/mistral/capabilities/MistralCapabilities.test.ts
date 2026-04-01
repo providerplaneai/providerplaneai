@@ -1442,7 +1442,7 @@ describe("Mistral capability implementations", () => {
             {} as any
         );
 
-        expect(upload.mock.calls[0][0].file.fileName).toBe("ocr-input.rtf");
+        expect(upload.mock.calls[0][0].file.fileName).toBe("ocr-input");
         expect(upload.mock.calls[0][0].file.content).toBeInstanceOf(Blob);
         expect((upload.mock.calls[0][0].file.content as Blob).type).toBe("application/rtf");
         expect(upload.mock.calls[1][0].file.fileName).toBe("ocr-input.pdf");
@@ -2089,17 +2089,13 @@ describe("Mistral capability implementations", () => {
         });
     });
 
-    it("exports Mistral OCR format support buckets", () => {
-        expect(MISTRAL_OCR_FORMATS.tested.map((format) => format.extension)).toEqual(
+    it("exports the flattened Mistral OCR format registry", () => {
+        expect(MISTRAL_OCR_FORMATS.map((format) => format.extension)).toEqual(
             expect.arrayContaining(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic", "heif", "pdf", "docx", "pptx", "odt", "xlsx"])
-        );
-        expect(MISTRAL_OCR_FORMATS.documented.map((format) => format.extension)).toEqual(expect.arrayContaining(["avif"]));
-        expect(MISTRAL_OCR_FORMATS.experimental.map((format) => format.extension)).toEqual(
-            expect.arrayContaining(["jpe", "jfif", "tif", "rtf"])
         );
     });
 
-    it("ocr uses registry-backed upload extensions for documented and tested Mistral formats", async () => {
+    it("ocr uses registry-backed upload extensions for known Mistral document formats", async () => {
         const upload = vi.fn().mockResolvedValue({ id: "mistral-format-registry-123" });
         const process = vi.fn().mockResolvedValue({
             model: "mistral-ocr-latest",
@@ -2148,7 +2144,7 @@ describe("Mistral capability implementations", () => {
         expect(upload.mock.calls[1][0].file.fileName).toBe("ocr-input.odt");
     });
 
-    it("ocr uses registry-backed upload extensions for raster image formats and experimental document formats", async () => {
+    it("ocr uses registry-backed upload extensions for known raster image formats", async () => {
         const upload = vi.fn().mockResolvedValue({ id: "mistral-format-registry-456" });
         const process = vi.fn().mockResolvedValue({
             model: "mistral-ocr-latest",
@@ -2175,10 +2171,9 @@ describe("Mistral capability implementations", () => {
             { mimeType: "image/webp", expected: "ocr-input.webp" },
             { mimeType: "image/gif", expected: "ocr-input.gif" },
             { mimeType: "image/bmp", expected: "ocr-input.bmp" },
-            { mimeType: "image/tiff", expected: "ocr-input.tif" },
+            { mimeType: "image/tiff", expected: "ocr-input.tiff" },
             { mimeType: "image/heic", expected: "ocr-input.heic" },
             { mimeType: "image/heif", expected: "ocr-input.heif" },
-            { mimeType: "application/rtf", expected: "ocr-input.rtf" },
             { mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", expected: "ocr-input.xlsx" }
         ] as const;
 

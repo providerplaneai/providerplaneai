@@ -22,7 +22,7 @@ import {
     buildMetadata
 } from "#root/index.js";
 
-const DEFAULT_MISTRAL_TTS_MODEL = "voxtral-mini-tts-2603";
+const DEFAULT_MISTRAL_TTS_MODEL = "voxtral-mini-tts-latest";
 
 /**
  * Adapts Mistral text-to-speech output into ProviderPlaneAI's normalized audio artifact surface.
@@ -143,7 +143,7 @@ export class MistralAudioTextToSpeechCapabilityImpl
         // Mistral accepts provider-specific format tokens; we resolve a best-effort
         // value locally and let the provider reject unsupported ones.
         const format = this.resolveFormat(input.format, merged.modelParams?.responseFormat);
-        const speechRequest = this.buildSpeechRequest(model, input, merged.modelParams, false, format);
+        const speechRequest = this.buildSpeechRequest(model, input, merged.modelParams, true, format);
 
         try {
             const response = await this.client.audio.speech.complete(speechRequest, {
@@ -216,7 +216,7 @@ export class MistralAudioTextToSpeechCapabilityImpl
                 metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Mistral,
                     model,
-                    status: "complete",
+                    status: "completed",
                     requestId: context?.requestId,
                     ...(typeof finalUsage?.totalTokens === "number" ? { totalTokens: finalUsage.totalTokens } : {})
                 })

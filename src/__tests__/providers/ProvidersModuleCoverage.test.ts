@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 describe("providers module coverage", () => {
     it("imports every src/providers module", async () => {
+        // Reimporting all provider modules fresh after cache reset is inherently slow.
         vi.resetModules();
         vi.doUnmock("#root/index.js");
         vi.doUnmock("#root/providers/openai/OpenAIProvider.js");
@@ -54,5 +55,5 @@ describe("providers module coverage", () => {
         for (const mod of modules) {
             expect(mod).toBeTruthy();
         }
-    });
+    }, 60_000);
 });

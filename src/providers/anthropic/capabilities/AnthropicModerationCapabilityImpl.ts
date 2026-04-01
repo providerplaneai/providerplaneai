@@ -62,7 +62,7 @@ Respond ONLY with a valid JSON object (no markdown, no preamble) with this exact
 }
 
 User content to moderate: {{CONTENT}}`;
-const DEFAULT_ANTHROPIC_MODERATION_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_ANTHROPIC_MODERATION_MODEL = "claude-sonnet-4";
 
 /**
  * Adapts Anthropic moderation responses into ProviderPlaneAI's normalized moderation artifact surface.

@@ -138,8 +138,6 @@ export class GeminiProvider
      * @throws Error if API key is missing or invalid
      */
     override init(config: ProviderConnectionConfig) {
-        console.log(`Initializing Gemini Provider`);
-
         // Initialization logic for Gemini provider`
         if (!config.apiKey) {
             throw new Error(`Gemini API key ${config.apiKeyEnvVar} required but not found in config. Check .env file`);

@@ -137,8 +137,6 @@ export class OpenAIProvider
      * @throws Error if API key is missing or invalid
      */
     override init(config: ProviderConnectionConfig) {
-        console.log(`Initializing OpenAI Provider`);
-
         // Initialization logic for OpenAI provider`
         if (!config.apiKey) {
             throw new Error(`OpenAI API key ${config.apiKeyEnvVar} required but not found in config. Check .env file`);

@@ -128,7 +128,7 @@ describe("MistralAudioTextToSpeechCapabilityImpl", () => {
 
         expect(complete).toHaveBeenCalledWith(
             expect.objectContaining({
-                model: "voxtral-mini-tts-2603",
+                model: "voxtral-mini-tts-latest",
                 refAudio: "ref-only",
                 style: "narration"
             }),

@@ -107,7 +107,7 @@ describe("AnthropicModerationCapabilityImpl", () => {
         const res = await cap.moderation({ input: { input: "single" } } as any, new MultiModalExecutionContext());
         const call = client.messages.create.mock.calls[0][0];
 
-        expect(call.model).toBe("claude-sonnet-4-20250514");
+        expect(call.model).toBe("claude-sonnet-4");
         expect(res.output).toHaveLength(1);
         expect(res.output[0].reason).toBeUndefined();
         expect(res.metadata?.tokensUsed).toBe(0);

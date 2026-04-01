@@ -21,8 +21,6 @@ import {
     ensureDataUri,
     expectArrayForCapability,
     expectObjectForCapability,
-    logProviderAttempts,
-    logRawBudgetDiagnostics,
     parseDataUri,
     parseBestEffortJson,
     readNumber,
@@ -72,36 +70,6 @@ describe("SharedUtils", () => {
         expect(value).toContain("id=j1");
         expect(value).toContain("status=completed");
         expect(value).toContain("schemaVersion=1");
-    });
-
-    it("logProviderAttempts logs none and serialized attempts", () => {
-        const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
-
-        logProviderAttempts("test", undefined);
-        logProviderAttempts("test", { providerAttempts: [{ provider: "openai" }] });
-
-        expect(spy).toHaveBeenCalledTimes(2);
-        expect(spy.mock.calls[0]?.[0]).toContain("providerAttempts: none");
-        expect(spy.mock.calls[1]?.[0]).toContain("providerAttempts:");
-        expect(spy.mock.calls[1]?.[1]).toEqual([{ provider: "openai" }]);
-    });
-
-    it("logRawBudgetDiagnostics logs expected payload diagnostics", () => {
-        const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
-        logRawBudgetDiagnostics("budget", {
-            rawPayloadDropped: true,
-            rawPayloadDroppedCount: 2,
-            rawPayloadDroppedBytes: 30,
-            rawPayloadStoredBytes: 10
-        });
-        expect(spy).toHaveBeenCalledOnce();
-        expect(spy.mock.calls[0]?.[0]).toContain("raw diagnostics");
-        expect(spy.mock.calls[0]?.[1]).toMatchObject({
-            rawPayloadDropped: true,
-            rawPayloadDroppedCount: 2,
-            rawPayloadDroppedBytes: 30,
-            rawPayloadStoredBytes: 10
-        });
     });
 
     it("validateBoolean accepts booleans and undefined and rejects other values", () => {

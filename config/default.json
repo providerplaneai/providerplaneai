@@ -49,8 +49,8 @@
                         "ocr": "mistral-ocr-latest",
                         "audioTranscription": "voxtral-mini-latest",
                         "audioTranscriptionStream": "voxtral-mini-latest",
-                        "audioTts": "voxtral-mini-tts-2603",
-                        "audioTtsStream": "voxtral-mini-tts-2603"
+                        "audioTts": "voxtral-mini-tts-latest",
+                        "audioTtsStream": "voxtral-mini-tts-latest"
                     },
                     "models": {
                         "mistral-small-latest": {
@@ -117,7 +117,7 @@
                                 "modelParams": {}
                             }
                         },
-                        "voxtral-mini-tts-2603": {
+                        "voxtral-mini-tts-latest": {
                             "audioTts": {
                                 "modelParams": {
                                     "voiceId": "60844938-221d-4d1e-8233-34203f787d9f"
@@ -275,17 +275,17 @@
                 "default": {
                     "type": "anthropic",
                     "apiKeyEnvVar": "ANTHROPIC_API_KEY_1",
-                    "defaultModel": "claude-sonnet-4-5-20250929",
+                    "defaultModel": "claude-sonnet-4-5",
                     "defaultModels": {
-                        "chat": "claude-sonnet-4-5-20250929",
+                        "chat": "claude-sonnet-4-5",
                         "embed": "voyage-3",
-                        "moderation": "claude-sonnet-4-5-20250929",
-                        "imageAnalysis": "claude-sonnet-4-5-20250929",
-                        "imageAnalyzeStream": "claude-sonnet-4-5-20250929",
-                        "ocr": "claude-sonnet-4-5-20250929"
+                        "moderation": "claude-sonnet-4-5",
+                        "imageAnalysis": "claude-sonnet-4-5",
+                        "imageAnalyzeStream": "claude-sonnet-4-5",
+                        "ocr": "claude-sonnet-4-5"
                     },
                     "models": {
-                        "claude-sonnet-4-5-20250929": {
+                        "claude-sonnet-4-5": {
                             "chat": {
                                 "modelParams": {
                                     "max_tokens": 1024
