@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/providerplaneai/providerplaneai/compare/v0.2.1...v0.3.0) (2026-04-02)
+
+
+### Features
+
+* **providers:** Added initial Mistral integration as well as OCR support across providers ([#17](https://github.com/providerplaneai/providerplaneai/issues/17)) ([07ee927](https://github.com/providerplaneai/providerplaneai/commit/07ee9273cd0440a2bc0bafcd0d087136a2653754))
+
 ## [Unreleased]
 
 ### Added
