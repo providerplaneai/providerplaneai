@@ -1,46 +1,59 @@
 /**
  * @module providers/openai/capabilities/OpenAIVideoGenerationCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI video generation capability adapter.
  */
 import OpenAI from "openai";
 import {
-    AIProvider,
     AIRequest,
     AIResponse,
     BaseProvider,
     CapabilityKeys,
-    ClientReferenceImage,
     ClientVideoGenerationRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
-    VideoGenerationCapability
+    VideoGenerationCapability,
+    toOpenAIReferenceImageFile,
+    pollOpenAIVideoUntilTerminal,
+    buildOpenAIVideoArtifact,
+    buildOpenAIVideoResponseMetadata,
+    delayWithAbort,
+    resolveOpenAIVideoExecutionControls
 } from "#root/index.js";
-import { toFile } from "openai/uploads";
-import { pollOpenAIVideoUntilTerminal, delayWithAbort } from "#root/providers/openai/capabilities/shared/OpenAIVideoUtils.js";
 
 const DEFAULT_OPENAI_VIDEO_MODEL = "sora-2";
-const DEFAULT_VIDEO_POLL_INTERVAL_MS = 2_000;
-const DEFAULT_VIDEO_MAX_POLL_MS = 300_000;
 
 /**
- * OpenAI video generation capability implementation.
+ * Adapts OpenAI video generation responses into ProviderPlaneAI's normalized video artifact surface.
  *
- * Uses OpenAI Videos API (`videos.create`, `videos.retrieve`, `videos.downloadContent`)
- * and normalizes job output into `NormalizedVideo[]`.
- */
-/**
+ * Uses OpenAI's Videos API for job creation, optional polling, and optional
+ * binary download before normalizing the result into `NormalizedVideo[]`.
+ *
  * @public
- * @description Provider capability implementation for OpenAIVideoGenerationCapabilityImpl.
  */
 export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapability<
     ClientVideoGenerationRequest,
     NormalizedVideo[]
 > {
+    /**
+     * Creates a new OpenAI video generation capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
     ) {}
 
+    /**
+     * Executes an OpenAI video generation request.
+     *
+     * @param {AIRequest<ClientVideoGenerationRequest>} request Unified video generation request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal for request, polling, and download steps.
+     * @returns {Promise<AIResponse<NormalizedVideo[]>>} Provider-normalized generated video artifacts.
+     * @throws {Error} When the prompt is missing, polling fails, or the provider returns a failed job.
+     */
     async generateVideo(
         request: AIRequest<ClientVideoGenerationRequest>,
         _executionContext?: MultiModalExecutionContext,
@@ -58,7 +71,12 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
             providerParams: options?.providerParams,
             generalParams: options?.generalParams
         });
-        const inputReference = await this.buildInputReference(input.referenceImage);
+        const inputReference = await toOpenAIReferenceImageFile(
+            input.referenceImage,
+            "video-reference.png",
+            "OpenAI video input_reference requires uploaded image content; pass referenceImage.base64 (+ mimeType) instead of url",
+            "referenceImage must include either base64 data or be omitted"
+        );
 
         const created = await this.client.videos.create(
             {
@@ -73,16 +91,12 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
             { signal }
         );
 
-        const pollUntilComplete = input.params?.pollUntilComplete ?? true;
-        const pollIntervalMs = Math.max(
-            250,
-            Number(input.params?.pollIntervalMs ?? merged.generalParams?.pollIntervalMs ?? DEFAULT_VIDEO_POLL_INTERVAL_MS)
-        );
-        const maxPollMs = Math.max(
-            pollIntervalMs,
-            Number(input.params?.maxPollMs ?? merged.generalParams?.maxPollMs ?? DEFAULT_VIDEO_MAX_POLL_MS)
-        );
-        const includeBase64 = input.params?.includeBase64 ?? false;
+        const { pollUntilComplete, pollIntervalMs, maxPollMs, includeBase64 } = resolveOpenAIVideoExecutionControls({
+            pollUntilComplete: input.params?.pollUntilComplete,
+            pollIntervalMs: input.params?.pollIntervalMs ?? merged.generalParams?.pollIntervalMs,
+            maxPollMs: input.params?.maxPollMs ?? merged.generalParams?.maxPollMs,
+            includeBase64: input.params?.includeBase64
+        });
         const variant = input.params?.downloadVariant ?? "video";
 
         const video = pollUntilComplete
@@ -114,20 +128,17 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
         }
 
         const output: NormalizedVideo[] = [
-            {
+            buildOpenAIVideoArtifact({
                 id: video.id,
-                mimeType: this.resolveMimeTypeForVariant(variant),
+                variant,
                 base64,
                 durationSeconds: Number(video.seconds),
-                ...this.parseVideoSize(video.size),
+                size: video.size,
                 raw: video,
-                metadata: {
-                    provider: AIProvider.OpenAI,
-                    model: video.model,
-                    status: video.status,
-                    requestId: context?.requestId
-                }
-            }
+                model: video.model,
+                status: video.status,
+                requestId: context?.requestId
+            })
         ];
 
         return {
@@ -135,9 +146,8 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
             multimodalArtifacts: { video: output },
             rawResponse: video,
             id: video.id,
-            metadata: {
-                ...(context?.metadata ?? {}),
-                provider: AIProvider.OpenAI,
+            metadata: buildOpenAIVideoResponseMetadata({
+                contextMetadata: context?.metadata,
                 model: video.model,
                 status: video.status,
                 requestId: context?.requestId,
@@ -145,59 +155,7 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
                 createdAt: video.created_at,
                 completedAt: video.completed_at,
                 expiresAt: video.expires_at
-            }
+            })
         };
-    }
-
-    private parseVideoSize(size: string): { width?: number; height?: number } {
-        const [w, h] = size.split("x", 2);
-        const width = Number.parseInt(w, 10);
-        const height = Number.parseInt(h, 10);
-        return {
-            width: Number.isFinite(width) ? width : undefined,
-            height: Number.isFinite(height) ? height : undefined
-        };
-    }
-
-    /**
-     * Backward-compatible abort-aware delay helper used by tests and internal callers.
-     *
-     * @param ms Delay duration in milliseconds.
-     * @param signal Optional abort signal.
-     * @returns Promise that resolves after delay or rejects on abort.
-     */
-    private delay(ms: number, signal?: AbortSignal): Promise<void> {
-        return delayWithAbort(ms, signal, "Video generation polling aborted");
-    }
-
-    private resolveMimeTypeForVariant(variant: string): string {
-        if (variant === "thumbnail") {
-            return "image/jpeg";
-        }
-        if (variant === "spritesheet") {
-            return "image/jpeg";
-        }
-        return "video/mp4";
-    }
-
-    private async buildInputReference(referenceImage?: ClientReferenceImage) {
-        if (!referenceImage) {
-            return undefined;
-        }
-
-        if (referenceImage.base64) {
-            const mimeType = referenceImage.mimeType ?? "image/png";
-            const bytes = Buffer.from(referenceImage.base64, "base64");
-            const extension = mimeType.split("/", 2)[1] ?? "png";
-            return await toFile(bytes, `video-reference.${extension}`, { type: mimeType });
-        }
-
-        if (referenceImage.url) {
-            throw new Error(
-                "OpenAI video input_reference requires uploaded image content; pass referenceImage.base64 (+ mimeType) instead of url"
-            );
-        }
-
-        throw new Error("referenceImage must include either base64 data or be omitted");
     }
 }

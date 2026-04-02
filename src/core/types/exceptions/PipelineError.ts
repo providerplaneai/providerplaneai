@@ -14,7 +14,6 @@ export class PipelineError extends Error {
      * Creates a new pipeline error instance.
      *
      * @param {string} message Human-readable pipeline failure reason.
-     * @returns {void}
      */
     constructor(message: string) {
         super(message);

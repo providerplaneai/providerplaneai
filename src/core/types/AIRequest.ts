@@ -1,13 +1,13 @@
 /**
  * @module core/types/AIRequest.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Unified provider-agnostic request envelope used by capability adapters.
  */
 /**
  * Unified, provider-agnostic interface for any AI provider call request.
  *
  * Used to send inputs to a capability in a consistent way.
  *
- * @template TInput Type of the request input (e.g., chat messages, prompt text)
+ * @template TInput - Type of the request input.
  */
 export interface AIRequest<TInput = unknown> {
     /**

@@ -264,6 +264,39 @@ describe("JobManager", () => {
         expect(() => manager.abortJob("missing")).toThrow("job 'missing' not found");
     });
 
+    it("abortJob removes queued jobs before they execute", async () => {
+        const manager = new JobManager({ maxConcurrency: 1 });
+        let releaseFirst: (() => void) | undefined;
+
+        const first = new GenericJob(
+            { input: 1 },
+            false,
+            async () =>
+                new Promise<AIResponse<string>>((resolve) => {
+                    releaseFirst = () => resolve({ output: "first-done" });
+                })
+        );
+        (first as any)._id = "queue-first";
+
+        const secondExecutor = vi.fn(async () => ({ output: "second-done" }));
+        const second = new GenericJob({ input: 2 }, false, secondExecutor);
+        (second as any)._id = "queue-second";
+
+        manager.addJob(first);
+        manager.addJob(second);
+        manager.runJob("queue-first", new MultiModalExecutionContext());
+        manager.runJob("queue-second", new MultiModalExecutionContext());
+
+        expect(manager.getQueueLength()).toBe(1);
+        manager.abortJob("queue-second", "cancel queued");
+        expect(manager.getQueueLength()).toBe(0);
+        expect(second.status).toBe("aborted");
+
+        releaseFirst?.();
+        await first.getCompletionPromise();
+        expect(secondExecutor).not.toHaveBeenCalled();
+    });
+
     it("subscribe immediately emits current snapshot and unsubscribe stops updates", () => {
         const manager = new JobManager();
         const job = makeJob("j-sub");
@@ -489,5 +522,24 @@ describe("JobManager", () => {
                     loadPersistedJobs: () => [{ id: "x", schemaVersion: 2, status: "pending", input: {} }] as any
                 })
         ).toThrow("Unsupported JobSnapshot schemaVersion: 2");
+    });
+
+    it("listJobs returns snapshots for all managed jobs and persistence drops deleted cache entries", async () => {
+        const persistJobs = vi.fn();
+        const manager = new JobManager({ persistJobs });
+        const job = makeJob("persist-delete");
+        manager.addJob(job);
+
+        const listed = manager.listJobs();
+        expect(listed).toHaveLength(1);
+        expect(listed[0]?.id).toBe("persist-delete");
+
+        (manager as any).snapshotCache.set("orphan", { id: "orphan" });
+        (manager as any).dirtyJobs.add("orphan");
+        (manager as any).persist();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect((manager as any).snapshotCache.has("orphan")).toBe(false);
+        expect(persistJobs).toHaveBeenCalled();
     });
 });

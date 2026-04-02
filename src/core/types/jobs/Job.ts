@@ -1,12 +1,12 @@
 /**
  * @module core/types/jobs/Job.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Job lifecycle, status, and streaming chunk contracts.
  */
 import { MultiModalExecutionContext } from "#root/index.js";
 
 /**
  * @public
- * @description Alias type for JobStatus.
+ * High-level lifecycle states for a job.
  */
 export type JobStatus = "pending" | "running" | "completed" | "error" | "aborted" | "interrupted";
 
@@ -42,7 +42,7 @@ export type JobStatus = "pending" | "running" | "completed" | "error" | "aborted
  */
 /**
  * @public
- * @description Alias type for JobChunk.
+ * Public semantic streaming chunk emitted by the job system.
  */
 export type JobChunk<TOutput> = {
     delta?: TOutput;
@@ -51,7 +51,7 @@ export type JobChunk<TOutput> = {
 
 /**
  * @public
- * @description Data contract for JobLifecycleHooks.
+ * Optional lifecycle hooks for observing job execution.
  */
 export interface JobLifecycleHooks<TOutput> {
     onStart?: () => void;
@@ -62,7 +62,7 @@ export interface JobLifecycleHooks<TOutput> {
 
 /**
  * @public
- * @description Data contract for Job.
+ * Core job contract implemented by executable units in the job system.
  */
 export interface Job<TInput = any, TOutput = any> {
     readonly id: string;
@@ -71,5 +71,12 @@ export interface Job<TInput = any, TOutput = any> {
     readonly status: JobStatus;
     readonly error?: Error;
 
+    /**
+     * Executes the job.
+     *
+     * @param {MultiModalExecutionContext} ctx - Shared multimodal execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<void>} Promise that resolves when the job finishes.
+     */
     run(ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<void>;
 }

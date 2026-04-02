@@ -1,6 +1,6 @@
 /**
- * @module client/types/shared/SafetyRating.ts
- * @description ProviderPlaneAI source module.
+ * @module core/types/shared/SafetyRating.ts
+ * @description Shared normalized safety-rating contract.
  */
 import { AIProviderType } from "#root/index.js";
 
@@ -11,11 +11,7 @@ import { AIProviderType } from "#root/index.js";
  *
  * Notes:
  * - Providers use different taxonomies, thresholds, and confidence systems.
- * - This interface captures the *semantic intent* of a safety signal, not a
- *   provider’s exact schema.
- * - Multiple SafetyRating entries may exist for a single request, covering
- *   different categories or detected regions.
- * - This interface captures the *semantic intent* of a safety signal, not a provider’s exact schema.
+ * - This interface captures the semantic intent of a safety signal, not a provider's exact schema.
  * - Multiple SafetyRating entries may exist for a single request, covering different categories or detected regions.
  *
  * Typical use cases:
@@ -23,11 +19,10 @@ import { AIProviderType } from "#root/index.js";
  * - Text moderation
  * - Face or object-level safety flags
  * - Compliance logging and audit trails
- *
  */
 /**
  * @public
- * @description Interface contract for SafetyRating.
+ * Provider-agnostic normalized safety or content-risk assessment.
  */
 export interface SafetyRating {
     /**
@@ -64,6 +59,5 @@ export interface SafetyRating {
      * Provider-specific raw payload
      */
     raw?: unknown;
-
     flagged?: boolean;
 }

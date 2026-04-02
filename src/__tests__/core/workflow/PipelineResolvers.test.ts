@@ -5,6 +5,7 @@ import {
     extractPipelineImageReference,
     extractPipelineText,
     resolvePipelineTemplate,
+    toPipelineFileInput,
     toPipelineAudioInput
 } from "#root/index.js";
 
@@ -51,6 +52,10 @@ describe("PipelineResolvers", () => {
         expect(out).toBe("A=one B= C=two");
     });
 
+    it("resolvePipelineTemplate blanks empty placeholder tokens", () => {
+        expect(resolvePipelineTemplate("A={{   }} B={{value}}", { value: { text: "ok" } })).toBe("A= B=ok");
+    });
+
     it("extractPipelineImageReference prefers base64 and supports url fallback", () => {
         const base64Ref = extractPipelineImageReference([{ id: "i1", mimeType: "image/png", base64: "AQID" }]);
         expect(base64Ref).toEqual({
@@ -89,5 +94,27 @@ describe("PipelineResolvers", () => {
     it("toPipelineAudioInput throws PipelineError when no base64/url is present", () => {
         expect(() => toPipelineAudioInput({ mimeType: "audio/mpeg" })).toThrow(PipelineError);
         expect(() => toPipelineAudioInput({})).toThrow("missing both base64 and url");
+    });
+
+    it("toPipelineFileInput prefers base64 data URL and falls back to URL", () => {
+        expect(toPipelineFileInput({ mimeType: "application/pdf", base64: "JVBERg==" })).toBe(
+            "data:application/pdf;base64,JVBERg=="
+        );
+        expect(toPipelineFileInput({ url: "https://example.com/doc.pdf" })).toBe("https://example.com/doc.pdf");
+    });
+
+    it("toPipelineFileInput throws PipelineError when no base64/url is present", () => {
+        expect(() => toPipelineFileInput({ mimeType: "application/pdf" })).toThrow(PipelineError);
+        expect(() => toPipelineFileInput({})).toThrow("missing both base64 and url");
+    });
+
+    it("extractPipelineText handles nested text value objects and non-object roots", () => {
+        expect(
+            extractPipelineText({
+                content: [{ type: "output_text", text: { value: "nested text" } }],
+                summary: "summary text"
+            })
+        ).toContain("nested text");
+        expect(extractPipelineText(42)).toBe("");
     });
 });

@@ -1,6 +1,6 @@
 /**
- * @module client/types/shared/OCRText.ts
- * @description ProviderPlaneAI source module.
+ * @module core/types/shared/OCRText.ts
+ * @description Shared OCR text-span contract.
  */
 import { BoundingBox } from "#root/index.js";
 
@@ -13,7 +13,7 @@ import { BoundingBox } from "#root/index.js";
  */
 /**
  * @public
- * @description Interface contract for OCRText.
+ * Normalized OCR text span.
  */
 export interface OCRText {
     text: string;

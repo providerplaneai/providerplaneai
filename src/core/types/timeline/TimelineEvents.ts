@@ -1,15 +1,12 @@
 /**
  * @module core/types/timeline/TimelineEvents.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Timeline event contracts used by the multimodal execution context.
  */
 import { NormalizedChatMessage, NormalizedUserInput, TimelineArtifacts } from "#root/index.js";
 
 /**
- * All valid timeline event types
- */
-/**
  * @public
- * @description Alias type for TimelineEventType.
+ * All valid timeline event type identifiers.
  */
 export type TimelineEventType =
     | "userMessage"
@@ -32,14 +29,8 @@ export type TimelineEventType =
     | "custom";
 
 /**
- * Base interface for all timeline events
- *
- * TimelineEvent represents a single event in the execution timeline, capturing both structured data and associated artifacts.
- * It is designed to be flexible and extensible, allowing for different types of events and artifacts to be added as needed.
- */
-/**
  * @public
- * @description Data contract for TimelineEventBase.
+ * Base contract for all timeline events.
  */
 export interface TimelineEventBase {
     id: string; // Unique UUID for this event
@@ -63,11 +54,8 @@ export interface TimelineEventBase {
 }
 
 /**
- * User message event (input from user)
- */
-/**
  * @public
- * @description Data contract for UserMessageEvent.
+ * User-message event recorded at the start of a turn.
  */
 export interface UserMessageEvent extends TimelineEventBase {
     type: "userMessage";
@@ -79,11 +67,8 @@ export interface UserMessageEvent extends TimelineEventBase {
 }
 
 /**
- * Assistant message event (model output)
- */
-/**
  * @public
- * @description Data contract for AssistantMessageEvent.
+ * Assistant-message event recorded for canonical chat output.
  */
 export interface AssistantMessageEvent extends TimelineEventBase {
     type: "assistantMessage";
@@ -94,11 +79,8 @@ export interface AssistantMessageEvent extends TimelineEventBase {
 }
 
 /**
- * System / internal event
- */
-/**
  * @public
- * @description Data contract for SystemEvent.
+ * Internal system event used for artifacts, stream chunks, and diagnostics.
  */
 export interface SystemEvent extends TimelineEventBase {
     type: "systemEvent";
@@ -120,12 +102,8 @@ export interface SystemEvent extends TimelineEventBase {
 }
 
 /**
- * Artifact-only events (no dedicated structured output fields)
- * Everything lives in TimelineArtifacts now
- */
-/**
  * @public
- * @description Data contract for EmbeddingEvent.
+ * Artifact-only embedding event.
  */
 export interface EmbeddingEvent extends TimelineEventBase {
     type: "embedding";
@@ -133,7 +111,7 @@ export interface EmbeddingEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for ImageGenerationEvent.
+ * Artifact-only image-generation event.
  */
 export interface ImageGenerationEvent extends TimelineEventBase {
     type: "imageGeneration";
@@ -141,7 +119,7 @@ export interface ImageGenerationEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for ImageEditEvent.
+ * Artifact-only image-edit event.
  */
 export interface ImageEditEvent extends TimelineEventBase {
     type: "imageEdit";
@@ -149,7 +127,7 @@ export interface ImageEditEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for ImageAnalysisEvent.
+ * Artifact-only image-analysis event.
  */
 export interface ImageAnalysisEvent extends TimelineEventBase {
     type: "imageAnalysis";
@@ -157,7 +135,7 @@ export interface ImageAnalysisEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for ModerationEvent.
+ * Artifact-only moderation event.
  */
 export interface ModerationEvent extends TimelineEventBase {
     type: "moderation";
@@ -165,7 +143,7 @@ export interface ModerationEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for TTSEvent.
+ * Artifact-only text-to-speech event.
  */
 export interface TTSEvent extends TimelineEventBase {
     type: "tts";
@@ -173,7 +151,7 @@ export interface TTSEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for TranscriptEvent.
+ * Artifact-only transcript event.
  */
 export interface TranscriptEvent extends TimelineEventBase {
     type: "transcript";
@@ -181,7 +159,7 @@ export interface TranscriptEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for TranslationEvent.
+ * Artifact-only translation event.
  */
 export interface TranslationEvent extends TimelineEventBase {
     type: "translation";
@@ -189,7 +167,7 @@ export interface TranslationEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for VideoEditEvent.
+ * Artifact-only video-edit event.
  */
 export interface VideoEditEvent extends TimelineEventBase {
     type: "videoEdit";
@@ -197,7 +175,7 @@ export interface VideoEditEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for VideoDownloadEvent.
+ * Artifact-only video-download event.
  */
 export interface VideoDownloadEvent extends TimelineEventBase {
     type: "videoDownload";
@@ -205,7 +183,7 @@ export interface VideoDownloadEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for VideoGenerationEvent.
+ * Artifact-only video-generation event.
  */
 export interface VideoGenerationEvent extends TimelineEventBase {
     type: "videoGeneration";
@@ -213,7 +191,7 @@ export interface VideoGenerationEvent extends TimelineEventBase {
 
 /**
  * @public
- * @description Data contract for VideoAnalysisEvent.
+ * Artifact-only video-analysis event.
  */
 export interface VideoAnalysisEvent extends TimelineEventBase {
     type: "videoAnalysis";

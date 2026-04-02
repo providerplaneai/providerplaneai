@@ -1,6 +1,6 @@
 /**
  * @module providers/openai/capabilities/OpenAIChatCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI chat capability adapter built on the Responses API.
  */
 import OpenAI from "openai";
 import {
@@ -15,9 +15,10 @@ import {
     ClientChatMessage,
     ClientChatRequest,
     ClientMessagePart,
-    ensureDataUri,
     MultiModalExecutionContext,
-    NormalizedChatMessage
+    NormalizedChatMessage,
+    resolveReferenceMediaUrl,
+    buildMetadata
 } from "#root/index.js";
 
 /**
@@ -31,8 +32,6 @@ import {
  * This capability is stateless with respect to session and turn lifecycle.
  * Continuation, turn management, and multimodal state are owned by AIClient.
  *
- * @template TChatInput - Client chat request input type
- * @template TChatOutput - Chat output type
  */
 export class OpenAIChatCapabilityImpl
     implements
@@ -42,8 +41,8 @@ export class OpenAIChatCapabilityImpl
     /**
      * Creates a new OpenAI chat capability implementation.
      *
-     * @param provider - Owning provider instance
-     * @param client - Initialized OpenAI SDK client
+     * @param {BaseProvider} provider - Owning provider instance.
+     * @param {OpenAI} client - Initialized OpenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -53,12 +52,11 @@ export class OpenAIChatCapabilityImpl
     /**
      * Executes a non-streaming chat request using OpenAI Responses API.
      *
-     * @template TChatInput Chat input type
-     * @param request Unified AI chat request
-     * @param _executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns AIResponse containing the output
-     * @throws Error if input messages are missing or provider is uninitialized
+     * @param {AIRequest<ClientChatRequest>} request - Unified AI chat request.
+     * @param {MultiModalExecutionContext | undefined} _executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<NormalizedChatMessage>>} AIResponse containing the output.
+     * @throws {Error} If input messages are missing or the request is aborted.
      */
     async chat(
         request: AIRequest<ClientChatRequest>,
@@ -109,13 +107,12 @@ export class OpenAIChatCapabilityImpl
             output: message,
             rawResponse: response,
             id: response.id,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: response?.status,
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
@@ -126,11 +123,11 @@ export class OpenAIChatCapabilityImpl
      * and `output` (accumulated full text). Chunks are emitted in batches to
      * smooth UI updates and reduce downstream backpressure.
      *
-     * @param request Unified AI chat request
-     * @param _executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns Async iterable emitting AIResponseChunk objects
-     * @throws Error if input messages are missing or provider is uninitialized
+     * @param {AIRequest<ClientChatRequest>} request - Unified AI chat request.
+     * @param {MultiModalExecutionContext | undefined} _executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedChatMessage>>} Async iterable emitting normalized chat chunks.
+     * @throws {Error} If input messages are missing.
      */
     async *chatStream(
         request: AIRequest<ClientChatRequest>,
@@ -246,15 +243,13 @@ export class OpenAIChatCapabilityImpl
         done: boolean = false,
         error?: unknown
     ): AIResponseChunk<NormalizedChatMessage> {
-        // Merge metadata from context + chunk info
-        const messageMetadata = {
-            ...(context?.metadata ?? {}),
-            provider: AIProvider.OpenAI, // or replace with your current provider dynamically
+        const messageMetadata = buildMetadata(context?.metadata, {
+            provider: AIProvider.OpenAI,
             model,
             status,
             requestId: context?.requestId,
             ...(error ? { error } : {})
-        };
+        });
 
         const delta: NormalizedChatMessage = {
             id: crypto.randomUUID(),
@@ -262,7 +257,6 @@ export class OpenAIChatCapabilityImpl
             content: deltaText ? [{ type: "text", text: deltaText }] : [],
             metadata: messageMetadata
         };
-
         const output: NormalizedChatMessage = {
             id: responseId ?? crypto.randomUUID(),
             role: "assistant",
@@ -275,33 +269,23 @@ export class OpenAIChatCapabilityImpl
             output,
             done,
             id: responseId,
-            metadata: messageMetadata // keep wrapper consistent too
+            metadata: messageMetadata
         };
     }
 
-    /**
-     * Convert string text to a NormalizedChatMessage object
-     *
-     * @param text Message text content
-     * @param role Message role: "assistant" | "user"
-     * @param id Optional message ID
-     * @param model Optional model name
-     * @param status Optional finish status
-     * @param usage Optional usage metrics from OpenAI
-     */
     private textToNormalizedChat(
         text: string,
-        role: "assistant" | "user",
+        role: "assistant" | "user" | "system",
         id?: string,
         model?: string,
-        status?: string,
-        usage?: OpenAI.Responses.ResponseUsage
+        status?: string | null,
+        usage?: OpenAI.Responses.ResponseUsage | null
     ): NormalizedChatMessage {
         return {
             id: id ?? crypto.randomUUID(),
             role,
             content: text ? [{ type: "text", text }] : [],
-            metadata: {
+            metadata: buildMetadata(undefined, {
                 ...(model ? { model } : {}),
                 ...(status ? { status } : {}),
                 ...(usage
@@ -313,7 +297,7 @@ export class OpenAIChatCapabilityImpl
                           }
                       }
                     : {})
-            }
+            })
         };
     }
 
@@ -384,15 +368,28 @@ export class OpenAIChatCapabilityImpl
                 case "text":
                     return { type: "input_text", text: part.text };
                 case "image":
-                    return { type: "input_image", image_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                    return {
+                        type: "input_image",
+                        image_url: resolveReferenceMediaUrl(part, "image/png", "image part must have url or base64")
+                    };
                 case "audio":
-                    return { type: "input_audio", audio_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                    return {
+                        type: "input_audio",
+                        audio_url: resolveReferenceMediaUrl(part, "audio/mpeg", "audio part must have url or base64")
+                    };
                 case "video":
-                    return { type: "input_video", video_url: part.url ?? ensureDataUri(part.base64!, part.mimeType) };
+                    return {
+                        type: "input_video",
+                        video_url: resolveReferenceMediaUrl(part, "video/mp4", "video part must have url or base64")
+                    };
                 case "file":
                     return {
                         type: "input_file",
-                        file_url: part.url ?? ensureDataUri(part.base64!, part.mimeType),
+                        file_url: resolveReferenceMediaUrl(
+                            part,
+                            "application/octet-stream",
+                            "file part must have url or base64"
+                        ),
                         filename: part.filename,
                         mime_type: part.mimeType
                     };

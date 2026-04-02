@@ -1,6 +1,6 @@
 /**
  * @module client/types/video/index.ts
- * @description ProviderPlaneAI source module.
+ * @description Barrel exports for a client type namespace.
  */
 export * from "./ClientVideoAnalysisRequest.js";
 export * from "./ClientVideoDownloadRequest.js";

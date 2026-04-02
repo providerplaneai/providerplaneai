@@ -1,5 +1,5 @@
 /**
  * @module core/types/workflow/index.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Barrel exports for workflow type contracts.
  */
 export * from "./WorkflowTypes.js";

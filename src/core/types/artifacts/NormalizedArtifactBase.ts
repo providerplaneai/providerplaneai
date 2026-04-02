@@ -1,19 +1,18 @@
 /**
  * @module core/types/artifacts/NormalizedArtifactBase.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Shared base contract for normalized multimodal artifacts.
  */
 /**
- * Base for all normalized multimodal artifacts
- */
-/**
+ * Base interface shared by all normalized multimodal artifacts.
+ *
  * @public
- * @description Data contract for NormalizedArtifactBase.
  */
 export interface NormalizedArtifactBase {
+    /** Stable artifact identifier. */
     id: string;
 
     /**
-     * Optional provider metadata, same shape as chat
+     * Optional provider metadata preserved alongside the normalized artifact.
      */
     metadata?: {
         provider?: string;
@@ -24,11 +23,11 @@ export interface NormalizedArtifactBase {
             outputTokens?: number;
             totalTokens?: number;
         };
-        [key: string]: unknown; // extendable for modality-specific data
+        [key: string]: unknown;
     };
 
     /**
-     * Raw provider-specific payload
+     * Raw provider-specific payload retained for debugging or advanced consumers.
      */
     raw?: unknown;
 }

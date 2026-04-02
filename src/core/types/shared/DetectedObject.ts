@@ -1,6 +1,6 @@
 /**
- * @module client/types/shared/DetectedObject.ts
- * @description ProviderPlaneAI source module.
+ * @module core/types/shared/DetectedObject.ts
+ * @description Shared detected-object contract used by image and video analysis artifacts.
  */
 import { BoundingBox } from "#root/index.js";
 
@@ -13,7 +13,7 @@ import { BoundingBox } from "#root/index.js";
  */
 /**
  * @public
- * @description Interface contract for DetectedObject.
+ * Normalized detected object description.
  */
 export interface DetectedObject {
     label: string;

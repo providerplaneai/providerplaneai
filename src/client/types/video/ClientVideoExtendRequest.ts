@@ -1,15 +1,13 @@
 /**
  * @module client/types/video/ClientVideoExtendRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientRequestBase } from "#root/index.js";
 
 /**
- * Provider-agnostic request for extending an existing video clip.
- */
-/**
+ * Request payload for extending an existing generated video clip.
+ *
  * @public
- * @description Interface contract for ClientVideoExtendRequest.
  */
 export interface ClientVideoExtendRequest extends ClientRequestBase {
     /**

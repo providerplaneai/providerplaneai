@@ -1,15 +1,13 @@
 /**
  * @module client/types/image/generate/ClientImageGenerationRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientReferenceImage, ClientRequestBase } from "#root/index.js";
 
 /**
- * Provider-agnostic image generation request.
- */
-/**
+ * Request payload for text-to-image generation with optional reference guidance.
+ *
  * @public
- * @description Interface contract for ClientImageGenerationRequest.
  */
 export interface ClientImageGenerationRequest extends ClientRequestBase {
     /**

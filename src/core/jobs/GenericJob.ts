@@ -1,6 +1,6 @@
 /**
  * @module core/jobs/GenericJob.ts
- * @description ProviderPlaneAI source module.
+ * @description Job execution, persistence, and queue orchestration utilities.
  */
 import {
     AIResponse,
@@ -23,6 +23,7 @@ const TIMELINE_ARTIFACT_KEYS: (keyof TimelineArtifacts)[] = [
     "images",
     "masks",
     "imageAnalysis",
+    "ocr",
     "videoAnalysis",
     "transcript",
     "translation",
@@ -35,10 +36,10 @@ const TIMELINE_ARTIFACT_KEYS: (keyof TimelineArtifacts)[] = [
 ];
 
 /**
- * GenericJob manages the lifecycle, execution, and state of an AI job, supporting streaming and non-streaming modes.
- * Handles input, output, error, status, artifacts, and raw response management, with hooks for orchestration.
- * @template TInput The input type for the job.
- * @template TOutput The output type for the job.
+ * Manages execution state for a single queued or running AI job.
+ *
+ * @template TInput - Input type accepted by the job executor.
+ * @template TOutput - Output type returned by the job executor.
  */
 export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
     private readonly maxStoredResponseChunks: number;
@@ -95,12 +96,14 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
 
     /**
      * Constructs a new GenericJob instance.
-     * @param input The job input.
-     * @param streamingEnabled Whether streaming is enabled for this job.
-     * @param executor The function to execute the job.
-     * @param hooks Optional lifecycle hooks.
-     * @param maxStoredResponseChunks Max number of response chunks to store.
-     * @param executionMetadata Optional metadata for execution (capability, provider chain, etc).
+     *
+     * @param {TInput} input The job input payload.
+     * @param {boolean} [streamingEnabled=false] Whether the executor emits streaming chunks.
+     * @param {(input: TInput, ctx: MultiModalExecutionContext, signal?: AbortSignal, onChunk?: (chunk: JobChunk<TOutput>, internalChunk?: AIResponseChunk<TOutput>) => void) => Promise<AIResponse<TOutput>>} executor The function that performs the capability execution.
+     * @param {JobLifecycleHooks<TOutput> | undefined} [hooks] Optional lifecycle hooks invoked during execution.
+     * @param {number | undefined} [maxStoredResponseChunks] Maximum number of streamed chunks retained in memory.
+     * @param {{ capability?: CapabilityKeyType; providerChain?: ProviderRef[]; storeRawResponses?: boolean; maxRawBytesPerJob?: number; stripBinaryPayloadsInSnapshotsAndTimeline?: boolean; } | undefined} [executionMetadata] Optional execution metadata persisted with snapshots.
+     * @throws {Error} Thrown when `maxStoredResponseChunks` or `maxRawBytesPerJob` is invalid.
      */
     constructor(
         public readonly input: TInput,
@@ -185,6 +188,11 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         return undefined;
     }
 
+    /**
+     * Returns a promise that settles when the job reaches a terminal state.
+     *
+     * @returns {Promise<TOutput>} A promise that resolves with the final job output or rejects with the terminal error.
+     */
     getCompletionPromise(): Promise<TOutput> {
         return this.completionPromise;
     }
@@ -194,9 +202,10 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
      * NOTE: Consumers should typically call JobManager.runJob() instead of invoking this directly,
      * to ensure proper concurrency management, hooks, and persistence.
      *
-     * @param ctx MultiModalExecutionContext
-     * @param signal Optional abort signal
-     * @param onChunk Optional streaming callback (overrides existing onChunk)
+     * @param {MultiModalExecutionContext} ctx The execution context supplied by the caller or job manager.
+     * @param {AbortSignal | undefined} [signal] Optional abort signal for cancellation.
+     * @param {(chunk: JobChunk<TOutput>) => void | undefined} [onChunk] Optional chunk callback that overrides the job-level handler.
+     * @returns {Promise<void>} Resolves when the run attempt finishes and terminal state has been recorded.
      */
     async run(
         ctx: MultiModalExecutionContext,
@@ -271,6 +280,11 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         }
     }
 
+    /**
+     * Serializes the current in-memory job state into a persistence-friendly snapshot.
+     *
+     * @returns {JobSnapshot<TInput, TOutput>} A snapshot representing the current job state.
+     */
     toSnapshot(): JobSnapshot<TInput, TOutput> {
         const output = this.stripBinaryPayloadsInSnapshotsAndTimeline ? stripBinaryPayloadFields(this.output) : this.output;
         const multimodalArtifacts = this.stripBinaryPayloadsInSnapshotsAndTimeline
@@ -304,6 +318,11 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         };
     }
 
+    /**
+     * Resets transient state so the job can be executed again from its original input.
+     *
+     * @returns {void} Nothing.
+     */
     reset() {
         this._output = undefined;
         this._error = undefined;
@@ -332,6 +351,9 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
      * Hydrate this job from a persisted snapshot.
      * Internal response envelopes/chunks are intentionally not restored because
      * rerun semantics are deterministic replay from input + executor, not raw resume.
+     *
+     * @param {JobSnapshot<TInput, TOutput>} snapshot The persisted snapshot to restore from.
+     * @returns {void} Nothing.
      */
     restoreFromSnapshot(snapshot: JobSnapshot<TInput, TOutput>) {
         this._id = snapshot.id as any;
@@ -361,6 +383,12 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         this.rawBytesDropped = 0;
     }
 
+    /**
+     * Marks the job as aborted without invoking the executor.
+     *
+     * @param {Error | undefined} [reason] Optional abort reason to retain as the terminal error.
+     * @returns {void} Nothing.
+     */
     markAborted(reason?: Error) {
         // Preserve the first meaningful abort reason when provided by caller/manager.
         if (reason) {

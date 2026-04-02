@@ -1,15 +1,13 @@
 /**
  * @module client/types/image/edit/ClientImageEditRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientReferenceImage, ClientRequestBase } from "#root/index.js";
 
 /**
- * Provider-agnostic image edit request.
- */
-/**
+ * Request payload for image editing operations that transform one or more reference images.
+ *
  * @public
- * @description Interface contract for ClientImageEditRequest.
  */
 export interface ClientImageEditRequest extends ClientRequestBase {
     /**

@@ -1,5 +1,5 @@
 /**
  * @module providers/gemini/capabilities/shared/index.ts
- * @description Provider implementations and capability adapters.
+ * @description Barrel exports for shared Gemini capability helper modules.
  */
 export * from "./GeminiVideoUtils.js";

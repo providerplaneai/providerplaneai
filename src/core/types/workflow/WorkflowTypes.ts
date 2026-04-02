@@ -1,6 +1,6 @@
 /**
  * @module core/types/workflow/WorkflowTypes.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Workflow DAG, retry, state, and persisted execution snapshot contracts.
  */
 import { AIClient, GenericJob, MultiModalExecutionContext, ProviderRef } from "#root/index.js";
 import type { WorkflowRunner } from "#root/index.js";
@@ -9,7 +9,7 @@ import type { WorkflowRunner } from "#root/index.js";
  */
 /**
  * @public
- * @description Runtime constant for WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION.
+ * Current persisted schema version for workflow execution snapshots.
  */
 export const WORKFLOW_EXECUTION_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 
@@ -87,10 +87,11 @@ export interface WorkflowNode {
     /**
      * Node executor. Must return a {@link GenericJob} instance.
      *
-     * @param ctx Shared multimodal execution context
-     * @param client AI client instance
-     * @param runner Workflow runner instance executing this node
-     * @param state Shared mutable workflow state
+     * @param {MultiModalExecutionContext} ctx - Shared multimodal execution context.
+     * @param {AIClient} client - AI client instance.
+     * @param {WorkflowRunner} runner - Workflow runner instance executing this node.
+     * @param {WorkflowState} state - Shared mutable workflow state.
+     * @returns {GenericJob<any, any>} Job to execute for this node.
      */
     run: (
         ctx: MultiModalExecutionContext,

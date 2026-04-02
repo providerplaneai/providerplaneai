@@ -2,8 +2,15 @@
  * @module capabilities/ApprovalGateCapabilityImpl.ts
  * @description ProviderPlaneAI source module.
  */
-import { readFile } from "node:fs/promises";
-import { WorkflowError, type AIClient, type AIRequest, type AIResponse, type NonStreamingExecutor } from "#root/index.js";
+import {
+    WorkflowError,
+    readTextFile,
+    type AIClient,
+    type AIRequest,
+    type AIResponse,
+    type NonStreamingExecutor,
+    buildMetadata
+} from "#root/index.js";
 
 /**
  * Default capability key used when registering the approval gate capability.
@@ -169,7 +176,7 @@ export function createApprovalGateExecutor(
                 output,
                 rawResponse: decision,
                 id: `${capabilityKey}-${Date.now()}`,
-                metadata: { status: "completed", capabilityKey }
+                metadata: buildMetadata(undefined, { status: "completed", capabilityKey })
             };
         }
     };
@@ -188,7 +195,7 @@ export function createApprovalGateExecutor(
 export function createFileApprovalGateDecisionResolver(filePath: string) {
     return async (_request: ApprovalGateRequest): Promise<ApprovalGateDecision | undefined> => {
         try {
-            const raw = await readFile(filePath, "utf8");
+            const raw = await readTextFile(filePath);
             const parsed = JSON.parse(raw) as ApprovalGateDecision;
             if (!parsed || typeof parsed !== "object") {
                 return undefined;

@@ -1,6 +1,6 @@
 /**
  * @module providers/gemini/capabilities/GeminiImageGenerationCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini image generation capability adapter.
  */
 import { GenerateImagesResponse, GoogleGenAI } from "@google/genai";
 import {
@@ -17,7 +17,9 @@ import {
     ImageGenerationStreamCapability,
     MultiModalExecutionContext,
     NormalizedImage,
-    resolveImageToBytes
+    resolveReferenceMediaUrl,
+    resolveImageToBytes,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_IMAGE_GENERATION_MODEL = "imagen-4.0-generate-001";
@@ -38,16 +40,12 @@ type ImagenAspectRatio = "1:1" | "3:4" | "4:3" | "16:9" | "9:16";
 type ImagenAspectRatioEntry = (typeof IMAGEN_ASPECT_RATIOS)[number];
 
 /**
- * GeminiImageGenerationCapabilityImpl: Implements image generation for Gemini / Imagen 4.
+ * Adapts Gemini / Imagen image generation responses into ProviderPlaneAI's normalized image artifact surface.
  *
- * Responsibilities:
- * - Converts prompts and optional reference images into Imagen 4 API calls
- * - Handles aspect ratio mapping, reference weight, and prompt tagging
- * - Returns normalized images with base64, mime type, and metadata
- */
-/**
+ * Handles prompt shaping, reference image conversion, aspect-ratio mapping, and
+ * normalized image artifact construction for both non-streaming and streaming flows.
+ *
  * @public
- * @description Provider capability implementation for GeminiImageGenerationCapabilityImpl.
  */
 export class GeminiImageGenerationCapabilityImpl
     implements
@@ -55,10 +53,10 @@ export class GeminiImageGenerationCapabilityImpl
         ImageGenerationStreamCapability<ClientImageGenerationRequest>
 {
     /**
-     * Creates a new Gemini image generation capability.
+     * Creates a new Gemini image generation capability adapter.
      *
-     * @param provider - Parent provider instance
-     * @param client - Initialized Gemini / Imagen SDK client
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {GoogleGenAI} client Initialized Gemini / Imagen SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -74,11 +72,11 @@ export class GeminiImageGenerationCapabilityImpl
      * - Calls Imagen 4 generateImages endpoint
      * - Normalizes output into `NormalizedImage[]`
      *
-     * @param request - Unified client image generation request
-     * @param _executionContext Optional execution context
-     * @param signal AbortSignal for request cancellation
-     * @returns `AIResponse<NormalizedImage[]>` with generated images
-     * @throws Error if prompt is missing or generation fails
+     * @param {AIRequest<ClientImageGenerationRequest>} request Unified image generation request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedImage[]>>} Provider-normalized generated image artifacts.
+     * @throws {Error} If the prompt is missing or Gemini returns no image artifacts.
      */
     async generateImage(
         request: AIRequest<ClientImageGenerationRequest>,
@@ -101,7 +99,9 @@ export class GeminiImageGenerationCapabilityImpl
         // 1. Resolve and Format Reference Images
         const referenceImages = await Promise.all(
             (input.referenceImages ?? []).map(async (ref: ClientReferenceImage, idx: number) => {
-                const bytes = await resolveImageToBytes(ref.url || ref.base64!);
+                const bytes = await resolveImageToBytes(
+                    resolveReferenceMediaUrl(ref, "image/png", "referenceImage must include url or base64")
+                );
                 const refId = idx + 1;
 
                 return {
@@ -170,13 +170,12 @@ export class GeminiImageGenerationCapabilityImpl
             output: images,
             rawResponse: response,
             id: responseId,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model: merged.model ?? DEFAULT_GEMINI_IMAGE_GENERATION_MODEL,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
@@ -205,7 +204,9 @@ export class GeminiImageGenerationCapabilityImpl
             // Resolve reference images
             const referenceImages = await Promise.all(
                 (input.referenceImages ?? []).map(async (ref: ClientReferenceImage, idx: number) => {
-                    const bytes = await resolveImageToBytes(ref.url || ref.base64!);
+                    const bytes = await resolveImageToBytes(
+                        resolveReferenceMediaUrl(ref, "image/png", "referenceImage must include url or base64")
+                    );
                     const refId = idx + 1;
 
                     return {
@@ -268,13 +269,12 @@ export class GeminiImageGenerationCapabilityImpl
                 delta: images,
                 done: true,
                 id: responseId,
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model: merged.model ?? DEFAULT_GEMINI_IMAGE_GENERATION_MODEL,
                     status: "completed",
                     requestId: context?.requestId
-                }
+                })
             };
         } catch (err) {
             if (signal?.aborted) {
@@ -286,14 +286,13 @@ export class GeminiImageGenerationCapabilityImpl
                 delta: [],
                 done: true,
                 id: responseId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model: merged.model ?? DEFAULT_GEMINI_IMAGE_GENERATION_MODEL,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -303,8 +302,8 @@ export class GeminiImageGenerationCapabilityImpl
      *
      * Defaults to "1:1" if parsing fails or the size is invalid.
      *
-     * @param size - Optional size string in the form "WIDTHxHEIGHT"
-     * @returns Closest canonical Imagen aspect ratio
+     * @param {string | undefined} size Optional size string in the form `WIDTHxHEIGHT`.
+     * @returns {ImagenAspectRatio | undefined} Closest canonical Imagen aspect ratio.
      */
     private mapSizeToImagenAspectRatio(size?: string): ImagenAspectRatio {
         if (!size) {
@@ -390,9 +389,9 @@ export class GeminiImageGenerationCapabilityImpl
      *
      * Imagen 4 requires explicit [1], [2], ... tags for reference association.
      *
-     * @param prompt - Original text prompt
-     * @param refCount - Number of reference images
-     * @returns Prompt with `[id]` tags injected
+     * @param {string} prompt Original text prompt.
+     * @param {number} refCount Number of reference images.
+     * @returns {string} Prompt with `[id]` tags injected.
      */
     private injectReferenceTags(prompt: string, refCount: number): string {
         let enhancedPrompt = prompt;

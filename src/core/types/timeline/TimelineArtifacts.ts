@@ -1,6 +1,6 @@
 /**
  * @module core/types/timeline/TimelineArtifacts.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Timeline artifact container contract.
  */
 import {
     NormalizedAudio,
@@ -11,20 +11,19 @@ import {
     NormalizedImageAnalysis,
     NormalizedMask,
     NormalizedModeration,
+    NormalizedOCRDocument,
     NormalizedVideo,
     NormalizedVideoAnalysis
 } from "#root/index.js";
 
 /**
- * TimelineArtifacts represents the various types of artifacts that can be produced during a timeline execution.
- * It is designed to be flexible and extensible, allowing for different types of artifacts to be added as needed.
- */
-/**
+ * Container for the artifact arrays that may be attached to a timeline event.
+ *
  * @public
- * @description Data contract for TimelineArtifacts.
  */
 export interface TimelineArtifacts {
     imageAnalysis?: NormalizedImageAnalysis[];
+    ocr?: NormalizedOCRDocument[];
     videoAnalysis?: NormalizedVideoAnalysis[];
     images?: NormalizedImage[];
     masks?: NormalizedMask[];

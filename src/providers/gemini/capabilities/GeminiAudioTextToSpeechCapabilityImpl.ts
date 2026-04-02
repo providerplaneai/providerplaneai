@@ -1,6 +1,6 @@
 /**
  * @module providers/gemini/capabilities/GeminiAudioTextToSpeechCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini text-to-speech capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
 import {
@@ -15,27 +15,30 @@ import {
     MultiModalExecutionContext,
     NormalizedAudio,
     TextToSpeechCapability,
-    TextToSpeechStreamCapability
+    TextToSpeechStreamCapability,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 const DEFAULT_STREAM_BATCH_BYTES = 64 * 1024;
 
 /**
- * Gemini text-to-speech implementation (non-streaming + streaming).
+ * Adapts Gemini text-to-speech responses into ProviderPlaneAI's normalized audio artifact surface.
  *
- * Notes:
- * - Uses `models.generateContent`/`generateContentStream` with `responseModalities: ["AUDIO"]`.
- * - Normalizes inline audio parts to `NormalizedAudio`.
- * - Wraps raw PCM/L16 payloads into WAV for broad playback compatibility.
- */
-/**
+ * Supports both non-streaming and streaming synthesis, normalizes Gemini inline
+ * audio parts, and wraps raw PCM-family payloads into WAV when needed.
+ *
  * @public
- * @description Provider capability implementation for GeminiAudioTextToSpeechCapabilityImpl.
  */
 export class GeminiAudioTextToSpeechCapabilityImpl
     implements TextToSpeechCapability<ClientTextToSpeechRequest>, TextToSpeechStreamCapability<ClientTextToSpeechRequest>
 {
+    /**
+     * Creates a new Gemini text-to-speech capability adapter.
+     *
+     * @param {BaseProvider} _provider Owning provider instance used for initialization checks and merged config access.
+     * @param {GoogleGenAI} _client Initialized Google GenAI SDK client.
+     */
     constructor(
         private readonly _provider: BaseProvider,
         private readonly _client: GoogleGenAI
@@ -44,11 +47,11 @@ export class GeminiAudioTextToSpeechCapabilityImpl
     /**
      * Synthesizes speech in a single non-streaming call.
      *
-     * @param request Unified AI request containing TTS input/options/context
-     * @param _ctx Optional multimodal execution context (unused by this capability)
-     * @param signal Optional abort signal
-     * @returns Provider-normalized TTS audio artifact response
-     * @throws {Error} If input text is empty, request is aborted, or provider returns no audio data
+     * @param {AIRequest<ClientTextToSpeechRequest>} request Unified TTS request envelope.
+     * @param {MultiModalExecutionContext} [_ctx] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedAudio[]>>} Provider-normalized synthesized audio artifacts.
+     * @throws {Error} If input text is empty, request is aborted, or Gemini returns no audio data.
      */
     async textToSpeech(
         request: AIRequest<ClientTextToSpeechRequest>,
@@ -118,24 +121,23 @@ export class GeminiAudioTextToSpeechCapabilityImpl
             multimodalArtifacts: { tts: [artifact] },
             id: responseId,
             rawResponse: response,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
     /**
      * Streams synthesized speech as incremental audio chunks and emits a final artifact.
      *
-     * @param request Unified AI request containing TTS input/options/context
-     * @param _ctx Optional multimodal execution context (unused by this capability)
-     * @param signal Optional abort signal
-     * @returns Async generator of TTS audio chunks and a terminal completion chunk
-     * @throws {Error} If input text is empty before stream setup
+     * @param {AIRequest<ClientTextToSpeechRequest>} request Unified TTS request envelope.
+     * @param {MultiModalExecutionContext} [_ctx] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedAudio[]>>} Async generator of TTS audio chunks and a terminal completion chunk.
+     * @throws {Error} If input text is empty before stream setup.
      */
     async *textToSpeechStream(
         request: AIRequest<ClientTextToSpeechRequest>,
@@ -210,13 +212,12 @@ export class GeminiAudioTextToSpeechCapabilityImpl
                             id: responseId,
                             delta: [artifact],
                             output: [artifact],
-                            metadata: {
-                                ...(context?.metadata ?? {}),
+                            metadata: buildMetadata(context?.metadata, {
                                 provider: AIProvider.Gemini,
                                 model,
                                 status: "incomplete",
                                 requestId: context?.requestId
-                            }
+                            })
                         };
                     }
                 }
@@ -244,13 +245,12 @@ export class GeminiAudioTextToSpeechCapabilityImpl
                 id: finalArtifact.id,
                 output: [finalArtifact],
                 multimodalArtifacts: { tts: [finalArtifact] },
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model,
                     status: "completed",
                     requestId: context?.requestId
-                }
+                })
             };
             return;
         } catch (err) {
@@ -264,14 +264,13 @@ export class GeminiAudioTextToSpeechCapabilityImpl
                 delta: [],
                 done: true,
                 id: responseId ?? context?.requestId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.Gemini,
                     model,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
             return;
         }
@@ -281,8 +280,8 @@ export class GeminiAudioTextToSpeechCapabilityImpl
      * Extracts inline audio parts from Gemini candidate parts.
      * Falls back to `response.data` when available.
      *
-     * @param response Gemini SDK response/chunk object
-     * @returns List of base64 audio chunks with optional normalized mime type
+     * @param {unknown} response Gemini SDK response or stream chunk object.
+     * @returns {Array<{ base64: string; mimeType?: string }>} Extracted base64 audio chunks with optional normalized MIME types.
      */
     private extractInlineAudioChunks(response: any): Array<{ base64: string; mimeType?: string }> {
         const chunks: Array<{ base64: string; mimeType?: string }> = [];
@@ -309,8 +308,8 @@ export class GeminiAudioTextToSpeechCapabilityImpl
     /**
      * Decodes and concatenates provider base64 chunks into one byte buffer.
      *
-     * @param base64Chunks Ordered base64-encoded audio chunks
-     * @returns Concatenated binary audio bytes
+     * @param {string[]} base64Chunks Ordered base64-encoded audio chunks.
+     * @returns {Buffer} Concatenated binary audio bytes.
      */
     private concatBase64Chunks(base64Chunks: string[]): Buffer {
         // Keep decoding per chunk to avoid accidental UTF-8/base64 boundary issues.
@@ -327,9 +326,9 @@ export class GeminiAudioTextToSpeechCapabilityImpl
     /**
      * Converts raw PCM-style outputs into WAV so downstream playback works out of the box.
      *
-     * @param bytes Raw audio bytes
-     * @param mimeType Source mime type
-     * @returns Playable audio bytes and corresponding mime type
+     * @param {Buffer} bytes Raw audio bytes.
+     * @param {string} mimeType Source MIME type.
+     * @returns {{ bytes: Buffer; mimeType: string }} Playable audio bytes and corresponding MIME type.
      */
     private toPlayableAudio(bytes: Buffer, mimeType: string): { bytes: Buffer; mimeType: string } {
         const normalized = mimeType.split(";")[0]?.trim().toLowerCase();
@@ -343,10 +342,10 @@ export class GeminiAudioTextToSpeechCapabilityImpl
     /**
      * Builds a minimal WAV header around raw PCM16LE bytes.
      *
-     * @param pcmBytes Raw PCM16LE payload
-     * @param sampleRate Sample rate in Hz
-     * @param channels Channel count (e.g. 1 mono, 2 stereo)
-     * @returns WAV buffer (header + PCM payload)
+     * @param {Buffer} pcmBytes Raw PCM16LE payload.
+     * @param {number} sampleRate Sample rate in Hz.
+     * @param {number} channels Channel count (for example, `1` mono or `2` stereo).
+     * @returns {Buffer} WAV buffer containing the header and PCM payload.
      */
     private wrapPcm16LeAsWav(pcmBytes: Buffer, sampleRate: number, channels: number): Buffer {
         const bitsPerSample = 16;
@@ -375,8 +374,8 @@ export class GeminiAudioTextToSpeechCapabilityImpl
     /**
      * Normalizes Gemini mime variants (e.g. `audio/L16`, `audio/x-wav`) to canonical values.
      *
-     * @param mimeType Provider-reported mime type (possibly with params/casing variants)
-     * @returns Canonicalized mime type or `undefined` if input is unusable
+     * @param {string | undefined} mimeType Provider-reported MIME type, possibly including parameters or casing variants.
+     * @returns {string | undefined} Canonicalized MIME type, or `undefined` when the input is unusable.
      */
     private normalizeGeminiAudioMimeType(mimeType?: string): string | undefined {
         if (!mimeType) {

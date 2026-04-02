@@ -5,7 +5,8 @@ import path from "node:path";
 import {
     createApprovalGateExecutor,
     createFileApprovalGateDecisionResolver,
-    MultiModalExecutionContext
+    MultiModalExecutionContext,
+    registerApprovalGateCapability
 } from "#root/index.js";
 
 describe("ApprovalGateCapabilityImpl", () => {
@@ -140,5 +141,31 @@ describe("ApprovalGateCapabilityImpl", () => {
         const resolveDecision = createFileApprovalGateDecisionResolver(filePath);
         const decision = await resolveDecision({ input: {} });
         expect(decision).toEqual({ status: "approved", reason: "ok", approver: "bot" });
+    });
+
+    it("registers the approval gate capability on the client with a custom key", () => {
+        const client = {
+            registerCapabilityExecutor: expect.any(Function)
+        } as any;
+        client.registerCapabilityExecutor = vi.fn();
+
+        const result = registerApprovalGateCapability(client, { capabilityKey: "manualApproval" });
+
+        expect(result).toEqual({ capabilityKey: "manualApproval" });
+        expect(client.registerCapabilityExecutor).toHaveBeenCalledTimes(1);
+        expect(client.registerCapabilityExecutor.mock.calls[0][0]).toBe("manualApproval");
+    });
+
+    it("file resolver returns undefined for invalid json, non-object payloads, and missing files", async () => {
+        const invalidPath = path.join(tempDir, "invalid.json");
+        const scalarPath = path.join(tempDir, "scalar.json");
+        const missingPath = path.join(tempDir, "missing.json");
+
+        await writeFile(invalidPath, "{not-json", "utf8");
+        await writeFile(scalarPath, JSON.stringify("approved"), "utf8");
+
+        await expect(createFileApprovalGateDecisionResolver(invalidPath)({ input: {} })).resolves.toBeUndefined();
+        await expect(createFileApprovalGateDecisionResolver(scalarPath)({ input: {} })).resolves.toBeUndefined();
+        await expect(createFileApprovalGateDecisionResolver(missingPath)({ input: {} })).resolves.toBeUndefined();
     });
 });

@@ -109,6 +109,28 @@ function createPipelineHarness() {
                             metadata: { status: "completed" }
                         };
                     }
+                    case CapabilityKeys.OCRCapabilityKey: {
+                        const file = String((input as any)?.input?.file ?? "");
+                        return {
+                            output: [
+                                {
+                                    id: "ocr-1",
+                                    fullText: `ocr-text:${file.slice(0, 24)}`,
+                                    pages: [
+                                        {
+                                            pageNumber: 1,
+                                            fullText: `ocr-text:${file.slice(0, 24)}`,
+                                            metadata: {
+                                                markdown: "| ![img-0](img-0.png) |"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ] as TOutput,
+                            id: crypto.randomUUID(),
+                            metadata: { status: "completed" }
+                        };
+                    }
                     case CapabilityKeys.SaveFileCapabilityKey: {
                         return {
                             output: {
@@ -386,6 +408,27 @@ describe("Pipeline", () => {
         expect(execution.output?.contentType).toBe("base64");
     });
 
+    it("routes imageGenerate -> ocr and supports normalize text for OCR output", async () => {
+        const { runner, ctx, createCapabilityJob } = createPipelineHarness();
+        const workflow = new Pipeline<{ ocrText: string }>("pipeline-ocr")
+            .imageGenerate("img", { prompt: "generate receipt image" })
+            .ocr("ocr", { language: "en" }, { source: "img", normalize: "text" })
+            .output((values) => ({ ocrText: String(values.ocr ?? "") }))
+            .build();
+
+        const execution = await runner.run(workflow, ctx);
+        expect(execution.status).toBe("completed");
+        expect(execution.output?.ocrText).toContain("ocr-text:data:image/png;base64");
+
+        const call = createCapabilityJob.mock.calls.find(([cap]) => cap === CapabilityKeys.OCRCapabilityKey);
+        expect(call?.[1]).toMatchObject({
+            input: {
+                language: "en"
+            }
+        });
+        expect(String(call?.[1]?.input?.file ?? "")).toContain("data:image/png;base64,AQID");
+    });
+
     it("videoAnalyze can use multiple source steps and picks first usable artifact", async () => {
         const { runner, ctx } = createPipelineHarness();
         const workflow = new Pipeline<{ summary: string }>("pipeline-video-analyze")
@@ -615,6 +658,43 @@ describe("Pipeline", () => {
 
         await expect(runner.run(workflow, ctx)).rejects.toThrow(
             "videoAnalyze could not find a usable video artifact"
+        );
+    });
+
+    it("ocr throws when source bindings resolve only unusable artifacts", async () => {
+        const { runner, ctx } = createPipelineHarness();
+        const workflow = new Pipeline("pipeline-ocr-no-usable-artifact")
+            .custom("bad", "customEcho", { input: { value: { text: "artifact-without-transport" } } })
+            .ocr(
+                "ocr",
+                { language: "en" },
+                {
+                    source: "bad",
+                    select: () => ({ mimeType: "application/pdf" } as any)
+                }
+            )
+            .build();
+
+        await expect(runner.run(workflow, ctx)).rejects.toThrow(
+            "Could not resolve a usable artifact from the configured `source` step(s)."
+        );
+    });
+
+    it("saveFile throws when no artifact candidate can be resolved from the configured source", async () => {
+        const { runner, ctx } = createPipelineHarness();
+        const workflow = new Pipeline("pipeline-save-missing-artifact")
+            .custom("bad", "customEcho", { input: { value: { text: "seed" } } })
+            .saveFile(
+                "save",
+                { path: "test_data/missing.txt" },
+                {
+                    source: { step: "bad", select: () => undefined as any }
+                }
+            )
+            .build();
+
+        await expect(runner.run(workflow, ctx)).rejects.toThrow(
+            "Could not resolve an artifact from the configured `source` step(s)."
         );
     });
 
@@ -861,6 +941,46 @@ describe("Pipeline", () => {
         const node = workflow.nodes.find((n) => n.id === "a");
         expect(node).toBeDefined();
         expect(Array.isArray(node?.dependsOn)).toBe(true);
+    });
+
+    it("covers helper branches for OCR page extraction and function-based selectors", () => {
+        const pipeline = new Pipeline("pipeline-helper-branches") as any;
+        const values = {
+            seed: { nested: "value" },
+            imageSeed: { custom: true }
+        };
+
+        expect(
+            pipeline.extractOCRText([
+                { pages: [{ fullText: "" }, { fullText: " Page one body " }] },
+                null,
+                { fullText: " Already full text " }
+            ])
+        ).toBe("Page one body\n\nAlready full text");
+
+        expect(
+            pipeline.resolveSourceText(
+                { nested: "value" },
+                values,
+                (sourceValue: any) => `selected:${String(sourceValue.nested)}`
+            )
+        ).toBe("selected:value");
+
+        expect(
+            pipeline.resolveSourceImageReference(
+                { ignored: true },
+                values,
+                (_sourceValue: any) => ({
+                    id: "img-custom",
+                    sourceType: "url",
+                    url: "https://example.com/custom.png"
+                })
+            )
+        ).toEqual({
+            id: "img-custom",
+            sourceType: "url",
+            url: "https://example.com/custom.png"
+        });
     });
 
     it("covers default branches for tts/transcribe/translate helpers", async () => {

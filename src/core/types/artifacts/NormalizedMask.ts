@@ -1,12 +1,12 @@
 /**
  * @module core/types/artifacts/NormalizedMask.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized mask artifact contract used by image-editing workflows.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
 /**
  * @public
- * @description Data contract for NormalizedMask.
+ * Provider-agnostic mask artifact.
  */
 export interface NormalizedMask extends NormalizedArtifactBase {
     /**

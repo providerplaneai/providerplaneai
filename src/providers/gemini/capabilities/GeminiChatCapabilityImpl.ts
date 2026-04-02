@@ -1,6 +1,6 @@
 /**
  * @module providers/gemini/capabilities/GeminiChatCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini chat capability adapter built on multimodal content generation.
  */
 import { GoogleGenAI } from "@google/genai";
 import {
@@ -14,22 +14,37 @@ import {
     ChatStreamCapability,
     ClientChatMessage,
     ClientChatRequest,
+    ClientMessagePart,
     MultiModalExecutionContext,
-    NormalizedChatMessage
+    NormalizedChatMessage,
+    resolveReferenceMediaSource,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_CHAT_MODEL = "gemini-2.5-flash-latest";
 
 /**
  * @public
- * @description Provider capability implementation for GeminiChatCapabilityImpl.
+ * Gemini chat capability implementation.
  */
 export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatRequest>, ChatStreamCapability<ClientChatRequest> {
+    /**
+     * @param {BaseProvider} provider - Parent provider instance.
+     * @param {GoogleGenAI} client - Initialized GoogleGenAI client.
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
     ) {}
 
+    /**
+     * Executes a non-streaming Gemini chat request.
+     *
+     * @param {AIRequest<ClientChatRequest>} request - Unified chat request.
+     * @param {MultiModalExecutionContext | undefined} _executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} _signal - Optional abort signal.
+     * @returns {Promise<AIResponse<NormalizedChatMessage>>} Provider-normalized chat response.
+     */
     async chat(
         request: AIRequest<ClientChatRequest>,
         _executionContext?: MultiModalExecutionContext,
@@ -66,17 +81,24 @@ export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatReques
             output: message,
             rawResponse: response,
             id,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model: merged.model,
                 status: "completed",
                 requestId: context?.requestId,
                 ...usage
-            }
+            })
         };
     }
 
+    /**
+     * Executes a streaming Gemini chat request.
+     *
+     * @param {AIRequest<ClientChatRequest>} request - Unified chat request.
+     * @param {MultiModalExecutionContext | undefined} _executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedChatMessage>>} Async generator of normalized chat chunks.
+     */
     async *chatStream(
         request: AIRequest<ClientChatRequest>,
         _executionContext?: MultiModalExecutionContext,
@@ -177,7 +199,18 @@ export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatReques
     }
 
     /**
-     * Helper to build a streaming chunk with proper NormalizedChatMessage and metadata
+     * Builds a normalized Gemini streaming chunk.
+     *
+     * @param {string} deltaText - Newly received text delta.
+     * @param {string} accumulatedText - Full assistant text accumulated so far.
+     * @param {string | undefined} responseId - Provider response identifier when available.
+     * @param {AIRequest<ClientChatRequest>["context"]} context - Request context.
+     * @param {string} model - Resolved model name.
+     * @param {"incomplete" | "completed" | "error"} status - Chunk status.
+     * @param {boolean} done - Whether this is the terminal chunk.
+     * @param {unknown} error - Optional terminal error payload.
+     * @param {ReturnType<GeminiChatCapabilityImpl["extractUsage"]> | undefined} usage - Optional usage payload.
+     * @returns {AIResponseChunk<NormalizedChatMessage>} Normalized streaming chunk.
      */
     private createChunk(
         deltaText: string,
@@ -190,16 +223,14 @@ export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatReques
         error?: unknown,
         usage?: ReturnType<GeminiChatCapabilityImpl["extractUsage"]>
     ): AIResponseChunk<NormalizedChatMessage> {
-        // Merge metadata from context + chunk info
-        const messageMetadata = {
-            ...(context?.metadata ?? {}),
+        const messageMetadata = buildMetadata(context?.metadata, {
             provider: AIProvider.Gemini,
             model,
             status,
             requestId: context?.requestId,
             ...(usage ?? {}),
             ...(error ? { error } : {})
-        };
+        });
 
         const delta: NormalizedChatMessage = {
             id: crypto.randomUUID(),
@@ -207,7 +238,6 @@ export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatReques
             content: deltaText ? [{ type: "text", text: deltaText }] : [],
             metadata: messageMetadata
         };
-
         const output: NormalizedChatMessage = {
             id: responseId ?? crypto.randomUUID(),
             role: "assistant",
@@ -257,37 +287,16 @@ export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatReques
                         contents.push({ type: "text", text: part.text });
                         break;
                     case "image":
-                        contents.push({
-                            type: "image",
-                            image_url: part.url,
-                            image_base64: part.base64,
-                            caption: part.caption
-                        });
+                        contents.push(this.buildMediaPart(part, "image/png"));
                         break;
                     case "audio":
-                        contents.push({
-                            type: "audio",
-                            audio_url: part.url,
-                            audio_base64: part.base64,
-                            mime_type: part.mimeType
-                        });
+                        contents.push(this.buildMediaPart(part, "audio/mpeg"));
                         break;
                     case "video":
-                        contents.push({
-                            type: "video",
-                            video_url: part.url,
-                            video_base64: part.base64,
-                            mime_type: part.mimeType
-                        });
+                        contents.push(this.buildMediaPart(part, "video/mp4"));
                         break;
                     case "file":
-                        contents.push({
-                            type: "file",
-                            file_url: part.url,
-                            file_base64: part.base64,
-                            filename: part.filename,
-                            mime_type: part.mimeType
-                        });
+                        contents.push(this.buildMediaPart(part, "application/octet-stream"));
                         break;
                     default:
                         throw new Error(`Unsupported Gemini chat part: ${part}`);
@@ -296,5 +305,48 @@ export class GeminiChatCapabilityImpl implements ChatCapability<ClientChatReques
         }
 
         return contents;
+    }
+
+    /**
+     * Normalizes Gemini media parts so only one source form is forwarded.
+     *
+     * Gemini chat keeps its provider-specific `*_url` / `*_base64` request shape,
+     * but shared source normalization still strips Data URI wrappers from base64
+     * inputs and enforces the same non-empty source contract used elsewhere.
+     */
+    private buildMediaPart(
+        part: Exclude<ClientMessagePart, string | { type: "text"; text: string }>,
+        defaultMimeType: string
+    ): Record<string, unknown> {
+        if (part.url) {
+            switch (part.type) {
+                case "image":
+                    return { type: "image", image_url: part.url, caption: part.caption };
+                case "audio":
+                    return { type: "audio", audio_url: part.url, mime_type: part.mimeType };
+                case "video":
+                    return { type: "video", video_url: part.url, mime_type: part.mimeType };
+                case "file":
+                    return { type: "file", file_url: part.url, filename: part.filename, mime_type: part.mimeType };
+            }
+        }
+
+        const resolved = resolveReferenceMediaSource(part, defaultMimeType, `${part.type} part must have url or base64`);
+        if (resolved.kind !== "base64") {
+            throw new Error(`${part.type} part must have url or base64`);
+        }
+
+        switch (part.type) {
+            case "image":
+                return { type: "image", image_base64: resolved.base64, caption: part.caption };
+            case "audio":
+                return { type: "audio", audio_base64: resolved.base64, mime_type: resolved.mimeType };
+            case "video":
+                return { type: "video", video_base64: resolved.base64, mime_type: resolved.mimeType };
+            case "file":
+                return { type: "file", file_base64: resolved.base64, filename: part.filename, mime_type: resolved.mimeType };
+            default:
+                throw new Error(`Unsupported Gemini chat part: ${part}`);
+        }
     }
 }

@@ -1,15 +1,15 @@
 /**
  * @module core/jobs/JobManager.ts
- * @description ProviderPlaneAI source module.
+ * @description Job execution, persistence, and queue orchestration utilities.
  */
 import { GenericJob, JobChunk, JobSnapshot, MultiModalExecutionContext } from "#root/index.js";
 
 /**
  * Callback type for subscribers to job status updates.
  *
- * @template TInput Input type for the job
- * @template TOutput Output type for the job
- * @param snapshot The current snapshot of the job
+ * @template TInput - Input type for the job.
+ * @template TOutput - Output type for the job.
+ * @param {JobSnapshot<TInput, TOutput>} snapshot The current persisted view of the job.
  */
 export type JobSubscriber<TInput, TOutput> = (snapshot: JobSnapshot<TInput, TOutput>) => void;
 
@@ -22,11 +22,9 @@ interface QueuedJob<TInput, TOutput> {
 }
 
 /**
- * Optional hooks for job lifecycle events.
- */
-/**
+ * Optional callbacks invoked as jobs move through their lifecycle.
+ *
  * @public
- * @description Interface contract for JobManagerHooks.
  */
 export interface JobManagerHooks {
     /**
@@ -51,19 +49,17 @@ export interface JobManagerHooks {
  * Function type for reconstructing a GenericJob from a persisted snapshot.
  * Restores executor, streaming, and hooks so it can be rerun.
  *
- * @template TInput Input type for the job
- * @template TOutput Output type for the job
- * @param snapshot The persisted job snapshot
- * @returns The reconstructed GenericJob
+ * @template TInput - Input type for the job.
+ * @template TOutput - Output type for the job.
+ * @param {JobSnapshot<TInput, TOutput>} snapshot The persisted job snapshot.
+ * @returns {GenericJob<TInput, TOutput>} The reconstructed job instance.
  */
 export type JobFactory<TInput, TOutput> = (snapshot: JobSnapshot<TInput, TOutput>) => GenericJob<TInput, TOutput>;
 
 /**
- * Options for configuring the JobManager.
- */
-/**
+ * Configuration for job queue behavior, persistence, and runtime hooks.
+ *
  * @public
- * @description Interface contract for JobManagerOptions.
  */
 export interface JobManagerOptions {
     /**
@@ -106,12 +102,9 @@ export interface JobManagerOptions {
 }
 
 /**
- * Manages the lifecycle, execution, and persistence of jobs.
- * Supports concurrency, queuing, hooks, and job restoration.
- */
-/**
+ * Coordinates queued job execution, persistence, and subscriber notification.
+ *
  * @public
- * @description Implementation class for JobManager.
  */
 export class JobManager {
     /**
@@ -154,7 +147,7 @@ export class JobManager {
     /**
      * Constructs a new JobManager with the given options.
      *
-     * @param options Configuration options for the manager
+     * @param {JobManagerOptions | undefined} [options] Configuration for concurrency, persistence, and hooks.
      */
     constructor(private options?: JobManagerOptions) {
         this.setMaxConcurrency(this.options?.maxConcurrency);
@@ -170,6 +163,8 @@ export class JobManager {
 
     /**
      * Gets the maximum number of jobs that can run concurrently.
+     *
+     * @returns {number | undefined} The configured concurrency limit, or `undefined` when unbounded.
      */
     getMaxConcurrency(): number | undefined {
         return this.options?.maxConcurrency;
@@ -178,7 +173,9 @@ export class JobManager {
     /**
      * Sets the maximum number of jobs that can run concurrently.
      *
-     * @param maxConcurrency The new concurrency limit
+     * @param {number | undefined} maxConcurrency The new concurrency limit.
+     * @returns {void} Nothing.
+     * @throws {Error} Thrown when the value is not a non-negative integer.
      */
     setMaxConcurrency(maxConcurrency: number | undefined) {
         if (maxConcurrency !== undefined && (!Number.isInteger(maxConcurrency) || maxConcurrency < 0)) {
@@ -190,6 +187,8 @@ export class JobManager {
 
     /**
      * Gets the maximum number of response chunks stored per job.
+     *
+     * @returns {number | undefined} The configured chunk retention limit.
      */
     getMaxStoredResponseChunks(): number | undefined {
         return this.options?.maxStoredResponseChunks;
@@ -198,7 +197,9 @@ export class JobManager {
     /**
      * Sets the maximum number of response chunks stored per job.
      *
-     * @param maxStoredResponseChunks The new chunk limit
+     * @param {number | undefined} maxStoredResponseChunks The new chunk retention limit.
+     * @returns {void} Nothing.
+     * @throws {Error} Thrown when the value is not a non-negative integer.
      */
     setMaxStoredResponseChunks(maxStoredResponseChunks: number | undefined) {
         if (
@@ -213,6 +214,8 @@ export class JobManager {
 
     /**
      * Gets the maximum number of jobs allowed in the queue.
+     *
+     * @returns {number | undefined} The configured queue size limit.
      */
     getMaxQueueSize(): number | undefined {
         return this.options?.maxQueueSize;
@@ -221,7 +224,9 @@ export class JobManager {
     /**
      * Sets the maximum number of jobs allowed in the queue.
      *
-     * @param maxQueueSize The new queue size limit
+     * @param {number | undefined} maxQueueSize The new queue size limit.
+     * @returns {void} Nothing.
+     * @throws {Error} Thrown when the value is not a non-negative integer.
      */
     setMaxQueueSize(maxQueueSize: number | undefined) {
         if (maxQueueSize !== undefined && (!Number.isInteger(maxQueueSize) || maxQueueSize < 0)) {
@@ -233,6 +238,8 @@ export class JobManager {
 
     /**
      * Gets whether raw responses are stored for jobs.
+     *
+     * @returns {boolean | undefined} Whether raw provider responses are retained.
      */
     getStoreRawResponses(): boolean | undefined {
         return this.options?.storeRawResponses;
@@ -241,7 +248,9 @@ export class JobManager {
     /**
      * Sets whether raw responses are stored for jobs.
      *
-     * @param storeRawResponses True to store raw responses
+     * @param {boolean | undefined} storeRawResponses Whether raw provider responses should be retained.
+     * @returns {void} Nothing.
+     * @throws {Error} Thrown when the value is not a boolean.
      */
     setStoreRawResponses(storeRawResponses: boolean | undefined) {
         if (storeRawResponses !== undefined && typeof storeRawResponses !== "boolean") {
@@ -253,6 +262,8 @@ export class JobManager {
 
     /**
      * Gets whether binary-heavy fields are stripped from snapshots and timeline artifacts.
+     *
+     * @returns {boolean | undefined} Whether binary-heavy data is stripped before persistence.
      */
     getStripBinaryPayloadsInSnapshotsAndTimeline(): boolean | undefined {
         return this.options?.stripBinaryPayloadsInSnapshotsAndTimeline;
@@ -261,7 +272,9 @@ export class JobManager {
     /**
      * Sets whether binary-heavy fields are stripped from snapshots and timeline artifacts.
      *
-     * @param stripBinaryPayloadsInSnapshotsAndTimeline True to strip binary-heavy fields
+     * @param {boolean | undefined} stripBinaryPayloadsInSnapshotsAndTimeline Whether binary-heavy fields should be stripped.
+     * @returns {void} Nothing.
+     * @throws {Error} Thrown when the value is not a boolean.
      */
     setStripBinaryPayloadsInSnapshotsAndTimeline(stripBinaryPayloadsInSnapshotsAndTimeline: boolean | undefined) {
         if (
@@ -276,6 +289,8 @@ export class JobManager {
 
     /**
      * Gets the maximum number of raw bytes to store per job.
+     *
+     * @returns {number | undefined} The raw-response byte budget for each job.
      */
     getMaxRawBytesPerJob(): number | undefined {
         return this.options?.maxRawBytesPerJob;
@@ -284,7 +299,9 @@ export class JobManager {
     /**
      * Sets the maximum number of raw bytes to store per job.
      *
-     * @param maxRawBytesPerJob The new byte limit
+     * @param {number | undefined} maxRawBytesPerJob The new raw-response byte limit.
+     * @returns {void} Nothing.
+     * @throws {Error} Thrown when the value is not a non-negative integer.
      */
     setMaxRawBytesPerJob(maxRawBytesPerJob: number | undefined) {
         if (maxRawBytesPerJob !== undefined && (!Number.isInteger(maxRawBytesPerJob) || maxRawBytesPerJob < 0)) {
@@ -296,6 +313,8 @@ export class JobManager {
 
     /**
      * Gets the current number of jobs in the queue.
+     *
+     * @returns {number} The number of jobs currently waiting to run.
      */
     getQueueLength(): number {
         return this.jobQueue.length;
@@ -303,6 +322,8 @@ export class JobManager {
 
     /**
      * Gets the current number of jobs running.
+     *
+     * @returns {number} The number of jobs currently executing.
      */
     getRunningCount(): number {
         return this.runningCount;
@@ -394,7 +415,11 @@ export class JobManager {
     /**
      * Adds a new job to the manager. Throws if the job ID already exists.
      *
-     * @param job The job to add
+     * @template TInput - Input type for the job.
+     * @template TOutput - Output type for the job.
+     * @param {GenericJob<TInput, TOutput>} job The job to register.
+     * @returns {void} Nothing.
+     * @throws {Error} Thrown when a job with the same identifier already exists.
      */
     addJob<TInput, TOutput>(job: GenericJob<TInput, TOutput>) {
         if (this.jobs.has(job.id)) {
@@ -411,8 +436,10 @@ export class JobManager {
     /**
      * Retrieves a job by its ID.
      *
-     * @param id The job ID
-     * @returns The job, or undefined if not found
+     * @template TInput - Expected input type for the job.
+     * @template TOutput - Expected output type for the job.
+     * @param {string} id The job identifier.
+     * @returns {GenericJob<TInput, TOutput> | undefined} The job instance, or `undefined` when no such job exists.
      */
     getJob<TInput, TOutput>(id: string): GenericJob<TInput, TOutput> | undefined {
         return this.jobs.get(id) as GenericJob<TInput, TOutput> | undefined;
@@ -421,10 +448,13 @@ export class JobManager {
     /**
      * Queues a job for execution. Throws if already running, queued, or not found.
      *
-     * @param id The job ID
-     * @param ctx The execution context
-     * @param onChunk Optional callback for progress chunks
-     * @returns The job instance
+     * @template TInput - Expected input type for the job.
+     * @template TOutput - Expected output type for the job.
+     * @param {string} id The job identifier.
+     * @param {MultiModalExecutionContext} ctx The execution context passed to the job executor.
+     * @param {(chunk: JobChunk<TOutput>) => void | undefined} [onChunk] Optional progress callback for streamed chunks.
+     * @returns {GenericJob<TInput, TOutput>} The queued job instance.
+     * @throws {Error} Thrown when execution is disabled, the queue is full, or the job is missing/already queued.
      */
     runJob<TInput, TOutput>(
         id: string,
@@ -461,10 +491,13 @@ export class JobManager {
     /**
      * Resets and reruns a job by ID. Throws if not found or already running.
      *
-     * @param id The job ID
-     * @param ctx The execution context
-     * @param onChunk Optional callback for progress chunks
-     * @returns The job instance
+     * @template TInput - Expected input type for the job.
+     * @template TOutput - Expected output type for the job.
+     * @param {string} id The job identifier.
+     * @param {MultiModalExecutionContext} ctx The execution context passed to the job executor.
+     * @param {(chunk: JobChunk<TOutput>) => void | undefined} [onChunk] Optional progress callback for streamed chunks.
+     * @returns {GenericJob<TInput, TOutput>} The reset and requeued job instance.
+     * @throws {Error} Thrown when the job is missing or currently running.
      */
     rerunJob<TInput, TOutput>(
         id: string,
@@ -572,8 +605,10 @@ export class JobManager {
     /**
      * Aborts a job by ID, removing it from the queue and signaling cancellation.
      *
-     * @param id The job ID
-     * @param reason Optional reason for aborting
+     * @param {string} id The job identifier.
+     * @param {string | undefined} [reason] Optional human-readable abort reason.
+     * @returns {void} Nothing.
+     * @throws {Error} Thrown when the job cannot be found.
      */
     abortJob(id: string, reason?: string) {
         const job = this.getJob(id);
@@ -601,7 +636,7 @@ export class JobManager {
 
     /**
      * Lists all jobs managed by this instance as snapshots.
-     * @returns Array of job snapshots
+     * @returns {JobSnapshot<any, any>[]} Snapshots for every known job.
      */
     listJobs(): JobSnapshot<any, any>[] {
         return Array.from(this.jobs.values()).map((j) => j.toSnapshot());

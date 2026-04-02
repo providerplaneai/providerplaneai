@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import { AIProvider } from "#root/index.js";
+import { AIProvider, delayWithAbort } from "#root/index.js";
 
 vi.mock("node:dns/promises", async () => {
     const actual = await vi.importActual<typeof import("node:dns/promises")>("node:dns/promises");
@@ -17,7 +17,6 @@ import {
     GEMINI_VIDEO_MIN_DURATION_SECONDS,
     buildGeminiVideoArtifact,
     buildGeminiVideoResponseMetadata,
-    delayWithAbort,
     ensureDurationInRange,
     extractGeminiFileName,
     extractGeneratedVideoOrThrow,
@@ -26,16 +25,16 @@ import {
     resolveGeminiDurationSeconds,
     resolveGeminiOperationId,
     resolveGeminiOperationResult,
+    resolveGeminiPollingWindow,
     resolveGeminiVideoBase64,
     resolveGeminiVideoExecutionControls,
     downloadGeminiFileViaApi,
-    resolvePollingWindow,
     throwIfGeminiOperationFailed
 } from "#root/providers/gemini/capabilities/shared/GeminiVideoUtils.js";
 
 describe("GeminiVideoUtils", () => {
-    it("resolvePollingWindow and execution controls apply defaults and bounds", () => {
-        const window = resolvePollingWindow({
+    it("resolveGeminiPollingWindow and execution controls apply defaults and bounds", () => {
+        const window = resolveGeminiPollingWindow({
             pollIntervalMs: 10,
             maxPollMs: 50,
             defaultPollIntervalMs: 2000,

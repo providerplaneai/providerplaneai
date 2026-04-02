@@ -1,6 +1,6 @@
 /**
- * @module client/types/shared/BoundingBox.ts
- * @description ProviderPlaneAI source module.
+ * @module core/types/shared/BoundingBox.ts
+ * @description Shared normalized bounding-box contract.
  */
 /**
  * Axis-aligned bounding box in normalized image coordinates.
@@ -11,7 +11,7 @@
  */
 /**
  * @public
- * @description Interface contract for BoundingBox.
+ * Axis-aligned bounding box in normalized image coordinates.
  */
 export interface BoundingBox {
     /**

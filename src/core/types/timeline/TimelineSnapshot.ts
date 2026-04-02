@@ -1,6 +1,6 @@
 /**
  * @module core/types/timeline/TimelineSnapshot.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Persisted timeline snapshot contract.
  */
 import { TimelineEvent } from "#root/index.js";
 
@@ -10,7 +10,7 @@ import { TimelineEvent } from "#root/index.js";
  */
 /**
  * @public
- * @description Data contract for TimelineSnapshot.
+ * JSON-serializable snapshot of a timeline.
  */
 export interface TimelineSnapshot {
     /**

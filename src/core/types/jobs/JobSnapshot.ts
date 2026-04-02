@@ -1,12 +1,12 @@
 /**
  * @module core/types/jobs/JobSnapshot.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Persisted job snapshot contract used for resume and diagnostics.
  */
 import { CapabilityKeyType, JobStatus, ProviderRef, TimelineArtifacts } from "#root/index.js";
 
 /**
  * @public
- * @description Data contract for JobSnapshot.
+ * Persisted snapshot of a job execution.
  */
 export interface JobSnapshot<TInput, TOutput> {
     /**

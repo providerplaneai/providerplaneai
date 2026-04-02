@@ -38,6 +38,7 @@ describe("AnthropicProvider", () => {
         expect(provider.hasCapability(CapabilityKeys.ModerationCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.ImageAnalysisCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.ImageAnalysisStreamCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.OCRCapabilityKey)).toBe(true);
     });
 
     it("forwards to delegates and throws when chat delegate missing", async () => {
@@ -54,6 +55,7 @@ describe("AnthropicProvider", () => {
             analyzeImage: vi.fn().mockResolvedValue({ output: [] }),
             analyzeImageStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
         };
+        (provider as any).ocrDelegate = { ocr: vi.fn().mockResolvedValue({ output: [] }) };
 
         await expect(provider.chat({ input: { messages: [{ role: "user", content: [{ type: "text", text: "x" }] }] } } as any, ctx)).resolves.toHaveProperty(
             "output"
@@ -62,6 +64,7 @@ describe("AnthropicProvider", () => {
         await expect(provider.embed({ input: { input: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.analyzeImage({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.analyzeImageStream({ input: { images: [{ base64: "QQ==" }] } } as any, ctx).next()).resolves.toMatchObject({ done: false });
+        await expect(provider.ocr({ input: { file: "https://example.com/doc.png", mimeType: "image/png" } } as any, ctx)).resolves.toMatchObject({ output: [] });
 
         (provider as any).chatDelegate = null;
         await expect(provider.chat({ input: { messages: [{ role: "user", content: [{ type: "text", text: "x" }] }] } } as any, ctx)).rejects.toBeInstanceOf(
@@ -83,5 +86,6 @@ describe("AnthropicProvider", () => {
         await expect(provider.embed({ input: { input: "x" } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
         await expect(provider.analyzeImage({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
         expect(() => provider.analyzeImageStream({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).toThrow(CapabilityUnsupportedError);
+        await expect(provider.ocr({ input: { file: "https://example.com/doc.png", mimeType: "image/png" } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
     });
 });

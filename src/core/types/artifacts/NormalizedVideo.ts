@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedVideo.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized video artifact contract.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
@@ -14,7 +14,7 @@ import { NormalizedArtifactBase } from "#root/index.js";
  */
 /**
  * @public
- * @description Data contract for NormalizedVideo.
+ * Normalized representation of a provider-produced video artifact.
  */
 export interface NormalizedVideo extends NormalizedArtifactBase {
     /**

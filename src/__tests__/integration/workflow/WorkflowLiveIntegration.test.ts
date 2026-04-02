@@ -19,8 +19,9 @@ import {
 
 dotenv.config({ quiet: true });
 
-const RUN_WORKFLOW_LIVE_INTEGRATION = process.env.RUN_WORKFLOW_LIVE_INTEGRATION === "1";
+const RUN_LIVE_INTEGRATION = process.env.RUN_LIVE_INTEGRATION === "1";
 const REQUIRED_ENV_VARS = ["OPENAI_API_KEY_1", "GEMINI_API_KEY_1", "ANTHROPIC_API_KEY_1"] as const;
+const MISTRAL_REQUIRED_ENV_VARS = ["MISTRAL_API_KEY_1"] as const;
 
 function missingRequiredEnvVars(): string[] {
     const missing: string[] = [];
@@ -33,7 +34,48 @@ function missingRequiredEnvVars(): string[] {
 }
 
 const hasProviderKeys = missingRequiredEnvVars().length === 0;
-const describeProviderLive = RUN_WORKFLOW_LIVE_INTEGRATION && hasProviderKeys ? describe : describe.skip;
+const describeProviderLive = RUN_LIVE_INTEGRATION && hasProviderKeys ? describe : describe.skip;
+const hasMistralKeys = MISTRAL_REQUIRED_ENV_VARS.every((key) => !!process.env[key]?.trim());
+const describeMistralProviderLive = RUN_LIVE_INTEGRATION && hasMistralKeys ? describe : describe.skip;
+const MISTRAL_RATE_LIMIT_RETRY_DELAYS_MS = [65000] as const;
+const MISTRAL_TEST_VOICE_ID = "60844938-221d-4d1e-8233-34203f787d9f";
+
+function extractWorkflowText(value: unknown): string {
+    if (typeof value === "string") {
+        return value;
+    }
+    if (Array.isArray((value as { content?: unknown })?.content)) {
+        return ((value as { content: Array<{ type?: string; text?: string }> }).content ?? [])
+            .filter((part) => part?.type === "text" && typeof part?.text === "string")
+            .map((part) => part.text ?? "")
+            .join("");
+    }
+    return String(value ?? "");
+}
+
+function isMistralRateLimitError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    return message.includes("Status 429") || message.includes("rate_limited") || message.includes("Rate limit exceeded");
+}
+
+async function retryOnMistralRateLimit<T>(operation: () => Promise<T>): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= MISTRAL_RATE_LIMIT_RETRY_DELAYS_MS.length; attempt += 1) {
+        try {
+            return await operation();
+        } catch (error) {
+            lastError = error;
+            if (!isMistralRateLimitError(error) || attempt === MISTRAL_RATE_LIMIT_RETRY_DELAYS_MS.length) {
+                throw error;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, MISTRAL_RATE_LIMIT_RETRY_DELAYS_MS[attempt]));
+        }
+    }
+
+    throw lastError;
+}
 
 function createManagedJob<TOutput>(
     client: AIClient,
@@ -712,7 +754,7 @@ describeProviderLive("Workflow Integration (provider-backed)", () => {
 
         let execution;
         try {
-            execution = await runner.run(workflow, new MultiModalExecutionContext());
+            execution = await retryOnMistralRateLimit(() => runner.run(workflow, new MultiModalExecutionContext()));
         } catch (error) {
             if (error instanceof AllProvidersFailedError) {
                 throw new Error(
@@ -814,9 +856,12 @@ describeProviderLive("Workflow Integration (provider-backed)", () => {
             jobManager: client.jobManager!,
             client,
             hooks: {
-                onNodeChunk: (_workflowId, nodeId, chunk) => {
-                    if (nodeId === "draftStream" && typeof chunk.delta === "string") {
-                        chunkDeltas.push(chunk.delta);
+                onNodeChunk: (_workflowId, _nodeId, chunk) => {
+                    if (chunk.delta !== undefined) {
+                        const text = extractWorkflowText(chunk.delta);
+                        if (text.length > 0) {
+                            chunkDeltas.push(text);
+                        }
                     }
                 }
             }
@@ -890,4 +935,451 @@ describeProviderLive("Workflow Integration (provider-backed)", () => {
         expect(typeof execution.output?.chunksObserved).toBe("number");
         expect((execution.output?.chunksObserved ?? -1) >= 0).toBe(true);
     });
+});
+
+describeMistralProviderLive("Workflow Integration (provider-backed, mistral)", () => {
+    it("runs a real-provider mistral streaming workflow and emits workflow chunks", async () => {
+        const providerChain: ProviderRef[] = [{ providerType: "mistral", connectionName: "default" }];
+        const chunkDeltas: string[] = [];
+
+        const client = new AIClient(new JobManager());
+        const runner = new WorkflowRunner({
+            jobManager: client.jobManager!,
+            client,
+            hooks: {
+                onNodeChunk: (_workflowId, nodeId, chunk) => {
+                    if (nodeId !== "draftStream") {
+                        return;
+                    }
+
+                    const extractedText = extractWorkflowText(chunk.delta);
+                    if (extractedText.length > 0) {
+                        chunkDeltas.push(extractedText);
+                    }
+                }
+            }
+        });
+
+        const workflow = new WorkflowBuilder<{ text: string; chunksObserved: number }>("live-mistral-workflow-stream")
+            .capabilityNode(
+                "draftStream",
+                CapabilityKeys.ChatStreamCapabilityKey,
+                {
+                    input: {
+                        messages: [
+                            {
+                                role: "user",
+                                content: [{ type: "text", text: "Reply with exactly: workflow-mistral-stream-ok" }]
+                            }
+                        ]
+                    },
+                    options: {
+                        model: "mistral-small-latest",
+                        generalParams: { chatStreamBatchSize: 8 }
+                    },
+                    timeoutMs: 30000
+                },
+                {
+                    timeoutMs: 45000,
+                    providerChain
+                }
+            )
+            .aggregate((results) => ({
+                text: extractWorkflowText(results.draftStream),
+                chunksObserved: chunkDeltas.length
+            }))
+            .build();
+
+        let execution;
+        try {
+            execution = await runner.run(workflow, new MultiModalExecutionContext());
+        } catch (error) {
+            if (error instanceof AllProvidersFailedError) {
+                throw new Error(
+                    `Live Mistral stream workflow failed. Attempts: ${JSON.stringify(
+                        error.attempts.map((a) => ({
+                            providerType: a.providerType,
+                            connectionName: a.connectionName,
+                            error: a.error,
+                            errorCode: a.errorCode
+                        })),
+                        null,
+                        2
+                    )}`
+                );
+            }
+            throw error;
+        }
+
+        expect(execution.status).toBe("completed");
+        expect(execution.output?.text.toLowerCase()).toContain("workflow-mistral-stream-ok");
+        expect(execution.output?.chunksObserved).toBeGreaterThan(0);
+    });
+
+    it("runs a real-provider mistral moderation batch workflow", async () => {
+        const providerChain: ProviderRef[] = [{ providerType: "mistral", connectionName: "default" }];
+        const client = new AIClient(new JobManager());
+        const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
+
+        const workflow = new WorkflowBuilder<{ total: number; flaggedCount: number; flaggedIndices: number[] }>(
+            "live-mistral-workflow-moderation"
+        )
+            .capabilityNode(
+                "moderate",
+                CapabilityKeys.ModerationCapabilityKey,
+                {
+                    input: {
+                        input: ["I enjoy sunny walks in the park.", "I want to kill everyone in this building."]
+                    },
+                    options: {
+                        model: "mistral-moderation-latest"
+                    },
+                    timeoutMs: 30000
+                },
+                {
+                    timeoutMs: 45000,
+                    providerChain
+                }
+            )
+            .aggregate((results) => {
+                const moderation = Array.isArray(results.moderate)
+                    ? (results.moderate as Array<{ flagged?: boolean; inputIndex?: number }>)
+                    : [];
+                return {
+                    total: moderation.length,
+                    flaggedCount: moderation.filter((item) => item.flagged).length,
+                    flaggedIndices: moderation.filter((item) => item.flagged).map((item) => Number(item.inputIndex))
+                };
+            })
+            .build();
+
+        let execution;
+        try {
+            execution = await runner.run(workflow, new MultiModalExecutionContext());
+        } catch (error) {
+            if (error instanceof AllProvidersFailedError) {
+                throw new Error(
+                    `Live Mistral moderation workflow failed. Attempts: ${JSON.stringify(
+                        error.attempts.map((a) => ({
+                            providerType: a.providerType,
+                            connectionName: a.connectionName,
+                            error: a.error,
+                            errorCode: a.errorCode
+                        })),
+                        null,
+                        2
+                    )}`
+                );
+            }
+            throw error;
+        }
+
+        expect(execution.status).toBe("completed");
+        expect(execution.output?.total).toBe(2);
+        expect((execution.output?.flaggedCount ?? 0) >= 1).toBe(true);
+        expect(execution.output?.flaggedIndices).toContain(1);
+    });
+
+    it(
+        "runs a real-provider mistral image analysis workflow with a local PNG",
+        async () => {
+            const providerChain: ProviderRef[] = [{ providerType: "mistral", connectionName: "default" }];
+            const client = new AIClient(new JobManager());
+            const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
+            const imageBase64 = (
+                await readFile(new URL("../../../../test_data/test_cybercat.png", import.meta.url))
+            ).toString("base64");
+
+            const workflow = new WorkflowBuilder<{ count: number; sourceImageId: string; hasContent: boolean }>(
+                "live-mistral-workflow-image-analysis"
+            )
+                .capabilityNode(
+                    "analyze",
+                    CapabilityKeys.ImageAnalysisCapabilityKey,
+                    {
+                        input: {
+                            prompt: "Describe the main subject of this image and return concise tags.",
+                            images: [
+                                {
+                                    id: "cybercat",
+                                    sourceType: "base64",
+                                    base64: imageBase64,
+                                    mimeType: "image/png"
+                                }
+                            ]
+                        },
+                        options: {
+                            model: "mistral-small-latest"
+                        },
+                        timeoutMs: 30000
+                    },
+                    {
+                        timeoutMs: 45000,
+                        providerChain
+                    }
+                )
+                .aggregate((results) => {
+                    const analyses = Array.isArray(results.analyze)
+                        ? (results.analyze as Array<{
+                              sourceImageId?: string;
+                              description?: string;
+                              tags?: string[];
+                              objects?: Array<unknown>;
+                              text?: Array<unknown>;
+                          }>)
+                        : [];
+
+                    return {
+                        count: analyses.length,
+                        sourceImageId: String(analyses[0]?.sourceImageId ?? ""),
+                        hasContent: Boolean(
+                            analyses[0]?.description ||
+                                (analyses[0]?.tags?.length ?? 0) > 0 ||
+                                (analyses[0]?.objects?.length ?? 0) > 0 ||
+                                (analyses[0]?.text?.length ?? 0) > 0
+                        )
+                    };
+                })
+                .build();
+
+            let execution;
+            try {
+                execution = await retryOnMistralRateLimit(() => runner.run(workflow, new MultiModalExecutionContext()));
+            } catch (error) {
+                if (error instanceof AllProvidersFailedError) {
+                    throw new Error(
+                        `Live Mistral image-analysis workflow failed. Attempts: ${JSON.stringify(
+                            error.attempts.map((a) => ({
+                                providerType: a.providerType,
+                                connectionName: a.connectionName,
+                                error: a.error,
+                                errorCode: a.errorCode
+                            })),
+                            null,
+                            2
+                        )}`
+                    );
+                }
+                throw error;
+            }
+
+            expect(execution.status).toBe("completed");
+            expect(execution.output?.count).toBeGreaterThan(0);
+            expect(execution.output?.sourceImageId).toBe("cybercat");
+            expect(execution.output?.hasContent).toBe(true);
+        },
+        150000
+    );
+
+    it(
+        "runs a real-provider mistral OCR workflow with a local PDF",
+        async () => {
+            const providerChain: ProviderRef[] = [{ providerType: "mistral", connectionName: "default" }];
+            const client = new AIClient(new JobManager());
+            const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
+
+            const workflow = new WorkflowBuilder<{ count: number; fileName: string; pageCount: number; hasText: boolean }>(
+                "live-mistral-workflow-ocr-pdf"
+            )
+                .capabilityNode(
+                    "extract",
+                    CapabilityKeys.OCRCapabilityKey,
+                    {
+                        input: {
+                            file: new URL("../../../../test_data/cl.pdf", import.meta.url).pathname,
+                            filename: "cl.pdf",
+                            mimeType: "application/pdf",
+                            language: "en"
+                        },
+                        options: {
+                            model: "mistral-ocr-latest"
+                        },
+                        timeoutMs: 30000
+                    },
+                    {
+                        timeoutMs: 45000,
+                        providerChain
+                    }
+                )
+                .aggregate((results) => {
+                    const docs = Array.isArray(results.extract)
+                        ? (results.extract as Array<{ fileName?: string; pageCount?: number; fullText?: string }>)
+                        : [];
+
+                    return {
+                        count: docs.length,
+                        fileName: String(docs[0]?.fileName ?? ""),
+                        pageCount: Number(docs[0]?.pageCount ?? 0),
+                        hasText: (docs[0]?.fullText ?? "").trim().length > 0
+                    };
+                })
+                .build();
+
+            let execution;
+            try {
+                execution = await retryOnMistralRateLimit(() => runner.run(workflow, new MultiModalExecutionContext()));
+            } catch (error) {
+                if (error instanceof AllProvidersFailedError) {
+                    throw new Error(
+                        `Live Mistral OCR workflow failed. Attempts: ${JSON.stringify(
+                            error.attempts.map((a) => ({
+                                providerType: a.providerType,
+                                connectionName: a.connectionName,
+                                error: a.error,
+                                errorCode: a.errorCode
+                            })),
+                            null,
+                            2
+                        )}`
+                    );
+                }
+                throw error;
+            }
+
+            expect(execution.status).toBe("completed");
+            expect(execution.output?.count).toBe(1);
+            expect(execution.output?.fileName).toBe("cl.pdf");
+            expect((execution.output?.pageCount ?? 0) > 0).toBe(true);
+            expect(execution.output?.hasText).toBe(true);
+        },
+        150000
+    );
+
+    it(
+        "runs a real-provider mistral audio transcription workflow with a local MP3",
+        async () => {
+            const providerChain: ProviderRef[] = [{ providerType: "mistral", connectionName: "default" }];
+            const client = new AIClient(new JobManager());
+            const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
+
+            const workflow = new WorkflowBuilder<{ transcript: string; textLength: number }>(
+                "live-mistral-workflow-audio-transcription"
+            )
+                .capabilityNode(
+                    "transcribe",
+                    CapabilityKeys.AudioTranscriptionCapabilityKey,
+                    {
+                        input: {
+                            file: new URL("../../../../test_data/test.mp3", import.meta.url).pathname,
+                            filename: "test.mp3",
+                            mimeType: "audio/mpeg",
+                            language: "en",
+                            responseFormat: "json",
+                            prompt: "Return a clean, punctuation-correct transcript."
+                        },
+                        options: {
+                            model: "voxtral-mini-latest"
+                        },
+                        timeoutMs: 30000
+                    },
+                    {
+                        timeoutMs: 45000,
+                        providerChain
+                    }
+                )
+                .aggregate((results) => {
+                    const transcript = extractWorkflowText(Array.isArray(results.transcribe) ? results.transcribe[0] : "");
+                    return {
+                        transcript,
+                        textLength: transcript.trim().length
+                    };
+                })
+                .build();
+
+            let execution;
+            try {
+                execution = await retryOnMistralRateLimit(() => runner.run(workflow, new MultiModalExecutionContext()));
+            } catch (error) {
+                if (error instanceof AllProvidersFailedError) {
+                    throw new Error(
+                        `Live Mistral transcription workflow failed. Attempts: ${JSON.stringify(
+                            error.attempts.map((a) => ({
+                                providerType: a.providerType,
+                                connectionName: a.connectionName,
+                                error: a.error,
+                                errorCode: a.errorCode
+                            })),
+                            null,
+                            2
+                        )}`
+                    );
+                }
+                throw error;
+            }
+
+            expect(execution.status).toBe("completed");
+            expect((execution.output?.textLength ?? 0) > 0).toBe(true);
+        },
+        150000
+    );
+
+    it(
+        "runs a real-provider mistral TTS workflow",
+        async () => {
+            const providerChain: ProviderRef[] = [{ providerType: "mistral", connectionName: "default" }];
+            const client = new AIClient(new JobManager());
+            const runner = new WorkflowRunner({ jobManager: client.jobManager!, client });
+
+            const workflow = new WorkflowBuilder<{ audioCount: number; mimeType: string; hasAudio: boolean }>(
+                "live-mistral-workflow-tts"
+            )
+                .capabilityNode(
+                    "speak",
+                    CapabilityKeys.AudioTextToSpeechCapabilityKey,
+                    {
+                        input: {
+                            text: "ProviderPlaneAI Mistral workflow TTS smoke test.",
+                            voice: MISTRAL_TEST_VOICE_ID,
+                            format: "mp3"
+                        },
+                        options: {
+                            model: "voxtral-mini-tts-2603"
+                        },
+                        timeoutMs: 30000
+                    },
+                    {
+                        timeoutMs: 45000,
+                        providerChain
+                    }
+                )
+                .aggregate((results) => {
+                    const audio = Array.isArray(results.speak)
+                        ? (results.speak as Array<{ mimeType?: string; base64?: string }>)
+                        : [];
+                    return {
+                        audioCount: audio.length,
+                        mimeType: String(audio[0]?.mimeType ?? ""),
+                        hasAudio: (audio[0]?.base64 ?? "").length > 0
+                    };
+                })
+                .build();
+
+            let execution;
+            try {
+                execution = await retryOnMistralRateLimit(() => runner.run(workflow, new MultiModalExecutionContext()));
+            } catch (error) {
+                if (error instanceof AllProvidersFailedError) {
+                    throw new Error(
+                        `Live Mistral TTS workflow failed. Attempts: ${JSON.stringify(
+                            error.attempts.map((a) => ({
+                                providerType: a.providerType,
+                                connectionName: a.connectionName,
+                                error: a.error,
+                                errorCode: a.errorCode
+                            })),
+                            null,
+                            2
+                        )}`
+                    );
+                }
+                throw error;
+            }
+
+            expect(execution.status).toBe("completed");
+            expect(execution.output?.audioCount).toBe(1);
+            expect(execution.output?.mimeType).toBe("audio/mpeg");
+            expect(execution.output?.hasAudio).toBe(true);
+        },
+        150000
+    );
 });

@@ -1,6 +1,6 @@
 /**
  * @module core/workflow/index.ts
- * @description ProviderPlaneAI source module.
+ * @description Public workflow-building, workflow-running, and pipeline authoring exports.
  */
 export * from "./WorkflowBuilder.js";
 export * from "./WorkflowRunner.js";

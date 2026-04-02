@@ -1,41 +1,27 @@
 /**
  * @module client/types/audio/ClientAudioTranscriptionRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
-import { ClientRequestBase } from "../shared/index.js";
+import { ClientFileInputSource, ClientRequestBase } from "#root/index.js";
 
 /**
- * Supported audio input source types across browser and Node runtimes.
+ * Alias for the file input types accepted by transcription and translation requests.
  *
- * Notes:
- * - Browser: File/Blob
- * - Node: Buffer/Uint8Array/ArrayBuffer/Readable stream
- * - Some providers may also accept a local path string or data URL string
- */
-/**
  * @public
- * @description Type alias for ClientAudioInputSource.
  */
-export type ClientAudioInputSource = File | Blob | Buffer | Uint8Array | ArrayBuffer | NodeJS.ReadableStream | string;
+export type ClientAudioInputSource = ClientFileInputSource;
 
 /**
- * Common response formats used by transcription-capable providers.
- */
-/**
+ * Output formats commonly supported by transcription providers.
+ *
  * @public
- * @description Type alias for ClientAudioTranscriptionResponseFormat.
  */
 export type ClientAudioTranscriptionResponseFormat = "json" | "text" | "srt" | "verbose_json" | "vtt" | "diarized_json";
 
 /**
- * Request payload for audio transcription.
+ * Request payload for speech transcription.
  *
- * - `file`: Audio content to transcribe.
- * - `language`: Optional language hint for transcription.
- */
-/**
  * @public
- * @description Interface contract for ClientAudioTranscriptionRequest.
  */
 export interface ClientAudioTranscriptionRequest extends ClientRequestBase {
     /**

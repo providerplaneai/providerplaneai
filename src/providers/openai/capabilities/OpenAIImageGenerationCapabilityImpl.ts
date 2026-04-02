@@ -1,6 +1,6 @@
 /**
  * @module providers/openai/capabilities/OpenAIImageGenerationCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI image generation capability adapter.
  */
 import OpenAI from "openai";
 import {
@@ -15,25 +15,20 @@ import {
     ImageGenerationCapability,
     ImageGenerationStreamCapability,
     MultiModalExecutionContext,
-    NormalizedImage
+    NormalizedImage,
+    resolveReferenceMediaUrl,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_IMAGE_MODEL = "gpt-4.1";
 
 /**
- * Implements image generation for OpenAI, supporting both non-streaming and streaming modes.
+ * Adapts OpenAI image generation responses into ProviderPlaneAI's normalized image artifact surface.
  *
- * Responsibilities:
- * - Converts prompts and optional reference images into OpenAI requests
- * - Normalizes outputs into `NormalizedImage[]`
- * - Handles multiple images, model parameters, and streaming events
+ * Supports both non-streaming and streaming generation through the Responses API
+ * and normalizes generated image payloads into `NormalizedImage[]`.
  *
- * Usage:
- *   Instantiate with a parent provider and OpenAI client, then call `generateImage` or `generateImageStream`.
- */
-/**
  * @public
- * @description Provider capability implementation for OpenAIImageGenerationCapabilityImpl.
  */
 export class OpenAIImageGenerationCapabilityImpl
     implements
@@ -41,9 +36,10 @@ export class OpenAIImageGenerationCapabilityImpl
         ImageGenerationStreamCapability<ClientImageGenerationRequest>
 {
     /**
-     * Constructor for OpenAI image generation capability implementation.
-     * @param provider Parent provider instance for lifecycle/config access
-     * @param client Initialized OpenAI SDK client
+     * Creates a new OpenAI image generation capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -60,11 +56,11 @@ export class OpenAIImageGenerationCapabilityImpl
      * - Sends concurrent requests if count > 1
      * - Normalizes and returns image output
      *
-     * @param request Unified AIRequest containing prompt, reference images, and params
-     * @param _executionContext Optional execution context (unused)
-     * @param signal AbortSignal for request cancellation
-     * @returns AIResponse containing normalized images
-     * @throws Error if prompt is missing or generation fails
+     * @param {AIRequest<ClientImageGenerationRequest>} request Unified image generation request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedImage[]>>} Provider-normalized generated image artifacts.
+     * @throws {Error} If the prompt is missing or generation returns no image artifacts.
      */
     async generateImage(
         request: AIRequest<ClientImageGenerationRequest>,
@@ -116,13 +112,12 @@ export class OpenAIImageGenerationCapabilityImpl
             output: images,
             rawResponse: response,
             id: response.id ?? context?.requestId ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: response.status ?? "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
@@ -143,11 +138,11 @@ export class OpenAIImageGenerationCapabilityImpl
      * - Yields image chunks as they are received
      * - Handles errors by yielding an error chunk
      *
-     * @param request Unified AIRequest containing prompt, reference images, and params
-     * @param _executionContext Optional execution context (unused)
-     * @param signal AbortSignal for request cancellation
-     * @returns AsyncGenerator yielding AIResponseChunk<NormalizedImage[]>
-     * @throws Error if prompt is missing
+     * @param {AIRequest<ClientImageGenerationRequest>} request Unified image generation request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedImage[]>>} Async generator of incremental image chunks and a terminal completion chunk.
+     * @throws {Error} If the prompt is missing.
      */
     async *generateImageStream(
         request: AIRequest<ClientImageGenerationRequest>,
@@ -218,13 +213,12 @@ export class OpenAIImageGenerationCapabilityImpl
                         output: [image],
                         done: false,
                         id: responseId ?? context?.requestId ?? crypto.randomUUID(),
-                        metadata: {
-                            ...(context?.metadata ?? {}),
+                        metadata: buildMetadata(context?.metadata, {
                             provider: AIProvider.OpenAI,
                             model: merged.model,
                             status: "incomplete",
                             requestId: context?.requestId
-                        }
+                        })
                     };
                 }
             }
@@ -235,13 +229,12 @@ export class OpenAIImageGenerationCapabilityImpl
                 output: [],
                 done: true,
                 id: responseId ?? context?.requestId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.OpenAI,
                     model: merged.model,
                     status: "completed",
                     requestId: context?.requestId
-                }
+                })
             };
         } catch (err) {
             // Abort is NOT an error — exit silently
@@ -255,14 +248,13 @@ export class OpenAIImageGenerationCapabilityImpl
                 delta: [],
                 done: true,
                 id: responseId ?? context?.requestId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.OpenAI,
                     model: merged.model,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -280,7 +272,10 @@ Description: ${input.prompt}
             `.trim();
 
             for (const ref of input.referenceImages) {
-                content.push({ type: "input_image", image_url: ref.url });
+                content.push({
+                    type: "input_image",
+                    image_url: resolveReferenceMediaUrl(ref, "image/png", "referenceImage must include url or base64")
+                });
             }
         }
 

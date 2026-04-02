@@ -1,4 +1,14 @@
 import { vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
+
+// Node 18 vitest worker threads do not expose `crypto` or `File` as globals — polyfill both.
+if (typeof globalThis.crypto === 'undefined') {
+    Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
+}
+if (typeof globalThis.File === 'undefined') {
+    const { File } = await import('node:buffer');
+    Object.defineProperty(globalThis, 'File', { value: File });
+}
 
 // Fully mock OpenAIProvider
 /*vi.mock('#root/providers/openai/OpenAIProvider.js', () => ({
@@ -72,6 +82,31 @@ vi.mock('#root/providers/gemini/GeminiProvider.js', () => ({
             moderation: vi.fn().mockResolvedValue({ output: { flagged: false }, metadata: { status: 'completed' } }),
             generateImage: vi.fn().mockResolvedValue({ output: [{ url: 'http://example.com/img.png', data: 'base64data' }], metadata: { status: 'completed' } }),
             analyzeImage: vi.fn().mockResolvedValue({ output: [{ text: 'image description', objects: [] }], metadata: { status: 'completed' } })
+        };
+        return providerInstance;
+    })
+}));
+
+// Fully mock MistralProvider
+vi.mock('#root/providers/mistral/MistralProvider.js', () => ({
+    MistralProvider: vi.fn(function () {
+        const providerInstance = {
+            isInitialized: () => true,
+            init: vi.fn(),
+            registerCapabilities: vi.fn(),
+            setClientExecutors: vi.fn(),
+            hasCapability: vi.fn(() => true),
+            getCapability: vi.fn((cap: keyof typeof providerInstance) => providerInstance[cap] || vi.fn()),
+            chat: vi.fn().mockResolvedValue({ output: 'mocked', metadata: { status: 'completed' } }),
+            chatStream: vi.fn().mockImplementation(async function* () {
+                yield { output: 'mocked', metadata: { status: 'completed' } };
+            }),
+            embed: vi.fn().mockResolvedValue({ output: [0.1, 0.2, 0.3], metadata: { status: 'completed' } }),
+            moderation: vi.fn().mockResolvedValue({ output: { flagged: false }, metadata: { status: 'completed' } }),
+            analyzeImage: vi.fn().mockResolvedValue({ output: [{ text: 'image description', objects: [] }], metadata: { status: 'completed' } }),
+            analyzeImageStream: vi.fn().mockImplementation(async function* () {
+                yield { output: [{ label: 'cat', confidence: 0.99 }], metadata: { status: 'completed' } };
+            })
         };
         return providerInstance;
     })

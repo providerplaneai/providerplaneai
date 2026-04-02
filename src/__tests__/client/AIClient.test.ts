@@ -102,7 +102,13 @@ describe("AIClient", () => {
     it("setLifecycleHooks can only be called once", async () => {
         const { AIClient, root } = await loadClient();
         const jobManager = new root.JobManager();
-        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
+        const registry = new root.CapabilityExecutorRegistry();
+        registry.register(root.CapabilityKeys.ChatStreamCapabilityKey, {
+            streaming: true as const,
+            invoke: (capability: { chatStream: (input: unknown, ctx: unknown, signal?: AbortSignal) => AsyncGenerator<unknown> }, input: unknown, ctx: unknown, signal?: AbortSignal) =>
+                capability.chatStream(input, ctx, signal) as AsyncGenerator<unknown>
+        });
+        const client = new AIClient(jobManager, registry);
         client.setLifecycleHooks({});
 
         expect(() => client.setLifecycleHooks({})).toThrow("Lifecycle hooks already set");
@@ -127,7 +133,17 @@ describe("AIClient", () => {
         const { AIClient, root } = await loadClient();
         disableDefaultProviderChain(root);
         const jobManager = new root.JobManager();
-        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
+        const registry = new root.CapabilityExecutorRegistry();
+        registry.register(root.CapabilityKeys.ChatStreamCapabilityKey, {
+            streaming: true as const,
+            invoke: (
+                capability: { chatStream: (input: unknown, ctx: unknown, signal?: AbortSignal) => AsyncGenerator<unknown> },
+                input: unknown,
+                ctx: unknown,
+                signal?: AbortSignal
+            ) => capability.chatStream(input, ctx, signal) as AsyncGenerator<unknown>
+        });
+        const client = new AIClient(jobManager, registry);
         const provider = makeProvider(() => false, true);
 
         client.registerProvider(provider, root.AIProvider.OpenAI, "fallback");
@@ -139,7 +155,17 @@ describe("AIClient", () => {
         const { AIClient, root } = await loadClient();
         disableDefaultProviderChain(root);
         const jobManager = new root.JobManager();
-        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
+        const registry = new root.CapabilityExecutorRegistry();
+        registry.register(root.CapabilityKeys.ChatStreamCapabilityKey, {
+            streaming: true as const,
+            invoke: (
+                capability: { chatStream: (input: unknown, ctx: unknown, signal?: AbortSignal) => AsyncGenerator<unknown> },
+                input: unknown,
+                ctx: unknown,
+                signal?: AbortSignal
+            ) => capability.chatStream(input, ctx, signal) as AsyncGenerator<unknown>
+        });
+        const client = new AIClient(jobManager, registry);
         const providerA = makeProvider();
         const providerB = makeProvider();
 
@@ -153,7 +179,17 @@ describe("AIClient", () => {
     it("registerProvider throws ExecutionPolicyError when provider connection config is missing", async () => {
         const { AIClient, root } = await loadClient();
         const jobManager = new root.JobManager();
-        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
+        const registry = new root.CapabilityExecutorRegistry();
+        registry.register(root.CapabilityKeys.ChatStreamCapabilityKey, {
+            streaming: true as const,
+            invoke: (
+                capability: { chatStream: (input: unknown, ctx: unknown, signal?: AbortSignal) => AsyncGenerator<unknown> },
+                input: unknown,
+                ctx: unknown,
+                signal?: AbortSignal
+            ) => capability.chatStream(input, ctx, signal) as AsyncGenerator<unknown>
+        });
+        const client = new AIClient(jobManager, registry);
         const provider = makeProvider();
 
         expect(() => client.registerProvider(provider, root.AIProvider.OpenAI, "missing")).toThrow(root.ExecutionPolicyError);
@@ -162,7 +198,17 @@ describe("AIClient", () => {
     it("getProvider throws for unknown provider type", async () => {
         const { AIClient, root } = await loadClient();
         const jobManager = new root.JobManager();
-        const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
+        const registry = new root.CapabilityExecutorRegistry();
+        registry.register(root.CapabilityKeys.ChatStreamCapabilityKey, {
+            streaming: true as const,
+            invoke: (
+                capability: { chatStream: (input: unknown, ctx: unknown, signal?: AbortSignal) => AsyncGenerator<unknown> },
+                input: unknown,
+                ctx: unknown,
+                signal?: AbortSignal
+            ) => capability.chatStream(input, ctx, signal) as AsyncGenerator<unknown>
+        });
+        const client = new AIClient(jobManager, registry);
 
         expect(() => client.getProvider("unknown-provider" as AIProviderType)).toThrow("No providers registered for unknown-provider");
     });
@@ -387,6 +433,89 @@ describe("AIClient", () => {
         expect(job.status).toBe("completed");
         expect(job.response?.id).toBe("chat-final");
         expect(job.response?.multimodalArtifacts?.chat).toEqual([{ role: "assistant", content: [] }]);
+    });
+
+    it("WorkflowRunner receives onNodeChunk events for built-in chatStream capability jobs", async () => {
+        const { AIClient, root } = await loadClient();
+        const config = JSON.parse(JSON.stringify(root.loadAppConfig()));
+        config.appConfig.executionPolicy.providerChain = [];
+        config.providers.openai = config.providers.openai ?? {};
+        config.providers.openai.fallback = {
+            ...(config.providers.openai.default ?? {}),
+            type: root.AIProvider.OpenAI
+        };
+        vi.spyOn(root, "loadAppConfig").mockReturnValue(config);
+
+        const jobManager = new root.JobManager();
+        const registry = new root.CapabilityExecutorRegistry();
+        registry.register(root.CapabilityKeys.ChatStreamCapabilityKey, {
+            streaming: true as const,
+            invoke: (
+                capability: { chatStream: (input: unknown, ctx: unknown, signal?: AbortSignal) => AsyncGenerator<unknown> },
+                input: unknown,
+                ctx: unknown,
+                signal?: AbortSignal
+            ) => capability.chatStream(input, ctx, signal) as AsyncGenerator<unknown>
+        });
+        const client = new AIClient(jobManager, registry);
+        const provider = makeProvider((capability) => capability === root.CapabilityKeys.ChatStreamCapabilityKey, true);
+        provider.getCapability = vi.fn(() => ({
+            chatStream: async function* () {
+                yield {
+                    delta: { role: "assistant", content: [{ type: "text", text: "alpha " }] },
+                    output: { role: "assistant", content: [{ type: "text", text: "alpha " }] },
+                    done: false
+                };
+                yield {
+                    delta: { role: "assistant", content: [{ type: "text", text: "" }] },
+                    output: { role: "assistant", content: [{ type: "text", text: "alpha beta" }] },
+                    done: true
+                };
+            }
+        }));
+        client.registerProvider(provider, root.AIProvider.OpenAI, "fallback");
+        expect(registry.has(root.CapabilityKeys.ChatStreamCapabilityKey)).toBe(true);
+        expect((client as any).executors.has(root.CapabilityKeys.ChatStreamCapabilityKey)).toBe(true);
+
+        const seenDeltas: string[] = [];
+        const runner = new root.WorkflowRunner({
+            jobManager: client.jobManager,
+            client,
+            hooks: {
+                onNodeChunk(_workflowId: string, _nodeId: string, chunk: { delta?: unknown }) {
+                    const content = (chunk.delta as { content?: Array<{ type?: string; text?: string }> } | undefined)?.content ?? [];
+                    const text = content
+                        .filter((part) => part?.type === "text" && typeof part.text === "string")
+                        .map((part) => part.text ?? "")
+                        .join("");
+                    if (text.length > 0) {
+                        seenDeltas.push(text);
+                    }
+                }
+            }
+        });
+
+        const workflow = new root.WorkflowBuilder<{ text: string }>("workflow-built-in-chatstream-hook")
+            .capabilityNode(
+                "draftStream",
+                root.CapabilityKeys.ChatStreamCapabilityKey,
+                {
+                    input: {
+                        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }]
+                    }
+                },
+                {
+                    providerChain: [{ providerType: root.AIProvider.OpenAI, connectionName: "fallback" }]
+                }
+            )
+            .aggregate((results: Record<string, unknown>) => ({
+                text: JSON.stringify(results.draftStream)
+            }))
+            .build();
+
+        const execution = await runner.run(workflow, new root.MultiModalExecutionContext());
+        expect(execution.status).toBe("completed");
+        expect(seenDeltas).toEqual(["alpha "]);
     });
 });
 

@@ -53,6 +53,26 @@ describe("MultiModalExecutionContext", () => {
         expect(ctx.getLatestModeration()).toEqual([moderation]);
     });
 
+    it("returns latest OCR, video analysis, transcript, and translation artifacts", () => {
+        const ctx = new MultiModalExecutionContext();
+        const ocr = { id: "ocr1", fullText: "Document text" };
+        const videoAnalysis = { id: "va1", description: "Video scene" };
+        const transcript = { id: "t1", role: "assistant", content: [{ type: "text", text: "Transcript" }] };
+        const translation = { id: "tr1", role: "assistant", content: [{ type: "text", text: "Translated" }] };
+
+        ctx.attachArtifacts({
+            ocr: [ocr] as any,
+            videoAnalysis: [videoAnalysis] as any,
+            transcript: [transcript] as any,
+            translation: [translation] as any
+        });
+
+        expect(ctx.getLatestOCR()).toEqual([ocr]);
+        expect(ctx.getLatestVideoAnalysis()).toEqual([videoAnalysis]);
+        expect(ctx.getLatestTranscript()).toEqual([transcript]);
+        expect(ctx.getLatestTranslation()).toEqual([translation]);
+    });
+
     it("attachArtifacts handles undefined and normalizes non-array artifact fields", () => {
         const ctx = new MultiModalExecutionContext();
 
@@ -153,6 +173,24 @@ describe("MultiModalExecutionContext", () => {
         expect(video.id).toBe("v1");
         expect(video.base64).toBeUndefined();
         expect(video.url).toBeUndefined();
+    });
+
+    it("sanitizes response artifacts before attaching them when stripping is enabled", () => {
+        const ctx = new MultiModalExecutionContext();
+        ctx.setStripBinaryPayloadsInTimeline(true);
+
+        ctx.attachArtifactsFromResponse({
+            output: "ok",
+            multimodalArtifacts: {
+                files: [{ id: "f1", base64: "AAAA", url: "data:text/plain;base64,AAAA", mimeType: "text/plain" }] as any
+            },
+            metadata: { requestId: "req-2" }
+        });
+
+        const file = ctx.getLatestFile()[0] as any;
+        expect(file.id).toBe("f1");
+        expect(file.base64).toBeUndefined();
+        expect(file.url).toBeUndefined();
     });
 
     it("reset clears timeline and latest getters return empty arrays", () => {

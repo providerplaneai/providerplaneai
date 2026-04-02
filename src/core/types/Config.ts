@@ -1,6 +1,6 @@
 /**
  * @module core/types/Config.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Configuration contracts for providers, models, and application execution policy.
  */
 import { AIProviderType } from "#root/index.js";
 
@@ -9,13 +9,13 @@ import { AIProviderType } from "#root/index.js";
  *
  * Represents per-capability options for a specific model.
  *
- * @template TChatOptions Options for chat capability
- * @template TStreamOptions Options for streaming chat
- * @template TEmbedOptions Options for embeddings
- * @template TImageOptions Options for image generation
- * @template TAudioOptions Options for audio requests (future)
- * @template TVideoOptions Options for video requests (future)
- * @template TModerationOptions Options for moderation
+ * @template TChatOptions - Options for chat capability.
+ * @template TStreamOptions - Options for streaming chat.
+ * @template TEmbedOptions - Options for embeddings.
+ * @template TImageOptions - Options for image generation.
+ * @template TAudioOptions - Options for audio requests.
+ * @template TVideoOptions - Options for video requests.
+ * @template TModerationOptions - Options for moderation.
  */
 export interface ModelConfig<
     TChatOptions extends Record<string, any> = Record<string, any>,
@@ -71,7 +71,7 @@ export interface ModelConfig<
  */
 /**
  * @public
- * @description Data contract for ProviderConnectionConfig.
+ * Configuration representing a single provider connection.
  */
 export interface ProviderConnectionConfig {
     /**
@@ -110,23 +110,18 @@ export interface ProviderConnectionConfig {
 }
 
 /**
- * Represents all connections for a given provider type.
- * Keyed by connection name (e.g., 'default', 'backup', etc.)
- */
-/**
+ * Represents all connections for a given provider type, keyed by connection name.
+ *
  * @public
- * @description Data contract for ProviderConfigMap.
  */
 export interface ProviderConfigMap {
     [connectionName: string]: ProviderConnectionConfig;
 }
 
 /**
- * Represents a connection by provider and name
- */
-/**
+ * Identifies a provider connection by provider type and connection name.
+ *
  * @public
- * @description Data contract for ProviderRef.
  */
 export interface ProviderRef {
     providerType: AIProviderType;
@@ -134,23 +129,18 @@ export interface ProviderRef {
 }
 
 /**
- * Execution policy as defined in the appConfig section of config file
- */
-/**
+ * Execution policy configuration declared in `appConfig`.
+ *
  * @public
- * @description Data contract for ExecutionPolicyConfig.
  */
 export interface ExecutionPolicyConfig {
     providerChain: ProviderRef[];
 }
 
 /**
- * Top-level configuration for the application.
- * Holds both general app settings and all provider connections.
- */
-/**
+ * Top-level application configuration.
+ *
  * @public
- * @description Data contract for AppConfig.
  */
 export interface AppConfig {
     /**
@@ -201,11 +191,9 @@ export interface AppConfig {
 }
 
 /**
- * Encapsulates provider and model specific capability parameters.
- */
-/**
+ * Encapsulates provider- and model-specific capability parameters.
+ *
  * @public
- * @description Data contract for CapabilityConfig.
  */
 export interface CapabilityConfig {
     /**

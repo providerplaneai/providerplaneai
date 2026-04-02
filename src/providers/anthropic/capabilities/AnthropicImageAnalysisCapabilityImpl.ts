@@ -1,6 +1,6 @@
 /**
  * @module providers/anthropic/capabilities/AnthropicImageAnalysisCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Anthropic image-analysis capability adapter.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import {
@@ -15,7 +15,9 @@ import {
     ImageAnalysisCapability,
     ImageAnalysisStreamCapability,
     MultiModalExecutionContext,
-    NormalizedImageAnalysis
+    NormalizedImageAnalysis,
+    resolveReferenceMediaSource,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_ANTHROPIC_VISION_PROMPT = `
@@ -27,28 +29,24 @@ Include description, tags, safety, and identified objects for each image.
 Do not merge images.
 Use imageIndex based on the order provided.
 `;
-const DEFAULT_ANTHROPIC_IMAGE_ANALYSIS_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_ANTHROPIC_IMAGE_ANALYSIS_MODEL = "claude-sonnet-4";
 
 /**
- * Anthropic image analysis capability implementation.
+ * Adapts Anthropic image analysis responses into ProviderPlaneAI's normalized image-analysis artifact surface.
  *
- * Supports:
- * - non-streaming per-image analysis (`analyzeImage`)
- * - streaming per-image analysis (`analyzeImageStream`)
+ * Supports non-streaming and streaming per-image analysis by prompting Claude to
+ * return JSON which is then normalized into `NormalizedImageAnalysis[]`.
  *
- * The provider is asked to return JSON output which is then normalized into
- * `NormalizedImageAnalysis[]`.
- */
-/**
  * @public
- * @description Provider capability implementation for AnthropicImageAnalysisCapabilityImpl.
  */
 export class AnthropicImageAnalysisCapabilityImpl
     implements ImageAnalysisCapability<ClientImageAnalysisRequest>, ImageAnalysisStreamCapability<ClientImageAnalysisRequest>
 {
     /**
-     * @param provider Provider lifecycle/config access.
-     * @param client Initialized Anthropic SDK client.
+     * Creates a new Anthropic image analysis capability adapter.
+     *
+     * @param {BaseProvider} provider Provider lifecycle and config access.
+     * @param {Anthropic} client Initialized Anthropic SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -61,10 +59,10 @@ export class AnthropicImageAnalysisCapabilityImpl
      * Each input image is analyzed independently to keep parsing isolated and
      * avoid cross-image output coupling.
      *
-     * @param request Provider-agnostic image analysis request envelope.
-     * @param _executionContext Optional execution context (unused directly in this implementation).
-     * @param signal Optional abort signal.
-     * @returns Normalized analysis artifacts for all requested images.
+     * @param {AIRequest<ClientImageAnalysisRequest>} request - Provider-agnostic image-analysis request envelope.
+     * @param {MultiModalExecutionContext | undefined} _executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<NormalizedImageAnalysis[]>>} Normalized analysis artifacts for all requested images.
      * @throws {Error} If no images are provided or execution is aborted.
      */
     async analyzeImage(
@@ -120,13 +118,12 @@ export class AnthropicImageAnalysisCapabilityImpl
             output: results,
             rawResponse: null, // multiple underlying responses
             id: context?.requestId ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Anthropic,
                 model: merged.model,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
@@ -136,10 +133,10 @@ export class AnthropicImageAnalysisCapabilityImpl
      * Emits partial deltas while text is streaming, then a terminal chunk with
      * final normalized analysis for each image.
      *
-     * @param request Provider-agnostic image analysis request envelope.
-     * @param _executionContext Optional execution context (unused directly in this implementation).
-     * @param signal Optional abort signal.
-     * @returns Async generator of normalized image analysis chunks.
+     * @param {AIRequest<ClientImageAnalysisRequest>} request - Provider-agnostic image-analysis request envelope.
+     * @param {MultiModalExecutionContext | undefined} _executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedImageAnalysis[]>>} Async generator of normalized image-analysis chunks.
      * @throws {Error} If no images are provided.
      */
     async *analyzeImageStream(
@@ -208,13 +205,12 @@ export class AnthropicImageAnalysisCapabilityImpl
                             output: this.normalizeAnalyses(this.stripJsonFences(accumulatedText), image.id),
                             done: false,
                             id: responseId ?? crypto.randomUUID(),
-                            metadata: {
-                                ...(context?.metadata ?? {}),
+                            metadata: buildMetadata(context?.metadata, {
                                 provider: AIProvider.Anthropic,
                                 model: merged.model,
                                 status: "incomplete",
                                 requestId: context?.requestId
-                            }
+                            })
                         };
                     }
                 }
@@ -227,13 +223,12 @@ export class AnthropicImageAnalysisCapabilityImpl
                     output: analyses,
                     done: true,
                     id: responseId ?? crypto.randomUUID(),
-                    metadata: {
-                        ...(context?.metadata ?? {}),
+                    metadata: buildMetadata(context?.metadata, {
                         provider: AIProvider.Anthropic,
                         model: merged.model,
                         status: "completed",
                         requestId: context?.requestId
-                    }
+                    })
                 };
             } catch (err) {
                 if (signal?.aborted) {
@@ -245,15 +240,14 @@ export class AnthropicImageAnalysisCapabilityImpl
                     output: [],
                     done: true,
                     id: responseId ?? crypto.randomUUID(),
-                    metadata: {
-                        ...(context?.metadata ?? {}),
+                    metadata: buildMetadata(context?.metadata, {
                         provider: AIProvider.Anthropic,
                         model: merged.model,
                         status: "error",
                         requestId: context?.requestId,
                         error: err instanceof Error ? err.message : String(err),
                         sourceImageId: image.id
-                    }
+                    })
                 };
             }
         }
@@ -262,9 +256,9 @@ export class AnthropicImageAnalysisCapabilityImpl
     /**
      * Normalizes provider JSON (or JSON-like text) into stable `NormalizedImageAnalysis[]`.
      *
-     * @param payload Raw provider payload or JSON text.
-     * @param sourceImageId Optional source image id propagated into normalized artifacts.
-     * @returns Normalized image analysis artifacts. Returns empty array on parse failure.
+     * @param {unknown} payload Raw provider payload or JSON text.
+     * @param {string | undefined} sourceImageId Optional source image id propagated into normalized artifacts.
+     * @returns {NormalizedImageAnalysis[]} Normalized image analysis artifacts. Returns an empty array on parse failure.
      */
     private normalizeAnalyses(payload: string | unknown, sourceImageId?: string): NormalizedImageAnalysis[] {
         let root: any;
@@ -361,8 +355,8 @@ export class AnthropicImageAnalysisCapabilityImpl
     /**
      * Extracts plain text blocks from an Anthropic message response.
      *
-     * @param message Anthropic message payload.
-     * @returns Concatenated text content.
+     * @param {Anthropic.Messages.Message} message Anthropic message payload.
+     * @returns {string} Concatenated text content.
      */
     private extractText(message: any): string {
         return (message?.content ?? [])
@@ -374,10 +368,10 @@ export class AnthropicImageAnalysisCapabilityImpl
     /**
      * Builds Anthropic vision message payload for one or more base64 images.
      *
-     * @param prompt Required vision instruction prompt.
-     * @param images Input images to include in message content.
-     * @returns Anthropic messages array.
-     * @throws {Error} If prompt is empty or image source is not base64.
+     * @param {string} prompt Required vision instruction prompt.
+     * @param {ClientReferenceImage[]} images Input images to include in message content.
+     * @returns {any[]} Anthropic messages array.
+     * @throws {Error} If the prompt is empty or an image source cannot be normalized for Anthropic.
      */
     private buildVisionMessages(prompt: string, images: ClientReferenceImage[]): any[] {
         if (!prompt) {
@@ -390,7 +384,8 @@ export class AnthropicImageAnalysisCapabilityImpl
         content.push({ type: "text", text: prompt });
 
         for (const img of images) {
-            if (img.sourceType !== "base64" || !img.base64) {
+            const resolved = resolveReferenceMediaSource(img, "image/png", "Anthropic vision requires base64 images");
+            if (resolved.kind !== "base64") {
                 throw new Error(`Anthropic vision requires base64 images (got ${img.sourceType})`);
             }
 
@@ -401,7 +396,7 @@ export class AnthropicImageAnalysisCapabilityImpl
 
             content.push({
                 type: "image",
-                source: { type: "base64", media_type: img.mimeType ?? "image/png", data: img.base64 }
+                source: { type: "base64", media_type: resolved.mimeType, data: resolved.base64 }
             });
         }
 
@@ -411,8 +406,8 @@ export class AnthropicImageAnalysisCapabilityImpl
     /**
      * Removes surrounding markdown code fences from JSON-like model output.
      *
-     * @param text Raw model text.
-     * @returns Unfenced text suitable for JSON parsing.
+     * @param {string} text Raw model text.
+     * @returns {string} Unfenced text suitable for JSON parsing.
      */
     private stripJsonFences(text: string): string {
         const trimmed = text.trim();

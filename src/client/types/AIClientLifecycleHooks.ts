@@ -1,16 +1,13 @@
 /**
  * @module client/types/AIClientLifecycleHooks.ts
- * @description ProviderPlaneAI source module.
+ * @description Lifecycle hook contracts for observing AI client execution and provider attempts.
  */
 import { AIProviderType, CapabilityKeyType, ProviderRef } from "#root/index.js";
 
 /**
- * Context object describing a single provider attempt (non-streaming or streaming).
- * Used for lifecycle hooks and metrics.
- */
-/**
+ * Describes a single provider attempt within an AI client execution.
+ *
  * @public
- * @description Interface contract for ProviderAttemptContext.
  */
 export interface ProviderAttemptContext {
     requestId?: string;
@@ -22,12 +19,9 @@ export interface ProviderAttemptContext {
 }
 
 /**
- * Result object for a single provider attempt (non-streaming or streaming).
- * Includes timing, error, and chunk emission details for metrics and hooks.
- */
-/**
+ * Captures the result of a single provider attempt, including timing and token metrics.
+ *
  * @public
- * @description Interface contract for ProviderAttemptResult.
  */
 export interface ProviderAttemptResult extends ProviderAttemptContext {
     durationMs: number;
@@ -41,13 +35,9 @@ export interface ProviderAttemptResult extends ProviderAttemptContext {
 }
 
 /**
- * Interface for AIClient lifecycle hooks, enabling metrics, logging, and custom instrumentation.
+ * Optional callbacks invoked as the client executes providers and emits stream chunks.
  *
- * Implement this interface to receive notifications about execution, attempts, and streaming events.
- */
-/**
  * @public
- * @description Interface contract for AIClientLifecycleHooks.
  */
 export interface AIClientLifecycleHooks {
     /**

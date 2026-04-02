@@ -1,6 +1,6 @@
 /**
  * @module core/workflow/WorkflowRunner.ts
- * @description ProviderPlaneAI source module.
+ * @description DAG workflow execution engine built on top of JobManager and GenericJob.
  */
 import {
     AIClient,

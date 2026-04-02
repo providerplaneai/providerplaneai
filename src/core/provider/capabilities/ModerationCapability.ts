@@ -1,6 +1,6 @@
 /**
  * @module core/provider/capabilities/ModerationCapability.ts
- * @description Provider implementations and capability adapters.
+ * @description Provider-agnostic moderation capability contracts.
  */
 import { AIRequest, AIResponse, MultiModalExecutionContext, NormalizedModeration, ProviderCapability } from "#root/index.js";
 
@@ -9,17 +9,17 @@ import { AIRequest, AIResponse, MultiModalExecutionContext, NormalizedModeration
  *
  * Providers that implement this interface can evaluate content for safety/violations.
  *
- * @template TModerationInput Input type for moderation request
- * @template TOutput Output type (single or array of moderation results)
+ * @template TModerationInput - Input type for the moderation request.
+ * @template TOutput - Output type for normalized moderation results.
  */
 export interface ModerationCapability<TModerationInput = any, TOutput = NormalizedModeration[]> extends ProviderCapability {
     /**
      * Evaluate input for moderation purposes.
      *
-     * @param req AIRequest containing moderation input
-     * @param ctx execution context
-     * @param signal AbortSignal for request cancellation
-     * @returns AIResponse wrapping moderation results
+     * @param {AIRequest<TModerationInput>} req - AIRequest containing moderation input.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - AbortSignal for request cancellation.
+     * @returns {Promise<AIResponse<TOutput>>} AIResponse wrapping moderation results.
      */
     moderation(
         req: AIRequest<TModerationInput>,

@@ -627,4 +627,51 @@ describe("WorkflowRunner", () => {
         expect(jobManager.abortJob).toHaveBeenCalledWith("job-b-abort", "Workflow aborted");
         expect(jobManager.abortJob).toHaveBeenCalledWith("job-c-abort", "Workflow aborted");
     });
+
+    it("covers executeNode abort and impossible-fallback error branches directly", async () => {
+        const { runner } = makeRunner();
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(
+            (runner as any).runNodeWithRetry(
+                "wf-direct-abort",
+                { id: "node-a", run: vi.fn() },
+                {} as any,
+                { values: {} },
+                new Set<string>(),
+                undefined,
+                controller.signal
+            )
+        ).rejects.toThrow("Workflow aborted");
+
+        await expect(
+            (runner as any).runNodeWithRetry(
+                "wf-direct-fallback",
+                { id: "node-b", run: vi.fn(), retry: { attempts: Number.NaN } },
+                {} as any,
+                { values: {} },
+                new Set<string>()
+            )
+        ).rejects.toThrow("failed unexpectedly without error");
+    });
+
+    it("covers duplicate workflow ids and missing-node cycle helper branch", async () => {
+        const { runner } = makeRunner();
+        const duplicateWorkflow = {
+            id: "wf-duplicate",
+            nodes: [
+                { id: "a", run: () => makeJob("job-a", Promise.resolve("a")) },
+                { id: "a", run: () => makeJob("job-b", Promise.resolve("b")) }
+            ]
+        } as any;
+
+        await expect(runner.run(duplicateWorkflow, {} as any)).rejects.toThrow("duplicate node id 'a'");
+
+        expect(() =>
+            (runner as any).validateNoCycles({
+                nodes: [{ id: "a", dependsOn: ["missing"] }]
+            })
+        ).not.toThrow();
+    });
 });

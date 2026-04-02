@@ -68,7 +68,7 @@ Minimal `.env` for the config above:
 OPENAI_API_KEY_1=your_openai_api_key
 ```
 
-For full multi-provider config and environment examples covering OpenAI, Gemini, Anthropic, and Voyage, see [providerplane.dev](https://www.providerplane.dev).
+For full multi-provider config and environment examples covering OpenAI, Gemini, Anthropic, and Mistral, see [providerplane.dev](https://www.providerplane.dev).
 
 ### Quickstart
 
@@ -134,6 +134,7 @@ Use direct jobs only when you need low-level control outside a workflow DAG, are
 - OpenAI
 - Anthropic
 - Gemini
+- Mistral
 
 Providers listed in `appConfig.executionPolicy.providerChain` are initialized automatically when `AIClient` is constructed.
 

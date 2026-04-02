@@ -1,40 +1,47 @@
 /**
  * @module providers/gemini/capabilities/shared/GeminiVideoUtils.ts
- * @description Shared helper utilities for provider video capabilities.
+ * @description Shared Gemini video polling, download, and normalization helpers.
  */
-import { readFile, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { GoogleGenAI } from "@google/genai";
-import { AIProvider, NormalizedVideo, assertSafeRemoteHttpUrl } from "#root/index.js";
+import {
+    AIProvider,
+    NormalizedVideo,
+    assertSafeRemoteHttpUrl,
+    buildMetadata,
+    createTempFilePath,
+    delayWithAbort as sharedDelayWithAbort,
+    readFileToBuffer,
+    resolvePollingWindow as resolveSharedPollingWindow,
+    removeFileIfExists
+} from "#root/index.js";
 
 const MIN_VIDEO_POLL_INTERVAL_MS = 250;
 const VALID_GEMINI_FILE_NAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
 /**
  * @public
- * @description Configuration constant for DEFAULT_GEMINI_VIDEO_POLL_INTERVAL_MS.
+ * Default poll interval used by Gemini video operations.
  */
 export const DEFAULT_GEMINI_VIDEO_POLL_INTERVAL_MS = 2_000;
 /**
  * @public
- * @description Configuration constant for DEFAULT_GEMINI_VIDEO_MAX_POLL_MS.
+ * Default maximum polling duration used by Gemini video operations.
  */
 export const DEFAULT_GEMINI_VIDEO_MAX_POLL_MS = 300_000;
 /**
  * @public
- * @description Configuration constant for GEMINI_VIDEO_MIN_DURATION_SECONDS.
+ * Minimum allowed Gemini video duration in seconds.
  */
 export const GEMINI_VIDEO_MIN_DURATION_SECONDS = 4;
 /**
  * @public
- * @description Configuration constant for GEMINI_VIDEO_MAX_DURATION_SECONDS.
+ * Maximum allowed Gemini video duration in seconds.
  */
 export const GEMINI_VIDEO_MAX_DURATION_SECONDS = 8;
 
 /**
  * @public
- * @description Helper type for GeminiGeneratedVideoPayload.
+ * Provider payload shape for generated Gemini video content.
  */
 export type GeminiGeneratedVideoPayload = {
     uri?: string;
@@ -44,7 +51,7 @@ export type GeminiGeneratedVideoPayload = {
 
 /**
  * @public
- * @description Helper type for GeminiVideoPollingOptions.
+ * Polling configuration input for Gemini long-running operations.
  */
 export type GeminiVideoPollingOptions = {
     pollIntervalMs?: number;
@@ -55,7 +62,7 @@ export type GeminiVideoPollingOptions = {
 
 /**
  * @public
- * @description Helper type for GeminiVideoExecutionControlsInput.
+ * Runtime execution-control overrides for Gemini video capabilities.
  */
 export type GeminiVideoExecutionControlsInput = {
     pollUntilComplete?: boolean;
@@ -66,33 +73,25 @@ export type GeminiVideoExecutionControlsInput = {
 
 /**
  * Normalizes poll window values used by long-running Gemini video operations.
+ *
+ * @param {GeminiVideoPollingOptions} options - Polling configuration input.
+ * @returns {{ pollIntervalMs: number; maxPollMs: number }} Normalized polling window.
  */
-/**
- * @public
- * @description Helper utility for resolvePollingWindow.
- * @param options Polling configuration input.
- * @returns Normalized helper result.
- */
-export function resolvePollingWindow(options: GeminiVideoPollingOptions): {
+export function resolveGeminiPollingWindow(options: GeminiVideoPollingOptions): {
     pollIntervalMs: number;
     maxPollMs: number;
 } {
-    const pollIntervalMs = Math.max(
-        MIN_VIDEO_POLL_INTERVAL_MS,
-        Number(options.pollIntervalMs ?? options.defaultPollIntervalMs)
-    );
-    const maxPollMs = Math.max(pollIntervalMs, Number(options.maxPollMs ?? options.defaultMaxPollMs));
-    return { pollIntervalMs, maxPollMs };
+    return resolveSharedPollingWindow({
+        ...options,
+        minPollIntervalMs: MIN_VIDEO_POLL_INTERVAL_MS
+    });
 }
 
 /**
  * Resolves runtime polling and payload controls used across Gemini video capabilities.
- */
-/**
- * @public
- * @description Helper utility for resolveGeminiVideoExecutionControls.
- * @param input Execution control overrides.
- * @returns Normalized helper result.
+ *
+ * @param {GeminiVideoExecutionControlsInput | undefined} input - Execution control overrides.
+ * @returns {{ pollUntilComplete: boolean; includeBase64: boolean; pollIntervalMs: number; maxPollMs: number }} Normalized execution controls.
  */
 export function resolveGeminiVideoExecutionControls(input?: GeminiVideoExecutionControlsInput): {
     pollUntilComplete: boolean;
@@ -100,7 +99,7 @@ export function resolveGeminiVideoExecutionControls(input?: GeminiVideoExecution
     pollIntervalMs: number;
     maxPollMs: number;
 } {
-    const { pollIntervalMs, maxPollMs } = resolvePollingWindow({
+    const { pollIntervalMs, maxPollMs } = resolveGeminiPollingWindow({
         pollIntervalMs: input?.pollIntervalMs,
         maxPollMs: input?.maxPollMs,
         defaultPollIntervalMs: DEFAULT_GEMINI_VIDEO_POLL_INTERVAL_MS,
@@ -115,43 +114,6 @@ export function resolveGeminiVideoExecutionControls(input?: GeminiVideoExecution
     };
 }
 
-/**
- * Sleeps for the requested poll interval and exits early if the request is aborted.
- */
-/**
- * @public
- * @description Helper utility for delayWithAbort.
- * @param ms Delay duration in milliseconds.
- * @param signal Optional abort signal.
- * @param abortMessage Error message used when aborted.
- * @returns Normalized helper result.
- */
-export function delayWithAbort(ms: number, signal: AbortSignal | undefined, abortMessage: string): Promise<void> {
-    if (ms <= 0) {
-        return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-            signal?.removeEventListener("abort", onAbort);
-            resolve();
-        }, ms);
-
-        const onAbort = () => {
-            clearTimeout(timer);
-            reject(new Error(abortMessage));
-        };
-
-        if (signal) {
-            if (signal.aborted) {
-                onAbort();
-                return;
-            }
-            signal.addEventListener("abort", onAbort, { once: true });
-        }
-    });
-}
-
 export type PollGeminiVideoArgs = {
     client: GoogleGenAI;
     operation: any;
@@ -164,12 +126,9 @@ export type PollGeminiVideoArgs = {
 
 /**
  * Polls a Gemini long-running operation until it reaches `done: true`.
- */
-/**
- * @public
- * @description Helper utility for pollGeminiVideoOperationUntilDone.
- * @param args Structured helper arguments.
- * @returns Normalized helper result.
+ *
+ * @param {PollGeminiVideoArgs} args - Structured helper arguments.
+ * @returns {Promise<any>} Final completed operation payload.
  */
 export async function pollGeminiVideoOperationUntilDone(args: PollGeminiVideoArgs): Promise<any> {
     const started = Date.now();
@@ -184,7 +143,7 @@ export async function pollGeminiVideoOperationUntilDone(args: PollGeminiVideoArg
             throw new Error(args.timeoutMessage(current?.name ?? "unknown"));
         }
 
-        await delayWithAbort(args.pollIntervalMs, args.signal, args.abortMessage);
+        await sharedDelayWithAbort(args.pollIntervalMs, args.signal, args.abortMessage);
         current = await (args.client.operations as any).getVideosOperation({ operation: current });
     }
 
@@ -193,6 +152,9 @@ export async function pollGeminiVideoOperationUntilDone(args: PollGeminiVideoArg
 
 /**
  * Polls only when requested; otherwise returns the initial operation result.
+ *
+ * @param {{ client: GoogleGenAI; operation: any; pollUntilComplete: boolean; pollIntervalMs: number; maxPollMs: number; signal?: AbortSignal; abortMessage: string; timeoutMessage: (operationName: string) => string; }} args - Structured polling arguments.
+ * @returns {Promise<any>} Initial or final operation payload depending on polling mode.
  */
 export async function resolveGeminiOperationResult(args: {
     client: GoogleGenAI;
@@ -220,13 +182,10 @@ export async function resolveGeminiOperationResult(args: {
 }
 
 /**
- * Converts Gemini file references/URLs into a valid file name token for Files API calls.
- */
-/**
- * @public
- * @description Helper utility for extractGeminiFileName.
- * @param source File URI or resource name to parse.
- * @returns Normalized helper result.
+ * Converts Gemini file references and URLs into a valid file-name token for Files API calls.
+ *
+ * @param {string} source - File URI or resource name to parse.
+ * @returns {string | undefined} Normalized Gemini file name when one can be extracted.
  */
 export function extractGeminiFileName(source: string): string | undefined {
     const normalize = (raw: string): string | undefined => {
@@ -268,6 +227,11 @@ export function extractGeminiFileName(source: string): string | undefined {
 
 /**
  * Attempts an authenticated Files API download using both `files/<name>` and `<name>` reference forms.
+ *
+ * @param {GoogleGenAI} client - Gemini SDK client.
+ * @param {string} fileRefOrName - File reference or file name to download.
+ * @param {AbortSignal | undefined} signal - Optional abort signal.
+ * @returns {Promise<Buffer>} Downloaded file bytes.
  */
 export async function downloadGeminiFileViaApi(
     client: GoogleGenAI,
@@ -281,7 +245,7 @@ export async function downloadGeminiFileViaApi(
         );
     }
 
-    const downloadPath = path.join(tmpdir(), `gemini-video-${crypto.randomUUID()}-${normalizedName}.mp4`);
+    const downloadPath = await createTempFilePath(`gemini-video-${normalizedName}`, "mp4");
     const primaryRef = `files/${normalizedName}`;
     const secondaryRef = normalizedName;
 
@@ -293,7 +257,7 @@ export async function downloadGeminiFileViaApi(
                 downloadPath,
                 config: { abortSignal: signal }
             });
-            return await readFile(downloadPath);
+            return await readFileToBuffer(downloadPath);
         } catch (error) {
             lastError = error;
         }
@@ -305,7 +269,7 @@ export async function downloadGeminiFileViaApi(
                     downloadPath,
                     config: { abortSignal: signal }
                 });
-                return await readFile(downloadPath);
+                return await readFileToBuffer(downloadPath);
             } catch (error) {
                 lastError = error;
             }
@@ -316,7 +280,7 @@ export async function downloadGeminiFileViaApi(
         }
         throw new Error("Gemini files.download failed for all attempted file reference formats");
     } finally {
-        await unlink(downloadPath).catch(() => undefined);
+        await removeFileIfExists(downloadPath);
     }
 }
 
@@ -329,12 +293,9 @@ export type ResolveVideoBase64Args = {
 
 /**
  * Resolves Gemini video content to base64 from inline bytes, fetchable URI, or Files API fallback.
- */
-/**
- * @public
- * @description Helper utility for resolveGeminiVideoBase64.
- * @param args Structured helper arguments.
- * @returns Normalized helper result.
+ *
+ * @param {ResolveVideoBase64Args} args - Structured helper arguments.
+ * @returns {Promise<string | undefined>} Base64 payload when video content can be resolved.
  */
 export async function resolveGeminiVideoBase64(args: ResolveVideoBase64Args): Promise<string | undefined> {
     const { video, signal } = args;
@@ -377,13 +338,10 @@ export async function resolveGeminiVideoBase64(args: ResolveVideoBase64Args): Pr
 }
 
 /**
- * Reads finite numeric value from unknown config input.
- */
-/**
- * @public
- * @description Helper utility for readFiniteNumber.
- * @param value Raw value to parse.
- * @returns Normalized helper result.
+ * Reads a finite numeric value from unknown config input.
+ *
+ * @param {unknown} value - Raw value to parse.
+ * @returns {number | undefined} Parsed finite number when valid.
  */
 export function readFiniteNumber(value: unknown): number | undefined {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -398,14 +356,12 @@ export function readFiniteNumber(value: unknown): number | undefined {
 
 /**
  * Validates duration bounds and returns normalized numeric seconds.
- */
-/**
- * @public
- * @description Helper utility for ensureDurationInRange.
- * @param value Raw value to parse.
- * @param minSeconds Minimum allowed duration.
- * @param maxSeconds Maximum allowed duration.
- * @returns Normalized helper result.
+ *
+ * @param {number | undefined} value - Raw value to validate.
+ * @param {number} minSeconds - Minimum allowed duration.
+ * @param {number} maxSeconds - Maximum allowed duration.
+ * @returns {number | undefined} Normalized duration value.
+ * @throws {Error} When the provided duration is non-finite or outside the allowed range.
  */
 export function ensureDurationInRange(value: number | undefined, minSeconds: number, maxSeconds: number): number | undefined {
     if (value === undefined) {
@@ -425,6 +381,11 @@ export function ensureDurationInRange(value: number | undefined, minSeconds: num
  *
  * For string inputs, this keeps generation behavior:
  * non-numeric strings are treated as "unset" rather than throwing.
+ *
+ * @param {string | number | undefined} value - Raw duration value from request or config.
+ * @param {number} minSeconds - Minimum allowed duration.
+ * @param {number} maxSeconds - Maximum allowed duration.
+ * @returns {number | undefined} Normalized duration in seconds.
  */
 export function resolveGeminiDurationSeconds(
     value: string | number | undefined,
@@ -447,13 +408,10 @@ export function resolveGeminiDurationSeconds(
 }
 
 /**
- * Resolves the stable artifact/response id for Gemini video operations.
- */
-/**
- * @public
- * @description Helper utility for resolveGeminiOperationId.
- * @param finalOperation Final operation payload from polling.
- * @returns Normalized helper result.
+ * Resolves the stable artifact or response identifier for Gemini video operations.
+ *
+ * @param {any} finalOperation - Final operation payload from polling.
+ * @returns {string} Stable identifier for artifacts and responses.
  */
 export function resolveGeminiOperationId(finalOperation: any): string {
     return finalOperation?.name ?? crypto.randomUUID();
@@ -461,6 +419,10 @@ export function resolveGeminiOperationId(finalOperation: any): string {
 
 /**
  * Extracts the first generated video payload from a terminal operation response.
+ *
+ * @param {any} finalOperation - Final terminal operation payload.
+ * @param {string} missingVideoErrorMessage - Error to throw when no generated video is present.
+ * @returns {GeminiGeneratedVideoPayload} First generated video payload.
  */
 export function extractGeneratedVideoOrThrow(
     finalOperation: any,
@@ -474,14 +436,11 @@ export function extractGeneratedVideoOrThrow(
 }
 
 /**
- * Throws when Gemini operation payload contains an error object.
- */
-/**
- * @public
- * @description Helper utility for throwIfGeminiOperationFailed.
- * @param operation Operation payload to validate.
- * @param errorMessage Fallback error message when provider does not return one.
- * @returns Normalized helper result.
+ * Throws when a Gemini operation payload contains an error object.
+ *
+ * @param {any} operation - Operation payload to validate.
+ * @param {string} errorMessage - Fallback error message when the provider does not return one.
+ * @throws {Error} When the operation contains an error payload.
  */
 export function throwIfGeminiOperationFailed(operation: any, errorMessage: string): void {
     if (operation?.error) {
@@ -502,12 +461,9 @@ export type BuildGeminiVideoArtifactArgs = {
 
 /**
  * Creates a normalized video artifact with consistent Gemini metadata shape.
- */
-/**
- * @public
- * @description Helper utility for buildGeminiVideoArtifact.
- * @param args Structured helper arguments.
- * @returns Normalized helper result.
+ *
+ * @param {BuildGeminiVideoArtifactArgs} args - Structured helper arguments.
+ * @returns {NormalizedVideo} Normalized video artifact.
  */
 export function buildGeminiVideoArtifact(args: BuildGeminiVideoArtifactArgs): NormalizedVideo {
     return {
@@ -517,13 +473,13 @@ export function buildGeminiVideoArtifact(args: BuildGeminiVideoArtifactArgs): No
         ...(args.base64 ? { base64: args.base64 } : {}),
         ...(args.durationSeconds !== undefined ? { durationSeconds: args.durationSeconds } : {}),
         raw: args.video,
-        metadata: {
+        metadata: buildMetadata(undefined, {
             provider: AIProvider.Gemini,
             model: args.model,
             operationName: args.operationName,
             done: args.done,
             requestId: args.requestId
-        }
+        })
     };
 }
 
@@ -536,13 +492,10 @@ export type BuildGeminiVideoResponseMetadataArgs = {
 };
 
 /**
- * Builds top-level AIResponse metadata shared by Gemini video capabilities.
- */
-/**
- * @public
- * @description Helper utility for buildGeminiVideoResponseMetadata.
- * @param args Structured helper arguments.
- * @returns Normalized helper result.
+ * Builds top-level `AIResponse` metadata shared by Gemini video capabilities.
+ *
+ * @param {BuildGeminiVideoResponseMetadataArgs} args - Structured helper arguments.
+ * @returns {Record<string, unknown>} Top-level response metadata object.
  */
 export function buildGeminiVideoResponseMetadata(args: BuildGeminiVideoResponseMetadataArgs): Record<string, unknown> {
     return {

@@ -1,6 +1,6 @@
 /**
  * @module providers/openai/capabilities/OpenAIAudioTextToSpeechCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI text-to-speech capability adapter.
  */
 import OpenAI from "openai";
 import {
@@ -12,47 +12,36 @@ import {
     CapabilityKeys,
     ClientTextToSpeechRequest,
     createAudioArtifact,
+    getMimeTypeForExtensionOrFormat,
     MultiModalExecutionContext,
     NormalizedAudio,
     TextToSpeechCapability,
-    TextToSpeechStreamCapability
+    TextToSpeechStreamCapability,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_TTS_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_OPENAI_TTS_VOICE = "alloy";
 const DEFAULT_STREAM_BATCH_BYTES = 64 * 1024;
 
-const FORMAT_TO_MIME: Record<string, string> = {
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    flac: "audio/flac",
-    aac: "audio/aac",
-    opus: "audio/opus",
-    ogg: "audio/ogg",
-    pcm: "audio/pcm"
-};
-
 type OpenAITtsResponse = Response & { id?: string; url?: string };
 
 /**
- * OpenAI text-to-speech implementation using the dedicated audio speech endpoint.
+ * Adapts OpenAI text-to-speech responses into ProviderPlaneAI's normalized audio artifact surface.
  *
- * Provides:
- * - Non-streaming synthesis (`textToSpeech`)
- * - Streaming synthesis (`textToSpeechStream`)
- */
-/**
+ * Supports both non-streaming and streaming synthesis using OpenAI's dedicated
+ * speech endpoint and normalizes emitted audio into `NormalizedAudio`.
+ *
  * @public
- * @description Provider capability implementation for OpenAIAudioTextToSpeechCapabilityImpl.
  */
 export class OpenAIAudioTextToSpeechCapabilityImpl
     implements TextToSpeechCapability<ClientTextToSpeechRequest>, TextToSpeechStreamCapability<ClientTextToSpeechRequest>
 {
     /**
-     * Creates a new OpenAI TTS capability delegate.
+     * Creates a new OpenAI text-to-speech capability adapter.
      *
-     * @param provider Parent provider for lifecycle/config access
-     * @param client Initialized OpenAI SDK client
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -62,11 +51,11 @@ export class OpenAIAudioTextToSpeechCapabilityImpl
     /**
      * Synthesizes speech in a single non-streaming request.
      *
-     * @param request Unified AI request containing TTS input/options/context
-     * @param _ctx Optional multimodal execution context (unused by this capability)
-     * @param signal Optional abort signal
-     * @returns Provider-normalized TTS audio artifact response
-     * @throws {Error} If input text is empty or request is aborted before execution
+     * @param {AIRequest<ClientTextToSpeechRequest>} request Unified TTS request envelope.
+     * @param {MultiModalExecutionContext} [_ctx] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedAudio[]>>} Provider-normalized synthesized audio artifacts.
+     * @throws {Error} If input text is empty or request is aborted before execution.
      */
     async textToSpeech(
         request: AIRequest<ClientTextToSpeechRequest>,
@@ -122,24 +111,23 @@ export class OpenAIAudioTextToSpeechCapabilityImpl
             multimodalArtifacts: { tts: [artifact] },
             id: artifact.id,
             rawResponse: response,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: response.status === 200 ? "completed" : "error",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
     /**
      * Streams synthesized speech as incremental audio chunks plus a final full artifact.
      *
-     * @param request Unified AI request containing TTS input/options/context
-     * @param _ctx Optional multimodal execution context (unused by this capability)
-     * @param signal Optional abort signal
-     * @returns Async generator of audio chunk deltas and a final terminal chunk
-     * @throws {Error} If input text is empty or unsupported stream format is requested
+     * @param {AIRequest<ClientTextToSpeechRequest>} request Unified TTS request envelope.
+     * @param {MultiModalExecutionContext} [_ctx] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedAudio[]>>} Async generator of audio chunk deltas and a terminal completion chunk.
+     * @throws {Error} If input text is empty or an unsupported stream format is requested.
      */
     async *textToSpeechStream(
         request: AIRequest<ClientTextToSpeechRequest>,
@@ -230,13 +218,12 @@ export class OpenAIAudioTextToSpeechCapabilityImpl
                             id: responseId,
                             delta: [artifact],
                             output: [artifact],
-                            metadata: {
-                                ...(context?.metadata ?? {}),
+                            metadata: buildMetadata(context?.metadata, {
                                 provider: AIProvider.OpenAI,
                                 model,
                                 status: "incomplete",
                                 requestId: context?.requestId
-                            }
+                            })
                         };
                     }
                 }
@@ -260,13 +247,12 @@ export class OpenAIAudioTextToSpeechCapabilityImpl
                 output: [finalArtifact],
                 // Preserve multimodal timeline compatibility for completed TTS outputs.
                 multimodalArtifacts: { tts: [finalArtifact] },
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.OpenAI,
                     model,
                     status: "completed",
                     requestId: context?.requestId
-                }
+                })
             };
         } catch (err) {
             // Abort is treated as caller-controlled cancellation, not a provider error event.
@@ -280,14 +266,13 @@ export class OpenAIAudioTextToSpeechCapabilityImpl
                 delta: [],
                 done: true,
                 id: responseId ?? context?.requestId ?? crypto.randomUUID(),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.OpenAI,
                     model,
                     status: "error",
                     requestId: context?.requestId,
                     error: err instanceof Error ? err.message : String(err)
-                }
+                })
             };
         }
     }
@@ -295,8 +280,8 @@ export class OpenAIAudioTextToSpeechCapabilityImpl
     /**
      * Drops endpoint URLs that are not stable download links and should not be exposed as artifact URLs.
      *
-     * @param url Potential provider URL from response payload
-     * @returns Safe artifact URL or `undefined` when URL is endpoint-only/invalid
+     * @param {string | undefined} url Potential provider URL from the response payload.
+     * @returns {string | undefined} Safe artifact URL, or `undefined` when the URL is endpoint-only or invalid.
      */
     private sanitizeOpenAITtsUrl(url?: string): string | undefined {
         if (!url) {
@@ -313,12 +298,19 @@ export class OpenAIAudioTextToSpeechCapabilityImpl
         }
     }
 
-    resolveAudioOutputMimeType(format?: string, header?: string | null): string {
+    /**
+     * Resolves the synthesized audio MIME type from response headers or the requested format.
+     *
+     * @param {string | undefined} format Requested provider output format.
+     * @param {string | null | undefined} header Raw `content-type` header from the response.
+     * @returns {string} Normalized MIME type for the synthesized audio artifact.
+     */
+    private resolveAudioOutputMimeType(format?: string, header?: string | null): string {
         const fromHeader = header?.split(";")[0]?.trim();
         if (fromHeader) {
             return fromHeader;
         }
-        const fromFormat = format ? FORMAT_TO_MIME[format.toLowerCase()] : undefined;
+        const fromFormat = format ? getMimeTypeForExtensionOrFormat(format) : undefined;
         return fromFormat ?? "audio/mpeg";
     }
 }

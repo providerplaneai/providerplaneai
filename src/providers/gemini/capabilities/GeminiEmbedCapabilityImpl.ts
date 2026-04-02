@@ -1,6 +1,6 @@
 /**
  * @module providers/gemini/capabilities/GeminiEmbedCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini embedding capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
 import {
@@ -12,34 +12,27 @@ import {
     ClientEmbeddingRequest,
     EmbedCapability,
     MultiModalExecutionContext,
-    NormalizedEmbedding
+    NormalizedEmbedding,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_EMBED_MODEL = "gemini-embedding-001";
 const DEFAULT_GEMINI_EMBED_TASK_TYPE = "RETRIEVAL_QUERY";
 
 /**
- * GeminiEmbedCapabilityImpl: Implements embedding capability for Gemini.
+ * Adapts Gemini embeddings into ProviderPlaneAI's normalized embedding artifact surface.
  *
- * Responsibilities:
- * - Implements unified IEmbedCapability interface for Gemini embeddings
- * - Normalizes provider-specific response to AIResponse<number[] | number[][]>
- * - Handles batching of multiple inputs in one API request
- * - Provides full execution context, metadata, and error handling
+ * Supports scalar and batched embedding inputs, forwards Gemini-specific task
+ * options, and normalizes returned vectors into `NormalizedEmbedding[]`.
  *
- * Note:
- * Gemini embedding API supports "taskType" and "outputDimensionality" as modelParams for advanced configuration.
- */
-/**
  * @public
- * @description Provider capability implementation for GeminiEmbedCapabilityImpl.
  */
 export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
     /**
-     * Constructs a Gemini embedding capability.
+     * Creates a new Gemini embedding capability adapter.
      *
-     * @param provider - Owning provider instance
-     * @param client - Initialized Gemini SDK client
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {GoogleGenAI} client Initialized Google GenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -47,21 +40,20 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
     ) {}
 
     /**
-     * Generates embeddings for one or more input strings.
+     * Executes a Gemini embeddings request.
      *
-     * Flow:
-     * - Validate input
-     * - Initialize capability execution context
-     * - Normalize input to array for batch processing
-     * - Call Gemini embeddings API
-     * - Extract numeric vectors, preserving order
-     * - Return normalized AIResponse with metadata
+     * Responsibilities:
+     * - validate embedding input
+     * - resolve merged model/runtime options
+     * - normalize scalar input into Gemini's batched request shape
+     * - execute `models.embedContent`
+     * - attach provider/model/usage metadata to normalized embeddings
      *
-     * @param request - Unified embedding request
-     * @param _executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns AIResponse with single vector or array of vectors
-     * @throws Error if input is invalid or API returns no embeddings
+     * @param {AIRequest<ClientEmbeddingRequest>} request Unified embedding request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedEmbedding[]>>} Provider-normalized embedding artifacts.
+     * @throws {Error} When input is invalid or Gemini returns no embeddings.
      */
     async embed(
         request: AIRequest<ClientEmbeddingRequest>,
@@ -117,13 +109,13 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
                 vector: e.values,
                 dimensions: e.values.length,
                 purpose: (request as any)?.purpose ?? "embedding",
-                metadata: {
+                metadata: buildMetadata(undefined, {
                     provider: AIProvider.Gemini,
                     model: merged.model,
                     status: "completed",
                     tokensUsed: (response as any)?.usageMetadata?.totalTokenCount,
                     requestId: context?.requestId
-                }
+                })
             };
         });
 
@@ -131,14 +123,13 @@ export class GeminiEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
             output: normalized,
             rawResponse: response,
             id: crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model: merged.model,
                 status: "completed",
                 tokensUsed: (response as any)?.usageMetadata?.totalTokenCount,
                 requestId: context?.requestId
-            }
+            })
         };
     }
 }

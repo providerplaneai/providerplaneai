@@ -1,16 +1,13 @@
 /**
  * @module client/types/embeddings/ClientEmbeddingRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientRequestBase } from "#root/index.js";
 
 /**
  * Request payload for embedding generation.
  *
- */
-/**
  * @public
- * @description Interface contract for ClientEmbeddingRequest.
  */
 export interface ClientEmbeddingRequest extends ClientRequestBase {
     input: string | string[];

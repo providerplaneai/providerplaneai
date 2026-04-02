@@ -119,6 +119,31 @@ describe("OpenAIAudioTextToSpeechCapabilityImpl", () => {
         expect(res.output[0]?.mimeType).toBe("audio/mpeg");
     });
 
+    it("textToSpeech falls back to request id when provider omits response id", async () => {
+        const client = {
+            audio: {
+                speech: {
+                    create: vi.fn().mockResolvedValue({
+                        id: undefined,
+                        url: "https://cdn.example.com/audio.mp3",
+                        status: 200,
+                        headers: { get: vi.fn().mockReturnValue("audio/mpeg") },
+                        arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([1]).buffer)
+                    })
+                }
+            }
+        } as any;
+
+        const cap = new OpenAIAudioTextToSpeechCapabilityImpl(makeProvider(), client);
+        const res = await cap.textToSpeech(
+            { input: { text: "hello", format: "mp3" }, context: { requestId: "tts-request-id" } } as any,
+            {} as any
+        );
+
+        expect(res.id).toBe("tts-request-id");
+        expect(res.output[0]?.id).toBe("tts-request-id");
+    });
+
     it("textToSpeech uses deterministic metadata and strips non-download endpoint URL", async () => {
         const client = {
             audio: {
@@ -255,6 +280,37 @@ describe("OpenAIAudioTextToSpeechCapabilityImpl", () => {
         expect(chunks[0]?.done).toBe(true);
         expect(chunks[0]?.metadata?.status).toBe("error");
         expect(String(chunks[0]?.metadata?.error)).toContain("upstream down");
+    });
+
+    it("textToSpeechStream falls back to request id and hides endpoint-only final URLs", async () => {
+        const response = {
+            id: undefined,
+            url: "https://api.openai.com/v1/audio/speech",
+            headers: { get: vi.fn().mockReturnValue(null) },
+            body: createReadableBody([Uint8Array.from([9, 8, 7])])
+        };
+        const client = {
+            audio: {
+                speech: {
+                    create: vi.fn().mockResolvedValue(response)
+                }
+            }
+        } as any;
+
+        const cap = new OpenAIAudioTextToSpeechCapabilityImpl(makeProvider(2), client);
+        const chunks = await collect(
+            cap.textToSpeechStream(
+                { input: { text: "hello", format: "unknown" }, context: { requestId: "tts-stream-fallback" } } as any,
+                {} as any
+            )
+        );
+
+        const final = chunks.at(-1);
+        expect(final?.done).toBe(true);
+        expect(final?.id).toBe("tts-stream-fallback");
+        expect(final?.output?.[0]?.id).toBe("tts-stream-fallback");
+        expect(final?.output?.[0]?.mimeType).toBe("audio/mpeg");
+        expect(final?.output?.[0]?.url).toBeUndefined();
     });
 
     it("textToSpeechStream exits silently when aborted during stream", async () => {

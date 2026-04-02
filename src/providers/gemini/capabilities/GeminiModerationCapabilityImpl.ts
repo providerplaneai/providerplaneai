@@ -1,6 +1,6 @@
 /**
  * @module providers/gemini/capabilities/GeminiModerationCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini moderation capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
 import {
@@ -12,16 +12,14 @@ import {
     ClientModerationRequest,
     ModerationCapability,
     MultiModalExecutionContext,
-    NormalizedModeration
+    NormalizedModeration,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_GEMINI_MODERATION_MODEL = "gemini-2.5-flash-lite";
 
 /**
- * GeminiModerationCapabilityImpl: Implements moderation for Gemini using structured response schema.
- *
- * Defines the expected structure of JSON returned by Gemini for moderation tasks.
- * Used by the SDK to validate and parse responses deterministically.
+ * JSON schema used to constrain Gemini moderation responses.
  */
 const MODERATION_SCHEMA = {
     type: "OBJECT", // No SchemaType needed, just use 'OBJECT'
@@ -44,25 +42,19 @@ const MODERATION_SCHEMA = {
 };
 
 /**
- * Gemini moderation capability implementation.
+ * Adapts Gemini moderation responses into ProviderPlaneAI's normalized moderation artifact surface.
  *
- * Responsibilities:
- * - Implements the unified IModerationCapability interface for Gemini
- * - Supports moderation for single or multiple inputs
- * - Uses structured response schema to ensure consistent parsing
- * - Normalizes Gemini-specific responses into provider-agnostic ModerationResult
- * - Tracks metadata and request context for observability
- */
-/**
+ * Gemini does not expose a dedicated moderation endpoint, so this adapter uses a
+ * structured JSON generation prompt and normalizes the parsed result.
+ *
  * @public
- * @description Provider capability implementation for GeminiModerationCapabilityImpl.
  */
 export class GeminiModerationCapabilityImpl implements ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
     /**
-     * Constructs a new Gemini moderation capability.
+     * Creates a new Gemini moderation capability adapter.
      *
-     * @param provider - Owning provider instance (lifecycle + config)
-     * @param client - Initialized GoogleGenAI SDK client
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {GoogleGenAI} client Initialized Google GenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -70,20 +62,20 @@ export class GeminiModerationCapabilityImpl implements ModerationCapability<Clie
     ) {}
 
     /**
-     * Executes moderation on one or more input strings.
+     * Executes a Gemini moderation request.
      *
-     * Flow:
-     * - Validate and normalize input
-     * - Initialize CapabilityExecutionContext for consistent option merging and model resolution
-     * - Execute moderation requests sequentially (or in parallel if desired)
-     * - Parse Gemini JSON response and convert to ModerationResult
-     * - Normalize output to single result if input was single string
+     * Responsibilities:
+     * - validate moderation input
+     * - resolve merged model/runtime options
+     * - execute one structured moderation request per input string
+     * - parse Gemini JSON output into normalized moderation artifacts
+     * - attach provider/model/request metadata
      *
-     * @param request - Unified moderation request
-     * @param _executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns AIResponse containing ModerationResult(s)
-     * @throws Error if input is invalid or API fails
+     * @param {AIRequest<ClientModerationRequest>} request Unified moderation request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedModeration[]>>} Provider-normalized moderation artifacts.
+     * @throws {Error} When input is invalid or the provider call fails.
      */
     async moderation(
         request: AIRequest<ClientModerationRequest>,
@@ -141,12 +133,12 @@ export class GeminiModerationCapabilityImpl implements ModerationCapability<Clie
                 categories,
                 categoryScores: undefined, // Gemini provides no confidence scores
                 reason: parsed.reasoning || undefined,
-                metadata: {
+                metadata: buildMetadata(undefined, {
                     provider: AIProvider.Gemini,
                     model: merged.model,
                     inputIndex: index,
                     requestId: context?.requestId
-                }
+                })
             };
         });
 
@@ -155,13 +147,12 @@ export class GeminiModerationCapabilityImpl implements ModerationCapability<Clie
             output: normalized,
             rawResponse: responses,
             id: crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 model: merged.model,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 }

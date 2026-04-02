@@ -1,6 +1,6 @@
 /**
  * @module providers/openai/capabilities/OpenAIModerationCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI moderation capability adapter.
  */
 import OpenAI from "openai";
 import {
@@ -12,35 +12,26 @@ import {
     ClientModerationRequest,
     ModerationCapability,
     NormalizedModeration,
-    MultiModalExecutionContext
+    MultiModalExecutionContext,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 
 /**
- * OpenAIModerationCapabilityImpl: Implements moderation for OpenAI using the moderation API.
+ * Adapts OpenAI moderation responses into ProviderPlaneAI's normalized moderation artifact surface.
  *
- * Responsibilities:
- * - Implements the unified IModerationCapability interface for OpenAI
- * - Supports single or multiple text inputs
- * - Normalizes OpenAI moderation responses into provider-agnostic ModerationResult[]
- * - Extracts flagged categories, category scores, and a summary reason
- * - Provides execution context, token usage, and error handling
+ * Supports scalar and batched moderation input, forwards model overrides to the
+ * dedicated OpenAI moderation endpoint, and normalizes category booleans and scores.
  *
- * Note:
- * OpenAI provides a dedicated moderation API (omni-moderation-latest),
- * which returns flagged status, categories, and category confidence scores.
- */
-/**
  * @public
- * @description Provider capability implementation for OpenAIModerationCapabilityImpl.
  */
 export class OpenAIModerationCapabilityImpl implements ModerationCapability<ClientModerationRequest, NormalizedModeration[]> {
     /**
-     * Constructs a new OpenAI moderation capability.
+     * Creates a new OpenAI moderation capability adapter.
      *
-     * @param provider - Owning provider instance for lifecycle and config access
-     * @param client - Initialized OpenAI SDK client
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -48,21 +39,20 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<Clie
     ) {}
 
     /**
-     * Performs moderation on one or more input strings.
+     * Executes an OpenAI moderation request.
      *
-     * Flow:
-     * - Validate input and ensure at least one string is provided
-     * - Initialize capability execution context
-     * - Merge model and provider parameters
-     * - Call OpenAI moderation endpoint
-     * - Normalize results to provider-agnostic ModerationResult format
-     * - Aggregate token usage and metadata
+     * Responsibilities:
+     * - validate moderation input
+     * - resolve merged model/runtime options
+     * - normalize scalar input into the provider's batched request shape
+     * - execute `moderations.create`
+     * - attach provider/model/request metadata to normalized outputs
      *
-     * @param request - Unified moderation request
-     * @param _executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns AIResponse containing moderation result(s)
-     * @throws Error if input is invalid or API fails
+     * @param {AIRequest<ClientModerationRequest>} request Unified moderation request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedModeration[]>>} Provider-normalized moderation artifacts.
+     * @throws {Error} When input is invalid, aborted, or OpenAI returns no moderation results.
      */
     async moderation(
         request: AIRequest<ClientModerationRequest>,
@@ -128,12 +118,12 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<Clie
                 categories,
                 categoryScores: hasCategoryScores ? categoryScores : undefined,
                 reason: flaggedCategoryNames.length > 0 ? flaggedCategoryNames.join(", ") : undefined,
-                metadata: {
+                metadata: buildMetadata(undefined, {
                     provider: AIProvider.OpenAI,
                     model: merged.model ?? DEFAULT_OPENAI_MODERATION_MODEL,
                     inputIndex: index,
                     requestId: context?.requestId
-                }
+                })
             };
         });
 
@@ -141,13 +131,12 @@ export class OpenAIModerationCapabilityImpl implements ModerationCapability<Clie
             output: normalized,
             rawResponse: response,
             id: crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: merged.model ?? DEFAULT_OPENAI_MODERATION_MODEL,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 }

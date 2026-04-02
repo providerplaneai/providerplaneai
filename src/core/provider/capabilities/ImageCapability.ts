@@ -1,6 +1,6 @@
 /**
  * @module core/provider/capabilities/ImageCapability.ts
- * @description Provider implementations and capability adapters.
+ * @description Provider-agnostic image generation, analysis, and edit capability contracts.
  */
 import {
     AIRequest,
@@ -18,8 +18,8 @@ import {
  *
  * Providers that implement this interface can generate images from prompts.
  *
- * @template TInput Input type for image generation request
- * @template TOutput Output type (array of normalized images)
+ * @template TInput - Input type for the image generation request.
+ * @template TOutput - Output type for normalized generated images.
  */
 export interface ImageGenerationCapability<
     TInput = ClientImageGenerationRequest,
@@ -28,9 +28,10 @@ export interface ImageGenerationCapability<
     /**
      * Generate images for the given request.
      *
-     * @param req AIRequest containing image generation input
-     * @param ctx Execution context
-     * @returns AIResponse wrapping generated images
+     * @param {AIRequest<TInput>} req - AIRequest containing image generation input.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} AIResponse wrapping generated images.
      */
     generateImage(req: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<AIResponse<TOutput>>;
 }
@@ -40,16 +41,17 @@ export interface ImageGenerationCapability<
  *
  * Allows receiving partial image data streams.
  *
- * @template TInput Input type for image generation request
- * @template TOutput Output type (partial chunks or final image data)
+ * @template TInput - Input type for the image generation request.
+ * @template TOutput - Output type for streamed image data.
  */
 export interface ImageGenerationStreamCapability<TInput = any, TOutput = NormalizedImage[]> extends ProviderCapability {
     /**
      * Stream image generation results as they are produced.
      *
-     * @param request AIRequest containing image generation input
-     * @param ctx Execution context
-     * @returns AsyncGenerator yielding AIResponseChunk objects
+     * @param {AIRequest<TInput>} request - AIRequest containing image generation input.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {AsyncGenerator<AIResponseChunk<TOutput>>} Async generator yielding response chunks.
      */
     generateImageStream(
         request: AIRequest<TInput>,
@@ -72,16 +74,17 @@ export interface ImageGenerationStreamCapability<TInput = any, TOutput = Normali
  * Each provider (OpenAI, Gemini, Anthropic, etc.) is responsible
  * for mapping its native vision APIs into the normalized output type.
  *
- * @template TInput Input type for image analysis request
- * @template TOutput Output type (partial chunks or final data)
+ * @template TInput - Input type for the image analysis request.
+ * @template TOutput - Output type for normalized image analysis results.
  */
 export interface ImageAnalysisCapability<TInput = unknown, TOutput = NormalizedImageAnalysis[]> extends ProviderCapability {
     /**
      * Analyze one or more images and return structured, normalized results.
      *
-     * @param request AIRequest containing image generation input
-     * @param ctx Execution context
-     * @returns A normalized AIResponse containing image analysis results.
+     * @param {AIRequest<TInput>} request - AIRequest containing image analysis input.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} A normalized AIResponse containing image analysis results.
      */
     analyzeImage(
         request: AIRequest<TInput>,
@@ -103,7 +106,8 @@ export interface ImageAnalysisCapability<TInput = unknown, TOutput = NormalizedI
  * - Safety / moderation signals
  * - Tagging and semantic classification
  *
- * @template TImageAnalysisInput - Provider-agnostic image analysis request type
+ * @template TInput - Provider-agnostic image analysis request type.
+ * @template TOutput - Output type for normalized streamed analysis results.
  */
 export interface ImageAnalysisStreamCapability<
     TInput = unknown,
@@ -115,8 +119,10 @@ export interface ImageAnalysisStreamCapability<
      * The returned async iterable yields objects as
      * soon as partial or completed analysis results are available.
      *
-     * @template TInput Input type for image analysis request
-     * @template TOutput Output type (partial chunks or final data)
+     * @param {AIRequest<TInput>} request - Unified image analysis request.
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {AsyncGenerator<AIResponseChunk<TOutput>>} Async generator yielding partial or completed analysis output.
      */
     analyzeImageStream(
         request: AIRequest<TInput>,
@@ -147,18 +153,20 @@ export interface ImageAnalysisStreamCapability<
  * - Returns the fully materialized edited image(s)
  * - Does not stream intermediate results
  *
- * @template TRequest - Client-specific image edit request shape
+ * @template TInput - Client-specific image edit request shape.
+ * @template TOutput - Output type for normalized edited images.
  */
 export interface ImageEditCapability<TInput = unknown, TOutput = NormalizedImage[]> extends ProviderCapability {
     /**
      * Performs an image edit operation.
      *
-     * @param request - Unified AI request containing:
+     * @param {AIRequest<TInput>} request - Unified AI request containing:
      *   - edit prompt
      *   - reference images (base image, mask, style, etc.)
      *   - optional provider/model parameters
-     * @param ctx Execution context
-     * @returns Promise resolving to an AIResponse containing normalized images
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<TOutput>>} Promise resolving to an AIResponse containing normalized images.
      */
     editImage(request: AIRequest<TInput>, ctx: MultiModalExecutionContext, signal?: AbortSignal): Promise<AIResponse<TOutput>>;
 }
@@ -177,18 +185,20 @@ export interface ImageEditCapability<TInput = unknown, TOutput = NormalizedImage
  * This interface mirrors the streaming semantics of chat and
  * image generation capabilities.
  *
- * @template TRequest - Client-specific image edit request shape
+ * @template TInput - Client-specific image edit request shape.
+ * @template TOutput - Output type for streamed normalized images.
  */
 export interface ImageEditStreamCapability<TInput = unknown, TOutput = NormalizedImage[]> extends ProviderCapability {
     /**
      * Performs a streaming image edit operation.
      *
-     * @param request - Unified AI request containing:
+     * @param {AIRequest<TInput>} request - Unified AI request containing:
      *   - edit prompt
      *   - reference images (base image, mask, style, etc.)
      *   - optional provider/model parameters
-     * @param ctx Execution context
-     * @returns AsyncGenerator yielding AIResponseChunk objects containing partial or complete normalized images
+     * @param {MultiModalExecutionContext} ctx - Execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {AsyncGenerator<AIResponseChunk<TOutput>>} Async generator yielding partial or complete normalized images.
      */
     editImageStream(
         request: AIRequest<TInput>,

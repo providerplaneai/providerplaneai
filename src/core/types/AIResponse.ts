@@ -1,13 +1,13 @@
 /**
  * @module core/types/AIResponse.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Unified response and streaming chunk envelopes returned by capabilities.
  */
 import { TimelineArtifacts } from "#root/index.js";
 
 /**
  * Unified, provider-agnostic return type for any AI provider call.
  *
- * @template TOutput Type of the main output (e.g., string for chat, number[] for embeddings, image info)
+ * @template TOutput - Type of the main output.
  */
 export interface AIResponse<TOutput = unknown> {
     /**
@@ -53,7 +53,7 @@ export interface AIResponse<TOutput = unknown> {
  * Used for chat streaming, image generation streaming, etc.
  * Each chunk may contain incremental updates and partial outputs.
  *
- * @template TChunk Type of the output in this chunk
+ * @template TChunk - Type of the output in this chunk.
  */
 export interface AIResponseChunk<TChunk = unknown> {
     /**

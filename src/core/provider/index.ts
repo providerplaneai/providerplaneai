@@ -1,6 +1,6 @@
 /**
  * @module core/provider/index.ts
- * @description ProviderPlaneAI source module.
+ * @description Barrel exports for provider contracts, capability keys, and executor wiring.
  */
 export * from "./BaseProvider.js";
 export * from "./CapabilityMap.js";

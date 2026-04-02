@@ -1,5 +1,5 @@
 /**
  * @module client/types/image/shared/index.ts
- * @description ProviderPlaneAI source module.
+ * @description Barrel exports for a client type namespace.
  */
 export * from "./ClientReferenceImage.js";

@@ -41,6 +41,7 @@ describe("OpenAIProvider", () => {
         expect(provider.hasCapability(CapabilityKeys.ImageEditStreamCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.ImageAnalysisCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.ImageAnalysisStreamCapabilityKey)).toBe(true);
+        expect(provider.hasCapability(CapabilityKeys.OCRCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.AudioTranscriptionCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.AudioTranscriptionStreamCapabilityKey)).toBe(true);
         expect(provider.hasCapability(CapabilityKeys.AudioTranslationCapabilityKey)).toBe(true);
@@ -87,6 +88,7 @@ describe("OpenAIProvider", () => {
             analyzeImage: vi.fn().mockResolvedValue({ output: [] }),
             analyzeImageStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
         };
+        (provider as any).ocrDelegate = { ocr: vi.fn().mockResolvedValue({ output: [] }) };
         (provider as any).audioTranscriptionDelegate = {
             transcribeAudio: vi.fn().mockResolvedValue({ output: [] }),
             transcribeAudioStream: vi.fn().mockReturnValue((async function* () { yield { done: true }; })())
@@ -113,6 +115,7 @@ describe("OpenAIProvider", () => {
         await expect(provider.generateImage({ input: { prompt: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.editImage({ input: { prompt: "x" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.analyzeImage({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).resolves.toMatchObject({ output: [] });
+        await expect(provider.ocr({ input: { file: "https://example.com/doc.png" } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.transcribeAudio({ input: { file: {} } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.translateAudio({ input: { file: {} } } as any, ctx)).resolves.toMatchObject({ output: [] });
         await expect(provider.textToSpeech({ input: { text: "hello" } } as any, ctx)).resolves.toMatchObject({ output: [] });
@@ -155,6 +158,7 @@ describe("OpenAIProvider", () => {
         expect(() => provider.editImageStream({ input: { prompt: "x" } } as any, ctx)).toThrow(CapabilityUnsupportedError);
         await expect(provider.analyzeImage({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
         expect(() => provider.analyzeImageStream({ input: { images: [{ base64: "QQ==" }] } } as any, ctx)).toThrow(CapabilityUnsupportedError);
+        await expect(provider.ocr({ input: { file: "https://example.com/doc.png" } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
         await expect(provider.transcribeAudio({ input: { file: {} } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);
         expect(() => provider.transcribeAudioStream({ input: { file: {} } } as any, ctx)).toThrow(CapabilityUnsupportedError);
         await expect(provider.translateAudio({ input: { file: {} } } as any, ctx)).rejects.toBeInstanceOf(CapabilityUnsupportedError);

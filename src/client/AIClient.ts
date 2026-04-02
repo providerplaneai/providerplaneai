@@ -21,8 +21,10 @@ import {
     DuplicateProviderRegistrationError,
     ExecutionPolicyError,
     GeminiProvider,
+    MistralProvider,
     NormalizedImage,
     NormalizedImageAnalysis,
+    NormalizedOCRDocument,
     OpenAIProvider,
     ProviderAttemptContext,
     ProviderAttemptResult,
@@ -57,6 +59,7 @@ import {
     ClientImageAnalysisRequest,
     ClientImageEditRequest,
     ClientImageGenerationRequest,
+    ClientOCRRequest,
     ClientModerationRequest,
     ClientVideoAnalysisRequest,
     ClientVideoDownloadRequest,
@@ -70,6 +73,7 @@ const TIMELINE_ARTIFACT_KEYS: (keyof TimelineArtifacts)[] = [
     "images",
     "masks",
     "imageAnalysis",
+    "ocr",
     "videoAnalysis",
     "transcript",
     "translation",
@@ -212,6 +216,8 @@ export class AIClient {
                 this.registerProvider(new AnthropicProvider(), AIProvider.Anthropic, connectionName);
             } else if (providerType === AIProvider.Gemini) {
                 this.registerProvider(new GeminiProvider(), AIProvider.Gemini, connectionName);
+            } else if (providerType === AIProvider.Mistral) {
+                this.registerProvider(new MistralProvider(), AIProvider.Mistral, connectionName);
             } else {
                 throw new Error(`Invalid provider: ${providerType}`);
             }
@@ -1082,6 +1088,8 @@ export class AIClient {
             case CapabilityKeys.ImageAnalysisCapabilityKey:
             case CapabilityKeys.ImageAnalysisStreamCapabilityKey:
                 return "image";
+            case CapabilityKeys.OCRCapabilityKey:
+                return "ocr";
             default:
                 // Custom or unknown capability
                 return "custom";
@@ -1162,6 +1170,11 @@ export class AIClient {
                         output,
                         "image analysis output"
                     )
+                });
+                break;
+            case CapabilityKeys.OCRCapabilityKey:
+                context.attachArtifacts({
+                    ocr: expectArrayForCapability<NormalizedOCRDocument>(capability, output, "ocr output")
                 });
                 break;
             case CapabilityKeys.ImageEditStreamCapabilityKey:
@@ -1310,6 +1323,8 @@ export class AIClient {
                         "image analysis output"
                     )
                 };
+            case CapabilityKeys.OCRCapabilityKey:
+                return { ocr: expectArrayForCapability<NormalizedOCRDocument>(capability, output, "ocr output") };
             case CapabilityKeys.ImageEditStreamCapabilityKey:
                 return undefined;
             default:
@@ -1556,6 +1571,29 @@ export class AIClient {
             context,
             (provider, ctx, signal) =>
                 provider.getCapability(CapabilityKeys.ImageEditCapabilityKey).editImage(request, ctx, signal),
+            providerChain
+        );
+    }
+
+    /**
+     * Extracts OCR/document text through the configured provider chain.
+     *
+     * @param request The OCR request payload.
+     * @param context The execution context used for request-scoped artifacts, history, and timeline data.
+     * @param providerChain Optional provider-chain override. When omitted, the default chain from configuration is used.
+     * @returns A normalized OCR response from the first provider that succeeds.
+     * @throws {AllProvidersFailedError} Thrown when every provider in the effective chain fails the request.
+     */
+    async ocr(
+        request: AIRequest<ClientOCRRequest>,
+        context: MultiModalExecutionContext,
+        providerChain?: ProviderRef[]
+    ): Promise<AIResponse<NormalizedOCRDocument[]>> {
+        return this.executeWithPolicy<typeof CapabilityKeys.OCRCapabilityKey, ClientOCRRequest, NormalizedOCRDocument[]>(
+            CapabilityKeys.OCRCapabilityKey,
+            request,
+            context,
+            (provider, ctx, signal) => provider.getCapability(CapabilityKeys.OCRCapabilityKey).ocr(request, ctx, signal),
             providerChain
         );
     }

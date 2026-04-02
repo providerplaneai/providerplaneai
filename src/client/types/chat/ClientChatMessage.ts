@@ -1,18 +1,13 @@
 /**
  * @module client/types/chat/ClientChatMessage.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
-import { ClientMessagePart } from "./ClientMessageParts.js";
+import { ClientMessagePart } from "#root/index.js";
 
 /**
- * Represents a single chat message in a conversation.
+ * Represents a single chat turn supplied to a provider-agnostic chat request.
  *
- * - `role`: The sender's role (system, user, assistant).
- * - `content`: Array of message parts (text, image, audio, etc.).
- */
-/**
  * @public
- * @description Interface contract for ClientChatMessage.
  */
 export interface ClientChatMessage {
     /**

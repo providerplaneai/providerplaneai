@@ -1,5 +1,5 @@
 /**
  * @module core/config/index.ts
- * @description ProviderPlaneAI source module.
+ * @description Re-exports configuration loading utilities.
  */
 export * from "./ConfigLoader.js"; // Configuration loader

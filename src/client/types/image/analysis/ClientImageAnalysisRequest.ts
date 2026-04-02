@@ -1,22 +1,13 @@
 /**
  * @module client/types/image/analysis/ClientImageAnalysisRequest.ts
- * @description ProviderPlaneAI source module.
+ * @description Client-facing request and helper types.
  */
 import { ClientReferenceImage, ImageAnalysisFeatures, ImageAnalysisHints } from "#root/index.js";
 
 /**
- * Provider-agnostic image analysis request. Used by all vision-capable providers (OpenAI, Gemini, etc.).
+ * Request payload for provider-agnostic image analysis and vision tasks.
  *
- * Used for vision-based understanding tasks such as:
- * - Image description
- * - Object detection
- * - OCR
- * - Safety analysis
- * - Structured scene understanding
- */
-/**
  * @public
- * @description Interface contract for ClientImageAnalysisRequest.
  */
 export interface ClientImageAnalysisRequest {
     /**

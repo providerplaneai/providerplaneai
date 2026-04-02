@@ -13,7 +13,8 @@ import { ProviderConnectionConfig } from "#root/index.js";
 export const AIProvider = {
     OpenAI: "openai",
     Anthropic: "anthropic",
-    Gemini: "gemini"
+    Gemini: "gemini",
+    Mistral: "mistral"
 } as const;
 
 /**
@@ -30,8 +31,8 @@ export interface Provider {
     /**
      * Initialize the provider connection.
      *
-     * @param config Provider-specific connection configuration
-     * @throws Error if initialization fails
+     * @param {ProviderConnectionConfig} config - Provider-specific connection configuration.
+     * @throws {Error} When initialization fails.
      */
     init(config: ProviderConnectionConfig): Promise<void>;
 }

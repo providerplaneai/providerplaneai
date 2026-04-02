@@ -1,6 +1,6 @@
 /**
  * @module client/types/chat/index.ts
- * @description ProviderPlaneAI source module.
+ * @description Barrel exports for a client type namespace.
  */
 export * from "./ClientChatRequest.js";
 export * from "./ClientMessageParts.js";

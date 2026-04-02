@@ -1,6 +1,6 @@
 /**
  * @module providers/anthropic/capabilities/AnthropicChatCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Anthropic chat capability adapter built on the Messages API.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import {
@@ -16,7 +16,8 @@ import {
     ClientChatRequest,
     ClientMessagePart,
     MultiModalExecutionContext,
-    NormalizedChatMessage
+    NormalizedChatMessage,
+    buildMetadata
 } from "#root/index.js";
 
 /**
@@ -31,7 +32,7 @@ import {
  */
 /**
  * @public
- * @description Provider capability implementation for AnthropicChatCapabilityImpl.
+ * Anthropic chat capability implementation.
  */
 export class AnthropicChatCapabilityImpl
     implements
@@ -39,8 +40,8 @@ export class AnthropicChatCapabilityImpl
         ChatStreamCapability<ClientChatRequest, NormalizedChatMessage>
 {
     /**
-     * @param provider Owning provider instance (initialization + config access)
-     * @param client Initialized Anthropic SDK client
+     * @param {BaseProvider} provider - Owning provider instance used for initialization and config access.
+     * @param {Anthropic} client - Initialized Anthropic SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -50,10 +51,10 @@ export class AnthropicChatCapabilityImpl
     /**
      * Executes a non-streaming Anthropic chat request.
      *
-     * @param request Unified chat request
-     * @param _executionContext Optional execution context (unused)
-     * @param signal Optional abort signal
-     * @returns Normalized single assistant message response
+     * @param {AIRequest<ClientChatRequest>} request - Unified chat request.
+     * @param {MultiModalExecutionContext | undefined} _executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {Promise<AIResponse<NormalizedChatMessage>>} Normalized single assistant message response.
      */
     async chat(
         request: AIRequest<ClientChatRequest>,
@@ -92,24 +93,23 @@ export class AnthropicChatCapabilityImpl
             id: response.id,
             role: "assistant",
             content: text ? [{ type: "text", text }] : [],
-            metadata: {
+            metadata: buildMetadata(undefined, {
                 model: merged.model,
                 status: this.normalizeAnthropicStatus(response.stop_reason)
-            }
+            })
         };
 
         return {
             output: message,
             rawResponse: response,
             id: response.id,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Anthropic,
                 model: merged.model,
                 status: message.metadata?.status as string,
                 requestId: context?.requestId,
                 ...this.extractUsage(response?.usage)
-            }
+            })
         };
     }
 
@@ -119,10 +119,10 @@ export class AnthropicChatCapabilityImpl
      * Chunks are buffered and emitted in batches (`chatStreamBatchSize`) to
      * reduce chunk churn for downstream consumers.
      *
-     * @param request Unified chat request
-     * @param _executionContext Optional execution context (unused)
-     * @param signal Optional abort signal
-     * @returns Async stream of normalized chat chunks
+     * @param {AIRequest<ClientChatRequest>} request - Unified chat request.
+     * @param {MultiModalExecutionContext | undefined} _executionContext - Optional execution context.
+     * @param {AbortSignal | undefined} signal - Optional abort signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedChatMessage>>} Async stream of normalized chat chunks.
      */
     async *chatStream(
         request: AIRequest<ClientChatRequest>,
@@ -217,16 +217,16 @@ export class AnthropicChatCapabilityImpl
     /**
      * Builds one normalized stream chunk.
      *
-     * @param deltaText Newly received text delta
-     * @param accumulatedText Full assistant text accumulated so far
-     * @param responseId Provider response id when available
-     * @param context Request context
-     * @param model Resolved model name
-     * @param status Chunk status
-     * @param done Whether this is the terminal chunk
-     * @param error Optional terminal error payload
-     * @param usage Optional Anthropic usage payload
-     * @returns Normalized chunk with delta, output, and metadata
+     * @param {string} deltaText - Newly received text delta.
+     * @param {string} accumulatedText - Full assistant text accumulated so far.
+     * @param {string | undefined} responseId - Provider response id when available.
+     * @param {AIRequest<ClientChatRequest>["context"]} context - Request context.
+     * @param {string} model - Resolved model name.
+     * @param {"incomplete" | "completed" | "error"} status - Chunk status.
+     * @param {boolean} done - Whether this is the terminal chunk.
+     * @param {unknown} error - Optional terminal error payload.
+     * @param {Anthropic.Messages.Usage | undefined} usage - Optional Anthropic usage payload.
+     * @returns {AIResponseChunk<NormalizedChatMessage>} Normalized chunk with delta, output, and metadata.
      */
     private createChunk(
         deltaText: string,
@@ -239,16 +239,14 @@ export class AnthropicChatCapabilityImpl
         error?: unknown,
         usage?: Anthropic.Messages.Usage
     ): AIResponseChunk<NormalizedChatMessage> {
-        // Shared metadata shape for both chunk message payloads and top-level chunk metadata.
-        const messageMetadata = {
-            ...(context?.metadata ?? {}),
+        const messageMetadata = buildMetadata(context?.metadata, {
             provider: AIProvider.Anthropic,
             model,
             status,
             requestId: context?.requestId,
             ...this.extractUsage(usage),
             ...(error ? { error } : {})
-        };
+        });
 
         const delta: NormalizedChatMessage = {
             id: responseId ?? crypto.randomUUID(),
@@ -256,7 +254,6 @@ export class AnthropicChatCapabilityImpl
             content: deltaText ? [{ type: "text", text: deltaText }] : [],
             metadata: messageMetadata
         };
-
         const output: NormalizedChatMessage = {
             id: responseId ?? crypto.randomUUID(),
             role: "assistant",
@@ -269,13 +266,12 @@ export class AnthropicChatCapabilityImpl
             output,
             done,
             id: responseId,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Anthropic,
                 model,
                 status,
                 requestId: context?.requestId
-            }
+            })
         };
     }
 

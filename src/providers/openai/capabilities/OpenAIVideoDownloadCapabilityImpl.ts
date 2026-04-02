@@ -1,6 +1,6 @@
 /**
  * @module providers/openai/capabilities/OpenAIVideoDownloadCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI video download capability adapter.
  */
 import OpenAI from "openai";
 import {
@@ -12,30 +12,44 @@ import {
     ClientVideoDownloadRequest,
     MultiModalExecutionContext,
     NormalizedVideo,
-    VideoDownloadCapability
+    VideoDownloadCapability,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /**
- * OpenAI video download capability implementation.
+ * Adapts OpenAI video download responses into ProviderPlaneAI's normalized video artifact surface.
  *
- * Uses OpenAI Videos API `videos.downloadContent` to fetch the selected asset
- * and returns it as a normalized video artifact.
- */
-/**
+ * Uses `videos.downloadContent` to fetch the selected variant and returns it as
+ * a normalized video or image artifact depending on the variant requested.
+ *
  * @public
- * @description Provider capability implementation for OpenAIVideoDownloadCapabilityImpl.
  */
 export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapability<
     ClientVideoDownloadRequest,
     NormalizedVideo[]
 > {
+    /**
+     * Creates a new OpenAI video download capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
     ) {}
 
+    /**
+     * Downloads a previously generated OpenAI video variant.
+     *
+     * @param {AIRequest<ClientVideoDownloadRequest>} request Unified video download request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedVideo[]>>} Provider-normalized downloaded video artifacts.
+     * @throws {Error} When `videoId` is missing.
+     */
     async downloadVideo(
         request: AIRequest<ClientVideoDownloadRequest>,
         _executionContext?: MultiModalExecutionContext,
@@ -70,12 +84,12 @@ export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
                 id: artifactId,
                 mimeType: this.resolveMimeTypeForVariant(variant),
                 base64,
-                metadata: {
+                metadata: buildMetadata(undefined, {
                     provider: AIProvider.OpenAI,
                     sourceVideoId: videoId,
                     variant,
                     requestId: context?.requestId
-                }
+                })
             }
         ];
 
@@ -88,15 +102,14 @@ export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
                 bytes: bytes.length
             },
             id: artifactId,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 sourceVideoId: videoId,
                 variant,
                 downloadTimeoutMs: timeoutMs,
                 bytes: bytes.length,
                 requestId: context?.requestId
-            }
+            })
         };
     }
 

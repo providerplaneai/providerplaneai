@@ -1,6 +1,6 @@
 /**
  * @module core/types/artifacts/NormalizedFile.ts
- * @description Core shared type definitions used by runtime, providers, and workflows.
+ * @description Normalized file artifact contract for provider-produced file outputs.
  */
 import { NormalizedArtifactBase } from "#root/index.js";
 
@@ -15,7 +15,7 @@ import { NormalizedArtifactBase } from "#root/index.js";
  */
 /**
  * @public
- * @description Data contract for NormalizedFile.
+ * Normalized representation of a provider-produced file artifact.
  */
 export interface NormalizedFile extends NormalizedArtifactBase {
     /**

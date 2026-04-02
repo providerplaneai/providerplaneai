@@ -1,6 +1,6 @@
 /**
  * @module providers/gemini/capabilities/GeminiVideoDownloadCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description Gemini video download capability adapter.
  */
 import { GoogleGenAI } from "@google/genai";
 import {
@@ -13,7 +13,8 @@ import {
     MultiModalExecutionContext,
     NormalizedVideo,
     assertSafeRemoteHttpUrl,
-    VideoDownloadCapability
+    VideoDownloadCapability,
+    buildMetadata
 } from "#root/index.js";
 import {
     downloadGeminiFileViaApi,
@@ -23,21 +24,37 @@ import {
 const DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /**
- * Gemini video download capability implementation.
- */
-/**
+ * Adapts Gemini video download responses into ProviderPlaneAI's normalized video artifact surface.
+ *
+ * Supports direct HTTP downloads, provider file references, and data URIs while
+ * falling back to Gemini's Files API for protected provider-owned assets.
+ *
  * @public
- * @description Provider capability implementation for GeminiVideoDownloadCapabilityImpl.
  */
 export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapability<
     ClientVideoDownloadRequest,
     NormalizedVideo[]
 > {
+    /**
+     * Creates a new Gemini video download capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {GoogleGenAI} client Initialized Google GenAI SDK client.
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: GoogleGenAI
     ) {}
 
+    /**
+     * Downloads a previously generated Gemini video or image variant.
+     *
+     * @param {AIRequest<ClientVideoDownloadRequest>} request Unified video download request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional multimodal execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedVideo[]>>} Provider-normalized downloaded video artifacts.
+     * @throws {Error} When neither `videoUri` nor `videoId` is supplied.
+     */
     async downloadVideo(
         request: AIRequest<ClientVideoDownloadRequest>,
         _executionContext?: MultiModalExecutionContext,
@@ -66,11 +83,11 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
                 mimeType,
                 ...(source.startsWith("http://") || source.startsWith("https://") ? { url: source } : {}),
                 ...(base64 ? { base64 } : {}),
-                metadata: {
+                metadata: buildMetadata(undefined, {
                     provider: AIProvider.Gemini,
                     source,
                     requestId: context?.requestId
-                }
+                })
             }
         ];
 
@@ -79,14 +96,13 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
             multimodalArtifacts: { video: output },
             rawResponse: { source, bytes: bytes.length },
             id,
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.Gemini,
                 source,
                 downloadTimeoutMs: timeoutMs,
                 bytes: bytes.length,
                 requestId: context?.requestId
-            }
+            })
         };
     }
 

@@ -1,6 +1,6 @@
 /**
  * @module providers/openai/capabilities/OpenAIImageEditCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI image edit capability adapter.
  */
 import OpenAI from "openai";
 import {
@@ -17,27 +17,30 @@ import {
     ImageEditStreamCapability,
     MultiModalExecutionContext,
     NormalizedImage,
-    NormalizedMask
+    NormalizedMask,
+    resolveReferenceMediaUrl,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_IMAGE_EDIT_MODEL = "gpt-4.1";
 
 /**
- * OpenAIImageEditCapabilityImpl: Implements provider-agnostic image editing using OpenAI.
+ * Adapts OpenAI image edit responses into ProviderPlaneAI's normalized image and mask artifact surface.
  *
- * Supports:
- * - Non-streaming and streaming image edits
- * - Multi-turn history
- * - Manual masks
- * - Normalized outputs for images and masks
- */
-/**
+ * Supports both non-streaming and streaming edit flows, optional edit history,
+ * and caller-supplied masks while keeping OpenAI request shaping local.
+ *
  * @public
- * @description Provider capability implementation for OpenAIImageEditCapabilityImpl.
  */
 export class OpenAIImageEditCapabilityImpl
     implements ImageEditCapability<ClientImageEditRequest>, ImageEditStreamCapability<ClientImageEditRequest>
 {
+    /**
+     * Creates a new OpenAI image edit capability adapter.
+     *
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
+     */
     constructor(
         private readonly provider: BaseProvider,
         private readonly client: OpenAI
@@ -46,10 +49,11 @@ export class OpenAIImageEditCapabilityImpl
     /**
      * Non-streaming image edit.
      *
-     * @param request - Client image edit request
-     * @param executionContext - Timeline & context tracking
-     * @param signal - Optional abort signal
-     * @returns Normalized images and masks
+     * @param {AIRequest<ClientImageEditRequest>} request Unified image edit request envelope.
+     * @param {MultiModalExecutionContext} executionContext Timeline and multimodal context for edit history resolution.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedImage[]>>} Provider-normalized edited image artifacts plus normalized masks.
+     * @throws {Error} When the edit prompt is missing or the request is aborted before execution.
      */
     async editImage(
         request: AIRequest<ClientImageEditRequest>,
@@ -103,22 +107,27 @@ export class OpenAIImageEditCapabilityImpl
             multimodalArtifacts: { images, masks },
             rawResponse: response,
             id: response.id ?? crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                 status: "completed",
                 requestId: context?.requestId
-            }
+            })
         };
     }
 
     /**
-     * Streaming image edit.
+     * Streams image editing results.
      *
-     * Images are yielded incrementally as they complete.
-     * Masks are yielded ONCE (with the first image chunk) since they
-     * represent input context, not generated outputs.
+     * Images are yielded incrementally as they complete. Masks are yielded once
+     * with the first image-bearing chunk because they represent edit context, not
+     * generated output.
+     *
+     * @param {AIRequest<ClientImageEditRequest>} request Unified image edit request envelope.
+     * @param {MultiModalExecutionContext} executionContext Timeline and multimodal context for edit history resolution.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {AsyncGenerator<AIResponseChunk<NormalizedImage[]>>} Async generator of edited image chunks and a terminal completion chunk.
+     * @throws {Error} When the edit prompt is missing.
      */
     async *editImageStream(
         request: AIRequest<ClientImageEditRequest>,
@@ -195,13 +204,12 @@ export class OpenAIImageEditCapabilityImpl
                     done: false,
                     id: responseId,
                     multimodalArtifacts: masksYielded ? { images: newImages } : { images: newImages, masks },
-                    metadata: {
-                        ...(context?.metadata ?? {}),
+                    metadata: buildMetadata(context?.metadata, {
                         provider: AIProvider.OpenAI,
                         model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                         status: "incomplete",
                         requestId: context?.requestId
-                    }
+                    })
                 };
 
                 if (!masksYielded) {
@@ -234,13 +242,12 @@ export class OpenAIImageEditCapabilityImpl
                 done: true,
                 id: "",
                 error: err instanceof Error ? err.message : String(err),
-                metadata: {
-                    ...(context?.metadata ?? {}),
+                metadata: buildMetadata(context?.metadata, {
                     provider: AIProvider.OpenAI,
                     model: merged.model ?? DEFAULT_OPENAI_IMAGE_EDIT_MODEL,
                     status: "error",
                     requestId: context?.requestId
-                }
+                })
             };
         }
     }
@@ -292,14 +299,14 @@ export class OpenAIImageEditCapabilityImpl
 
         content.push({
             type: "input_image",
-            image_url: ensureDataUri(baseImage.url ?? baseImage.base64!, baseImage.mimeType)
+            image_url: resolveReferenceMediaUrl(baseImage, "image/png")
         });
 
         const masks = input.referenceImages?.filter((i) => i.role === "mask") ?? [];
         for (const mask of masks) {
             content.push({
                 type: "input_image",
-                image_url: ensureDataUri(mask.url ?? mask.base64!, mask.mimeType)
+                image_url: resolveReferenceMediaUrl(mask, "image/png")
             });
         }
 
@@ -308,7 +315,7 @@ export class OpenAIImageEditCapabilityImpl
             if (ref.url || ref.base64) {
                 content.push({
                     type: "input_image",
-                    image_url: ensureDataUri(ref.url ?? ref.base64!, ref.mimeType)
+                    image_url: resolveReferenceMediaUrl(ref, "image/png")
                 });
             }
         }

@@ -1,6 +1,6 @@
 /**
  * @module providers/openai/capabilities/OpenAIEmbedCapabilityImpl.ts
- * @description Provider implementations and capability adapters.
+ * @description OpenAI embedding capability adapter.
  */
 import OpenAI from "openai";
 import {
@@ -12,34 +12,26 @@ import {
     ClientEmbeddingRequest,
     EmbedCapability,
     MultiModalExecutionContext,
-    NormalizedEmbedding
+    NormalizedEmbedding,
+    buildMetadata
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_EMBED_MODEL = "text-embedding-3-large";
 
 /**
- * OpenAIEmbedCapabilityImpl: Implements embedding capability for OpenAI.
+ * Adapts OpenAI embeddings into ProviderPlaneAI's normalized embedding artifact surface.
  *
- * Responsibilities:
- * - Implements the unified IEmbedCapability interface for OpenAI embeddings
- * - Normalizes OpenAI-specific embedding responses into AIResponse<NormalizedEmbedding>
- * - Handles single or batch inputs transparently
- * - Provides execution context, metadata, and error handling
+ * Supports scalar and batched embedding inputs, preserves provider ordering, and
+ * attaches normalized usage and request metadata to each returned embedding.
  *
- * Note:
- * The OpenAI embeddings API supports multiple models (e.g., text-embedding-3-large)
- * and allows customization via modelParams and providerParams.
- */
-/**
  * @public
- * @description Provider capability implementation for OpenAIEmbedCapabilityImpl.
  */
 export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddingRequest, NormalizedEmbedding[]> {
     /**
-     * Constructs a new OpenAI embedding capability.
+     * Creates a new OpenAI embedding capability adapter.
      *
-     * @param provider - Owning provider instance
-     * @param client - Initialized OpenAI SDK client
+     * @param {BaseProvider} provider Owning provider instance used for initialization checks and merged config access.
+     * @param {OpenAI} client Initialized OpenAI SDK client.
      */
     constructor(
         private readonly provider: BaseProvider,
@@ -47,21 +39,20 @@ export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
     ) {}
 
     /**
-     * Generates embeddings for one or more input strings.
+     * Executes an OpenAI embeddings request.
      *
-     * Flow:
-     * - Validate input
-     * - Initialize capability execution context
-     * - Normalize input to array for batch processing
-     * - Call OpenAI embeddings API
-     * - Extract numeric vectors, preserving order
-     * - Return normalized AIResponse with metadata
+     * Responsibilities:
+     * - validate embedding input
+     * - resolve merged model/runtime options
+     * - execute `embeddings.create` through the official SDK
+     * - normalize returned vectors into `NormalizedEmbedding[]`
+     * - attach provider/model/usage metadata to the response
      *
-     * @param request - Unified embedding request
-     * @param _executionContext Optional execution context
-     * @param signal Optional abort signal
-     * @returns AIResponse containing a single vector or array of vectors
-     * @throws Error if input is invalid or API returns no embeddings
+     * @param {AIRequest<ClientEmbeddingRequest>} request Unified embedding request envelope.
+     * @param {MultiModalExecutionContext} [_executionContext] Optional execution context. Unused directly in this adapter.
+     * @param {AbortSignal} [signal] Optional cancellation signal.
+     * @returns {Promise<AIResponse<NormalizedEmbedding[]>>} Provider-normalized embedding artifacts.
+     * @throws {Error} When input is invalid or OpenAI returns no embeddings.
      */
     async embed(
         request: AIRequest<ClientEmbeddingRequest>,
@@ -102,13 +93,13 @@ export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
             dimensions: d.embedding.length,
             inputId: Array.isArray(input.input) ? undefined : (input as any).inputId,
             purpose: (request as any)?.purpose ?? "embedding",
-            metadata: {
+            metadata: buildMetadata(undefined, {
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: "completed",
                 tokensUsed: (response as any)?.usage?.total_tokens,
                 requestId: context?.requestId
-            }
+            })
         }));
 
         // Return normalized AIResponse
@@ -116,14 +107,13 @@ export class OpenAIEmbedCapabilityImpl implements EmbedCapability<ClientEmbeddin
             output: normalized,
             rawResponse: response,
             id: crypto.randomUUID(),
-            metadata: {
-                ...(context?.metadata ?? {}),
+            metadata: buildMetadata(context?.metadata, {
                 provider: AIProvider.OpenAI,
                 model: merged.model,
                 status: "completed",
                 tokensUsed: (response as any)?.usage?.total_tokens,
                 requestId: context?.requestId
-            }
+            })
         };
     }
 }

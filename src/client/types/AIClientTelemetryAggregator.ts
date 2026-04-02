@@ -1,16 +1,13 @@
 /**
  * @module client/types/AIClientTelemetryAggregator.ts
- * @description ProviderPlaneAI source module.
+ * @description Telemetry aggregation helpers for AI client lifecycle hooks.
  */
 import { AIClientLifecycleHooks, CapabilityKeyType, ProviderAttemptResult } from "#root/index.js";
 
 /**
- * Aggregates telemetry statistics for AIClient attempts.
- * Includes counts, token usage, duration, and estimated cost.
- */
-/**
+ * Accumulates attempt counts, duration, and token/cost totals for a telemetry slice.
+ *
  * @public
- * @description Interface contract for TelemetryTotals.
  */
 export interface TelemetryTotals {
     attempts: number;
@@ -24,11 +21,9 @@ export interface TelemetryTotals {
 }
 
 /**
- * Summary of telemetry statistics, grouped overall, by provider, and by capability.
- */
-/**
+ * Telemetry totals grouped overall, by provider, and by capability.
+ *
  * @public
- * @description Interface contract for TelemetrySummary.
  */
 export interface TelemetrySummary {
     overall: TelemetryTotals;
@@ -37,7 +32,9 @@ export interface TelemetrySummary {
 }
 
 /**
- * Returns a new TelemetryTotals object with all fields zeroed.
+ * Creates a zeroed telemetry accumulator.
+ *
+ * @returns {TelemetryTotals} A totals object with all counters initialized to zero.
  */
 function emptyTotals(): TelemetryTotals {
     return {
@@ -53,12 +50,9 @@ function emptyTotals(): TelemetryTotals {
 }
 
 /**
- * Aggregates and summarizes telemetry data for AIClient executions.
- * Provides hooks for recording attempt results and methods for resetting and summarizing data.
- */
-/**
+ * Collects and summarizes AI client telemetry from lifecycle hook callbacks.
+ *
  * @public
- * @description Implementation class for AIClientTelemetryAggregator.
  */
 export class AIClientTelemetryAggregator {
     private overall: TelemetryTotals = emptyTotals();
@@ -66,6 +60,8 @@ export class AIClientTelemetryAggregator {
     private byCapability = new Map<string, TelemetryTotals>();
     /**
      * Lifecycle hooks that can be passed directly into AIClient config.
+     *
+     * @returns {AIClientLifecycleHooks} Hook implementations that record provider attempt outcomes.
      */
     createHooks(): AIClientLifecycleHooks {
         return {
@@ -74,12 +70,22 @@ export class AIClientTelemetryAggregator {
         };
     }
 
+    /**
+     * Clears all accumulated telemetry state.
+     *
+     * @returns {void} Nothing.
+     */
     reset() {
         this.overall = emptyTotals();
         this.byProvider.clear();
         this.byCapability.clear();
     }
 
+    /**
+     * Returns the current aggregated telemetry summary.
+     *
+     * @returns {TelemetrySummary} A snapshot of overall, provider-level, and capability-level totals.
+     */
     getSummary(): TelemetrySummary {
         return {
             overall: { ...this.overall },

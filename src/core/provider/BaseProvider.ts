@@ -1,6 +1,6 @@
 /**
  * @module core/provider/BaseProvider.ts
- * @description ProviderPlaneAI source module.
+ * @description Abstract base class for provider implementations and shared capability wiring.
  */
 import {
     AIProviderType,
@@ -26,7 +26,8 @@ import {
  * - Merge provider defaults, model configs, and runtime options
  * - Offer type-safe capability checks
  *
- * Does not implement Provider directly, but is intended for extension.
+ * Does not implement `Provider` directly, but is intended for extension by concrete provider
+ * classes.
  */
 export abstract class BaseProvider {
     /**
@@ -46,7 +47,8 @@ export abstract class BaseProvider {
 
     /**
      * Base constructor.
-     * @param providerType Type of the provider, used for registration and logging
+     *
+     * @param {AIProviderType} providerType - Type of the provider, used for registration and logging.
      */
     public constructor(providerType: AIProviderType) {
         this.providerType = providerType;
@@ -56,8 +58,8 @@ export abstract class BaseProvider {
      * Initialize the provider with a connection configuration.
      * Must be implemented by concrete providers.
      *
-     * @param _config Connection configuration
-     * @throws Error if not implemented
+     * @param {ProviderConnectionConfig} _config - Connection configuration.
+     * @throws {Error} Always, because concrete providers must override this method.
      */
     init(_config: ProviderConnectionConfig) {
         throw new Error("init() Not implemented");
@@ -66,16 +68,26 @@ export abstract class BaseProvider {
     /**
      * Check if the provider has been initialized.
      *
-     * @returns True if initialized, false otherwise
+     * @returns {boolean} `true` when the provider has been initialized.
      */
     public isInitialized(): boolean {
         return this.config !== null;
     }
 
+    /**
+     * Returns the canonical provider identifier.
+     *
+     * @returns {AIProviderType} Provider identifier.
+     */
     public getProviderType(): AIProviderType {
         return this.providerType;
     }
 
+    /**
+     * Returns the currently registered capability implementations for this provider.
+     *
+     * @returns {Partial<CapabilityMap>} Registered capability map.
+     */
     public getCapabilities(): Partial<CapabilityMap> {
         return this.capabilities;
     }
@@ -99,6 +111,14 @@ export abstract class BaseProvider {
         throw new CapabilityUnsupportedError(this.providerType, capability);
     }
 
+    /**
+     * Returns the implementation registered for a capability key.
+     *
+     * @template C - Capability key type being resolved.
+     * @param {C} capability - Capability key to resolve.
+     * @returns {C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability} Registered capability implementation.
+     * @throws {CapabilityUnsupportedError} When the capability is not registered.
+     */
     public getCapability<C extends CapabilityKeyType>(
         capability: C
     ): C extends keyof CapabilityMap ? CapabilityMap[C] : ProviderCapability {
@@ -109,9 +129,9 @@ export abstract class BaseProvider {
      * Type-safe runtime check for a capability.
      * Allows safe casting after confirming the capability is registered.
      *
-     * @template C Capability key
-     * @param capability Capability symbol
-     * @returns True if the capability is registered
+     * @template C - Capability key.
+     * @param {C} capability - Capability symbol.
+     * @returns {boolean} `true` when the capability is registered.
      */
     public hasCapability<C extends CapabilityKeyType>(capability: C): boolean {
         const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
@@ -122,17 +142,28 @@ export abstract class BaseProvider {
      * Register a capability implementation.
      * Called by concrete providers to declare support for a capability.
      *
-     * @template C Capability key
-     * @param capability Capability symbol
-     * @param impl Implementation of the capability
+     * @template C - Built-in capability key.
+     * @param {C} capability - Capability symbol.
+     * @param {CapabilityMap[C]} impl - Implementation of the capability.
      */
     protected registerCapability<C extends BuiltInCapabilityKey>(capability: C, impl: CapabilityMap[C]): void;
+    /**
+     * Registers a custom capability implementation.
+     *
+     * @param {CustomCapabilityKey} capability - Custom capability key.
+     * @param {ProviderCapability} impl - Capability implementation.
+     */
     protected registerCapability(capability: CustomCapabilityKey, impl: ProviderCapability): void;
     protected registerCapability(capability: CapabilityKeyType, impl: ProviderCapability) {
         const capabilities = this.capabilities as Record<string, ProviderCapability | undefined>;
         capabilities[capability] = impl;
     }
 
+    /**
+     * Attaches client-registered executors used for dispatching custom capabilities.
+     *
+     * @param {Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>} executors - Executor map.
+     */
     public setClientExecutors(executors: Map<CapabilityKeyType, CapabilityExecutor<any, any, any>>) {
         this.executors = executors;
     }
@@ -142,8 +173,8 @@ export abstract class BaseProvider {
      * Arrays override completely, objects are recursively merged, primitives override.
      * Used for merging provider defaults, model configurations, and runtime options.
      *
-     * @param sources Objects to merge
-     * @returns Deep-merged object
+     * @param {...any[]} sources - Objects to merge.
+     * @returns {any} Deep-merged object.
      */
     protected mergeOptions(...sources: any[]): any {
         const result: any = {};
@@ -162,8 +193,8 @@ export abstract class BaseProvider {
      * Merges a source object into a target object.
      * Arrays override, plain objects are deep-merged, primitives override.
      *
-     * @param target Target object to mutate
-     * @param source Source object to read from
+     * @param {Record<string, unknown>} target - Target object to mutate.
+     * @param {Record<string, unknown>} source - Source object to read from.
      */
     private mergeOptionsInto(target: Record<string, unknown>, source: Record<string, unknown>) {
         const stack: Array<{ dst: Record<string, unknown>; src: Record<string, unknown> }> = [{ dst: target, src: source }];
@@ -198,8 +229,8 @@ export abstract class BaseProvider {
     /**
      * Determines whether a value is a plain object that should be deep-merged.
      *
-     * @param value Candidate value
-     * @returns `true` for mergeable plain objects
+     * @param {unknown} value - Candidate value.
+     * @returns {value is Record<string, unknown>} `true` for mergeable plain objects.
      */
     private isMergeableObject(value: unknown): value is Record<string, unknown> {
         if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -220,10 +251,10 @@ export abstract class BaseProvider {
      * Model resolution fallback:
      * runtimeOptions.model → config.defaultModels[capability] → config.defaultModel
      *
-     * @param capability Name of the capability
-     * @param runtimeOptions Request-level override options
-     * @throws Error if a model cannot be resolved for this capability
-     * @returns Merged configuration with keys: model, modelParams, providerParams, generalParams
+     * @param {string} capability - Name of the capability.
+     * @param {any} runtimeOptions - Request-level override options.
+     * @throws {Error} When a model cannot be resolved for the requested capability.
+     * @returns {any} Merged configuration with keys such as `model`, `modelParams`, `providerParams`, and `generalParams`.
      */
     public getMergedOptions(capability: string, runtimeOptions: any = {}) {
         this.ensureInitialized();

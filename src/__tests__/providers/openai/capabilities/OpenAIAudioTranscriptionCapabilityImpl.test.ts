@@ -3,7 +3,9 @@ import { writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileNameFromPath, isBlobLike, parseDataUriToBuffer } from "#root/index.js";
 import { OpenAIAudioTranscriptionCapabilityImpl } from "#root/providers/openai/capabilities/OpenAIAudioTranscriptionCapabilityImpl.js";
+import { toOpenAIUploadableFile } from "#root/providers/openai/capabilities/shared/OpenAIFileUtils.js";
 
 function makeProvider() {
     return {
@@ -73,6 +75,22 @@ describe("OpenAIAudioTranscriptionCapabilityImpl", () => {
         expect(res.metadata?.provider).toBe("openai");
         expect(res.id).toBe("req-1");
         expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    it("transcribeAudio extracts text from object payloads and generates an id when request context is absent", async () => {
+        const create = vi.fn().mockResolvedValue({ id: "provider-tr-1", text: "provider transcript" });
+        const client = { audio: { transcriptions: { create } } } as any;
+        const cap = new OpenAIAudioTranscriptionCapabilityImpl(makeProvider(), client);
+
+        const res = await cap.transcribeAudio(
+            {
+                input: { file: Buffer.from("abc"), filename: "clip.wav", mimeType: "audio/wav" }
+            } as any,
+            {} as any
+        );
+
+        expect(res.id).toBeTypeOf("string");
+        expect(res.output[0]?.content?.[0]).toEqual({ type: "text", text: "provider transcript" });
     });
 
     it("transcribeAudioStream emits incremental and final chunks", async () => {
@@ -155,6 +173,36 @@ describe("OpenAIAudioTranscriptionCapabilityImpl", () => {
         const final = chunks.at(-1);
         expect(final?.done).toBe(true);
         expect(final?.output?.[0]?.content?.[0]).toEqual({ type: "text", text: "large-output" });
+    });
+
+    it("transcribeAudioStream uses request id fallback when the stream omits a final done event", async () => {
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                yield { type: "transcript.text.delta", delta: "fallback" };
+            }
+        };
+
+        const client = {
+            audio: {
+                transcriptions: {
+                    create: vi.fn().mockResolvedValue(stream)
+                }
+            }
+        } as any;
+
+        const cap = new OpenAIAudioTranscriptionCapabilityImpl(makeProvider(), client);
+        const chunks = await collect(
+            cap.transcribeAudioStream(
+                { input: { file: Buffer.from("abc") }, context: { requestId: "tx-fallback-id" } } as any,
+                {} as any
+            )
+        );
+
+        const final = chunks.at(-1);
+        expect(final?.done).toBe(true);
+        expect(final?.id).toBe("tx-fallback-id");
+        expect(final?.output?.[0]?.id).toBe("tx-fallback-id");
+        expect(final?.output?.[0]?.content?.[0]).toEqual({ type: "text", text: "fallback" });
     });
 
     it("transcribeAudioStream emits terminal error chunk for non-iterable stream response", async () => {
@@ -296,52 +344,52 @@ describe("OpenAIAudioTranscriptionCapabilityImpl", () => {
         });
         expect(emptyMessage.content).toEqual([]);
 
-        expect((cap as any).parseDataUrl("data:audio/mpeg;base64,AQID")).toEqual({
+        expect(parseDataUriToBuffer("data:audio/mpeg;base64,AQID")).toEqual({
             bytes: Buffer.from([1, 2, 3]),
             mimeType: "audio/mpeg"
         });
-        expect((cap as any).parseDataUrl("data:text/plain,hello%20world")).toEqual({
+        expect(parseDataUriToBuffer("data:text/plain,hello%20world")).toEqual({
             bytes: Buffer.from("hello world", "utf8"),
             mimeType: "text/plain"
         });
-        expect((cap as any).parseDataUrl("data:;base64,AQID")).toEqual({
+        expect(parseDataUriToBuffer("data:;base64,AQID")).toEqual({
             bytes: Buffer.from([1, 2, 3]),
             mimeType: "application/octet-stream"
         });
-        expect(() => (cap as any).parseDataUrl("data:audio/mpeg;base64")).toThrow("Invalid data URL");
+        expect(() => parseDataUriToBuffer("data:audio/mpeg;base64")).toThrow("Invalid data URL");
 
-        expect((cap as any).fileNameFromPath("/tmp/a.wav")).toBe("a.wav");
-        expect((cap as any).fileNameFromPath("C:\\tmp\\a.wav")).toBe("a.wav");
-        expect((cap as any).fileNameFromPath("")).toBe("audio-input");
+        expect(fileNameFromPath("/tmp/a.wav", "audio-input")).toBe("a.wav");
+        expect(fileNameFromPath("C:\\tmp\\a.wav", "audio-input")).toBe("a.wav");
+        expect(fileNameFromPath("", "audio-input")).toBe("audio-input");
 
-        expect((cap as any).isBlobLike({ arrayBuffer: async () => new ArrayBuffer(0), type: "audio/wav" })).toBe(true);
-        expect((cap as any).isBlobLike({})).toBe(false);
+        expect(isBlobLike({ arrayBuffer: async () => new ArrayBuffer(0), type: "audio/wav" })).toBe(true);
+        expect(isBlobLike({})).toBe(false);
         expect((cap as any).isAsyncIterable({ [Symbol.asyncIterator]: async function* () { yield 1; } })).toBe(true);
         expect((cap as any).isAsyncIterable({})).toBe(false);
 
         const localPath = path.join(tmpdir(), `openai-transcription-${Date.now()}.wav`);
         await writeFile(localPath, Buffer.from([1, 2, 3]));
-        expect((cap as any).toUploadableAudioFile).toBeTypeOf("function");
 
-        const fromUint8 = await (cap as any).toUploadableAudioFile(Uint8Array.from([1, 2]), "u8.wav", "audio/wav");
+        const fromUint8 = await toOpenAIUploadableFile(Uint8Array.from([1, 2]), "u8.wav", "audio/wav", "audio-input");
         expect(fromUint8).toBeTruthy();
-        const fromArrayBuffer = await (cap as any).toUploadableAudioFile(Uint8Array.from([3, 4]).buffer, "ab.wav");
+        const fromArrayBuffer = await toOpenAIUploadableFile(Uint8Array.from([3, 4]).buffer, "ab.wav", undefined, "audio-input");
         expect(fromArrayBuffer).toBeTruthy();
-        const fromDataUrl = await (cap as any).toUploadableAudioFile("data:audio/wav;base64,AQID", "d.wav");
+        const fromDataUrl = await toOpenAIUploadableFile("data:audio/wav;base64,AQID", "d.wav", undefined, "audio-input");
         expect(fromDataUrl).toBeTruthy();
-        const fromLocalPath = await (cap as any).toUploadableAudioFile(localPath);
+        const fromLocalPath = await toOpenAIUploadableFile(localPath, undefined, undefined, "audio-input");
         expect(fromLocalPath).toBeTruthy();
-        const fromBlobLike = await (cap as any).toUploadableAudioFile(
+        const fromBlobLike = await toOpenAIUploadableFile(
             new Blob([Uint8Array.from([5, 6])], { type: "audio/wav" })
         );
         expect(fromBlobLike).toBeTruthy();
-        const fromBlobLikeWithHint = await (cap as any).toUploadableAudioFile(
+        const fromBlobLikeWithHint = await toOpenAIUploadableFile(
             new Blob([Uint8Array.from([6, 7])], { type: "audio/wav" }),
             "blob.wav",
-            "audio/flac"
+            "audio/flac",
+            "audio-input"
         );
         expect(fromBlobLikeWithHint).toBeTruthy();
-        const fromStream = await (cap as any).toUploadableAudioFile(Readable.from([Buffer.from([7, 8])]));
+        const fromStream = await toOpenAIUploadableFile(Readable.from([Buffer.from([7, 8])]), undefined, undefined, "audio-input");
         expect(fromStream).toBeTruthy();
     });
 

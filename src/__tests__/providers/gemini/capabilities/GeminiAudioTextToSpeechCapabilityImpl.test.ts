@@ -170,6 +170,35 @@ describe("GeminiAudioTextToSpeechCapabilityImpl", () => {
         expect(final?.metadata?.status).toBe("error");
     });
 
+    it("textToSpeechStream uses response.data fallback audio and request-id fallback when chunk ids are absent", async () => {
+        const stream = {
+            async *[Symbol.asyncIterator]() {
+                yield { data: "AQID" };
+            }
+        };
+
+        const client = {
+            models: {
+                generateContentStream: vi.fn().mockResolvedValue(stream)
+            }
+        } as any;
+
+        const cap = new GeminiAudioTextToSpeechCapabilityImpl(makeProvider(8), client);
+        const chunks = await collect(
+            cap.textToSpeechStream(
+                { input: { text: "hello" }, context: { requestId: "gem-tts-fallback" } } as any,
+                {} as any
+            )
+        );
+
+        expect(chunks).toHaveLength(2);
+        expect(chunks[0]?.done).toBe(false);
+        expect(chunks[0]?.id).toBe("gem-tts-fallback");
+        expect(chunks[0]?.delta?.[0]?.base64).toBe("AQID");
+        expect(chunks.at(-1)?.done).toBe(true);
+        expect(chunks.at(-1)?.id).toBe("gem-tts-fallback");
+    });
+
     it("textToSpeechStream exits silently when aborted mid-stream", async () => {
         const controller = new AbortController();
         const stream = {
@@ -205,6 +234,23 @@ describe("GeminiAudioTextToSpeechCapabilityImpl", () => {
         expect(chunks[0]?.done).toBe(true);
         expect(chunks[0]?.metadata?.status).toBe("error");
         expect(chunks[0]?.metadata?.error).toBe("upstream string failure");
+    });
+
+    it("textToSpeechStream suppresses error chunks when setup fails after caller aborts", async () => {
+        const controller = new AbortController();
+        const cap = new GeminiAudioTextToSpeechCapabilityImpl(makeProvider(), {
+            models: {
+                generateContentStream: vi.fn().mockImplementation(async () => {
+                    controller.abort();
+                    throw new Error("late setup failure");
+                })
+            }
+        } as any);
+
+        const chunks = await collect(
+            cap.textToSpeechStream({ input: { text: "hello" } } as any, {} as any, controller.signal)
+        );
+        expect(chunks).toEqual([]);
     });
 
     it("helper methods cover mime normalization and pcm wrapping branches", () => {
