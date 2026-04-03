@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1](https://github.com/providerplaneai/providerplaneai/compare/v0.3.0...v0.3.1) (2026-04-03)
+
+
+### Bug Fixes
+
+* **security/perf:** general performance and security improvements ([ba203c4](https://github.com/providerplaneai/providerplaneai/commit/ba203c42f85249c2511af1db4758bf84cb63ece4))
+* **security/perf:** general performance and security improvements ([ba203c4](https://github.com/providerplaneai/providerplaneai/commit/ba203c42f85249c2511af1db4758bf84cb63ece4))
+* **security/perf:** general performance and security improvements ([407fac3](https://github.com/providerplaneai/providerplaneai/commit/407fac381cd8b52c0759aab912e2f542464c84ca))
+
 ## [0.3.0](https://github.com/providerplaneai/providerplaneai/compare/v0.2.1...v0.3.0) (2026-04-02)
 
 
