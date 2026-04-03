@@ -10,9 +10,11 @@ import {
     buildMetadata,
     createTempFilePath,
     delayWithAbort as sharedDelayWithAbort,
+    getMaxRawVideoBytes,
     readFileToBuffer,
     resolvePollingWindow as resolveSharedPollingWindow,
-    removeFileIfExists
+    removeFileIfExists,
+    streamBoundedResponse
 } from "#root/index.js";
 
 const MIN_VIDEO_POLL_INTERVAL_MS = 250;
@@ -315,9 +317,14 @@ export async function resolveGeminiVideoBase64(args: ResolveVideoBase64Args): Pr
 
     if (video.uri.startsWith("http://") || video.uri.startsWith("https://")) {
         await assertSafeRemoteHttpUrl(video.uri);
-        const response = await fetch(video.uri, { signal });
+        const response = await fetch(video.uri, { signal, redirect: "error" });
         if (response.ok) {
-            const bytes = Buffer.from(await response.arrayBuffer());
+            const maxBytes = getMaxRawVideoBytes();
+            const bytes = await streamBoundedResponse(
+                response,
+                maxBytes,
+                `Video download exceeds max allowed size (${maxBytes} bytes)`
+            );
             return bytes.length > 0 ? bytes.toString("base64") : undefined;
         }
 
@@ -444,7 +451,13 @@ export function extractGeneratedVideoOrThrow(
  */
 export function throwIfGeminiOperationFailed(operation: any, errorMessage: string): void {
     if (operation?.error) {
-        throw new Error(`${errorMessage}: ${JSON.stringify(operation.error)}`);
+        let detail: string;
+        try {
+            detail = JSON.stringify(operation.error);
+        } catch {
+            detail = String(operation.error);
+        }
+        throw new Error(`${errorMessage}: ${detail}`);
     }
 }
 

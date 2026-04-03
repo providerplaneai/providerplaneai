@@ -108,7 +108,8 @@ describe("OpenAIVideoRemixCapabilityImpl", () => {
                 error: null
             });
         const downloadContent = vi.fn().mockResolvedValue({
-            arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([1, 2, 3]).buffer)
+            headers: { get: () => null },
+            body: { getReader: () => { let done = false; return { read: async () => done ? { done: true, value: undefined } : (done = true, { done: false, value: Uint8Array.from([1, 2, 3]) }) }; } }
         });
         const client = {
             videos: { remix, retrieve, downloadContent }

@@ -108,16 +108,6 @@ export function isAudioMimeType(mimeType?: string): boolean {
 }
 
 /**
- * Reports whether a MIME type represents video content.
- *
- * @param {string | undefined} mimeType - MIME type to classify.
- * @returns {boolean} `true` when the value is a video MIME type.
- */
-export function isVideoMimeType(mimeType?: string): boolean {
-    return typeof mimeType === "string" && /^video\//i.test(mimeType);
-}
-
-/**
  * Reports whether a MIME type represents a PDF document.
  *
  * @param {string | undefined} mimeType - MIME type to classify.

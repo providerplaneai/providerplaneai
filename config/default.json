@@ -5,9 +5,10 @@
             "maxQueueSize": 1024,
             "maxRemoteImageBytes": 10485760,
             "maxStoredResponseChunks": 1024,
-            "storeRawResponses": true,
+            "storeRawResponses": false,
             "stripBinaryPayloadsInSnapshotsAndTimeline": true,
             "maxRawBytesPerJob": 1048576,
+            "maxRawVideoBytes": 524288000,
             "remoteImageFetchTimeoutMs": 16384,
             "executionPolicy": {
                 "providerChain": [

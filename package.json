@@ -12,7 +12,7 @@
         "docs": "rimraf docs && typedoc --options typedoc.json --tsconfig tsconfig.build.json",
         "build:dev": "npm run clean && tsc -p tsconfig.dev.json",
         "build": "npm run clean && tsc -p tsconfig.build.json",
-        "prepack": "npm run build",
+        "prepack": "npm audit && npm run build",
         "dev": "nodemon --watch src --ext ts --exec \"npm run build:dev && node dist/playground.js\"",
         "lint": "eslint . --ext .ts,.tsx --no-warn-ignored",
         "lint:fix": "eslint . --ext .ts,.tsx --fix",

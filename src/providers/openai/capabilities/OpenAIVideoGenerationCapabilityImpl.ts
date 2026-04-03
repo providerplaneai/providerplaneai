@@ -17,7 +17,9 @@ import {
     buildOpenAIVideoArtifact,
     buildOpenAIVideoResponseMetadata,
     delayWithAbort,
-    resolveOpenAIVideoExecutionControls
+    resolveOpenAIVideoExecutionControls,
+    getMaxRawVideoBytes,
+    streamBoundedResponse
 } from "#root/index.js";
 
 const DEFAULT_OPENAI_VIDEO_MODEL = "sora-2";
@@ -123,7 +125,12 @@ export class OpenAIVideoGenerationCapabilityImpl implements VideoGenerationCapab
         let base64: string | undefined;
         if (includeBase64 && video.status === "completed") {
             const contentResponse = await this.client.videos.downloadContent(video.id, { variant: variant as any }, { signal });
-            const bytes = Buffer.from(await contentResponse.arrayBuffer());
+            const maxBytes = getMaxRawVideoBytes();
+            const bytes = await streamBoundedResponse(
+                contentResponse,
+                maxBytes,
+                `Video download exceeds max allowed size (${maxBytes} bytes)`
+            );
             base64 = bytes.length > 0 ? bytes.toString("base64") : undefined;
         }
 

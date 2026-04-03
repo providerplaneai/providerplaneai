@@ -308,7 +308,6 @@ describe("WorkflowRunner", () => {
 
     it("awaits retry backoff delay between attempts", async () => {
         const { runner, jobManager } = makeRunner();
-        const delaySpy = vi.spyOn(runner as any, "delay").mockResolvedValue(undefined);
         let attempt = 0;
 
         const workflow = new WorkflowBuilder("wf-retry-backoff")
@@ -325,13 +324,15 @@ describe("WorkflowRunner", () => {
             )
             .build();
 
+        const start = Date.now();
         const execution = await runner.run(workflow, {} as any);
+        const elapsed = Date.now() - start;
+
         expect(execution.status).toBe("completed");
         expect(execution.state.values.retrying).toBe("ok");
         expect(jobManager.runJob).toHaveBeenCalledTimes(3);
-        expect(delaySpy).toHaveBeenCalledTimes(2);
-        expect(delaySpy).toHaveBeenNthCalledWith(1, 25);
-        expect(delaySpy).toHaveBeenNthCalledWith(2, 25);
+        // Two backoff delays of 25ms each should produce at least 40ms total elapsed time.
+        expect(elapsed).toBeGreaterThanOrEqual(40);
     });
 
     it("fails node execution when timeoutMs is exceeded", async () => {

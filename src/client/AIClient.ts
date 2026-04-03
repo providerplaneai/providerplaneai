@@ -475,7 +475,7 @@ export class AIClient {
             options?.storeRawResponses ??
             this._jobManager.getStoreRawResponses() ??
             this.appConfig.appConfig?.storeRawResponses ??
-            true;
+            false;
         const maxRawBytesPerJob =
             options?.maxRawBytesPerJob ??
             this._jobManager.getMaxRawBytesPerJob() ??

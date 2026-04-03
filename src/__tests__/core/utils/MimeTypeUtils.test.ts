@@ -6,8 +6,7 @@ import {
     isAudioMimeType,
     isImageMimeType,
     isLikelyImagePath,
-    isPdfMimeType,
-    isVideoMimeType
+    isPdfMimeType
 } from "#root/core/utils/MimeTypeUtils.js";
 
 describe("MimeTypeUtils", () => {
@@ -38,8 +37,6 @@ describe("MimeTypeUtils", () => {
         expect(isImageMimeType("text/plain")).toBe(false);
         expect(isAudioMimeType("audio/wav")).toBe(true);
         expect(isAudioMimeType("video/mp4")).toBe(false);
-        expect(isVideoMimeType("video/mp4")).toBe(true);
-        expect(isVideoMimeType("image/png")).toBe(false);
         expect(isPdfMimeType("application/pdf")).toBe(true);
         expect(isPdfMimeType("application/json")).toBe(false);
     });

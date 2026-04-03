@@ -146,7 +146,7 @@ export class GeminiProvider
         this.config = config;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
-            ...(config.providerDefaults?.providerParams ?? {})
+            ...BaseProvider.sanitizeConstructorParams(config.providerDefaults?.providerParams ?? {})
         });
 
         // Initialize capability delegates

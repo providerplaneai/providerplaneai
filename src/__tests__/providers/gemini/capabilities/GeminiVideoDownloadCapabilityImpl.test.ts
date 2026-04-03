@@ -76,7 +76,8 @@ describe("GeminiVideoDownloadCapabilityImpl", () => {
             "fetch",
             vi.fn().mockResolvedValue({
                 ok: true,
-                arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([9, 8, 7]).buffer)
+                headers: { get: () => null },
+                body: { getReader: () => { let done = false; return { read: async () => done ? { done: true, value: undefined } : (done = true, { done: false, value: Uint8Array.from([9, 8, 7]) }) }; } }
             } as Partial<Response>)
         );
 

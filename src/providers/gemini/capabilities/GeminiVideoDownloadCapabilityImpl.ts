@@ -14,7 +14,9 @@ import {
     NormalizedVideo,
     assertSafeRemoteHttpUrl,
     VideoDownloadCapability,
-    buildMetadata
+    buildMetadata,
+    getMaxRawVideoBytes,
+    streamBoundedResponse
 } from "#root/index.js";
 import {
     downloadGeminiFileViaApi,
@@ -114,9 +116,14 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
 
         if (source.startsWith("http://") || source.startsWith("https://")) {
             await assertSafeRemoteHttpUrl(source);
-            const response = await fetch(source, { signal });
+            const response = await fetch(source, { signal, redirect: "error" });
             if (response.ok) {
-                return Buffer.from(await response.arrayBuffer());
+                const maxBytes = getMaxRawVideoBytes();
+                return await streamBoundedResponse(
+                    response,
+                    maxBytes,
+                    `Video download exceeds max allowed size (${maxBytes} bytes)`
+                );
             }
 
             // Gemini often returns provider-protected URIs that cannot be fetched anonymously.
@@ -136,7 +143,10 @@ export class GeminiVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
     }
 
     private resolveMimeType(source: string): string {
-        if (source.startsWith("data:image/") || /\.(jpe?g|png)$/i.test(source)) {
+        if (/\.png$/i.test(source)) {
+            return "image/png";
+        }
+        if (source.startsWith("data:image/png") || /\.(jpe?g)$/i.test(source) || source.startsWith("data:image/")) {
             return "image/jpeg";
         }
         return "video/mp4";

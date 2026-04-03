@@ -20,6 +20,7 @@ import { PipelineError, type ClientReferenceImage } from "#root/index.js";
  */
 export function extractPipelineText(value: unknown): string {
     const collected: string[] = [];
+    const collectedSet = new Set<string>();
     const seen = new WeakSet<object>();
     const textKeyPattern = /(text|content|description|summary|transcript|translation|message|answer|caption|delta|reason)/i;
 
@@ -31,7 +32,8 @@ export function extractPipelineText(value: unknown): string {
         if (!trimmed) {
             return;
         }
-        if (!collected.includes(trimmed)) {
+        if (!collectedSet.has(trimmed)) {
+            collectedSet.add(trimmed);
             collected.push(trimmed);
         }
     };

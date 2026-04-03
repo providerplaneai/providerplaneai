@@ -93,7 +93,7 @@ export class AnthropicProvider
         this.config = config;
         this.client = new Anthropic({
             apiKey: config.apiKey,
-            ...(config.providerDefaults?.providerParams ?? {})
+            ...BaseProvider.sanitizeConstructorParams(config.providerDefaults?.providerParams ?? {})
         });
 
         // Initialize capability delegates

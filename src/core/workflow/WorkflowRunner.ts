@@ -17,7 +17,8 @@ import {
     WorkflowState,
     WorkflowStepAttemptMetric,
     WorkflowStepResult,
-    WorkflowError
+    WorkflowError,
+    delayWithAbort
 } from "#root/index.js";
 
 /**
@@ -719,7 +720,7 @@ export class WorkflowRunner {
 
                 if (backoffMs > 0) {
                     // Fixed backoff delay between attempts. (No jitter by design.)
-                    await this.delay(backoffMs);
+                    await delayWithAbort(backoffMs, signal, "Workflow aborted during retry backoff");
                 }
             } finally {
                 if (timeoutId) {
@@ -824,15 +825,6 @@ export class WorkflowRunner {
         const ordered = [...workflow.nodes].sort((a, b) => a.id.localeCompare(b.id));
         this.orderedNodeCache.set(cacheKey, ordered);
         return ordered;
-    }
-
-    /**
-     * Waits for a fixed number of milliseconds.
-     *
-     * @param ms Delay in milliseconds
-     */
-    private delay(ms: number): Promise<void> {
-        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     /**

@@ -8,7 +8,9 @@ import {
     NormalizedVideo,
     buildMetadata,
     delayWithAbort as sharedDelayWithAbort,
-    resolvePollingWindow as resolveSharedPollingWindow
+    resolvePollingWindow as resolveSharedPollingWindow,
+    getMaxRawVideoBytes,
+    streamBoundedResponse
 } from "#root/index.js";
 
 const MIN_VIDEO_POLL_INTERVAL_MS = 250;
@@ -203,7 +205,12 @@ export async function downloadVariantBase64(
     signal?: AbortSignal
 ): Promise<string | undefined> {
     const contentResponse = await client.videos.downloadContent(videoId, { variant: variant as any }, { signal });
-    const bytes = Buffer.from(await contentResponse.arrayBuffer());
+    const maxBytes = getMaxRawVideoBytes();
+    const bytes = await streamBoundedResponse(
+        contentResponse,
+        maxBytes,
+        `Video download exceeds max allowed size (${maxBytes} bytes)`
+    );
     return bytes.length > 0 ? bytes.toString("base64") : undefined;
 }
 

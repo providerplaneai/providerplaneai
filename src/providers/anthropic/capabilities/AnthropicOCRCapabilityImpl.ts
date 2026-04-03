@@ -7,6 +7,7 @@ import {
     AIProvider,
     AIRequest,
     AIResponse,
+    assertSafeRemoteHttpUrl,
     BaseProvider,
     buildMetadata,
     CapabilityKeys,
@@ -344,6 +345,7 @@ export class AnthropicOCRCapabilityImpl implements OCRCapability<ClientOCRReques
             };
         }
 
+        await assertSafeRemoteHttpUrl(resolved.url);
         return {
             type: "image",
             source: {
@@ -358,6 +360,7 @@ export class AnthropicOCRCapabilityImpl implements OCRCapability<ClientOCRReques
 
         if (typeof file === "string") {
             if (/^https?:\/\//i.test(file)) {
+                await assertSafeRemoteHttpUrl(file);
                 if (resolvedMimeType === "application/pdf") {
                     return {
                         type: "document",

@@ -24,7 +24,8 @@ describe("OpenAIVideoDownloadCapabilityImpl", () => {
     it("downloads video bytes and returns normalized artifact", async () => {
         const provider = makeProvider();
         const downloadContent = vi.fn().mockResolvedValue({
-            arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([1, 2, 3]).buffer)
+            headers: { get: () => null },
+            body: { getReader: () => { let done = false; return { read: async () => done ? { done: true, value: undefined } : (done = true, { done: false, value: Uint8Array.from([1, 2, 3]) }) }; } }
         });
         const client = { videos: { downloadContent } };
         const cap = new OpenAIVideoDownloadCapabilityImpl(provider, client as any);
@@ -47,7 +48,8 @@ describe("OpenAIVideoDownloadCapabilityImpl", () => {
     it("uses image mime type for thumbnail/spritesheet variants", async () => {
         const provider = makeProvider();
         const downloadContent = vi.fn().mockResolvedValue({
-            arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([5, 6]).buffer)
+            headers: { get: () => null },
+            body: { getReader: () => { let done = false; return { read: async () => done ? { done: true, value: undefined } : (done = true, { done: false, value: Uint8Array.from([5, 6]) }) }; } }
         });
         const client = { videos: { downloadContent } };
         const cap = new OpenAIVideoDownloadCapabilityImpl(provider, client as any);

@@ -7,6 +7,7 @@ import {
     AIProvider,
     AIRequest,
     AIResponse,
+    assertSafeRemoteHttpUrl,
     BaseProvider,
     buildMetadata,
     CapabilityKeys,
@@ -444,6 +445,7 @@ export class OpenAIOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
 
         if (typeof file === "string") {
             if (/^https?:\/\//i.test(file)) {
+                await assertSafeRemoteHttpUrl(file);
                 if (isImageMimeType(resolvedMimeType) || isLikelyImagePath(file)) {
                     return {
                         type: "input_image",

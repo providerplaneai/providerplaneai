@@ -66,6 +66,35 @@ export abstract class BaseProvider {
     }
 
     /**
+     * Strips keys from `providerParams` that must never be forwarded to an SDK
+     * constructor because they can redirect API traffic or override credentials.
+     *
+     * Blocked keys across all supported SDKs:
+     * - `baseURL` / `baseUrl` — redirects all provider traffic to an arbitrary host,
+     *   causing the API key to be sent to an attacker-controlled server.
+     * - `apiKey` / `authToken` — would silently override the key already set from config.
+     * - `httpAgent` — custom HTTP agent can route traffic through an arbitrary proxy.
+     * - `fetch` / `globalFetch` — custom fetch implementations can intercept all requests.
+     * - `httpOptions` — Gemini SDK wrapper for baseUrl and custom fetch.
+     *
+     * @param {Record<string, unknown>} params Raw `providerParams` from caller config.
+     * @returns {Record<string, unknown>} Params with dangerous constructor keys removed.
+     */
+    protected static sanitizeConstructorParams(params: Record<string, unknown>): Record<string, unknown> {
+        const blocked = new Set([
+            "baseURL",
+            "baseUrl",
+            "apiKey",
+            "authToken",
+            "httpAgent",
+            "fetch",
+            "globalFetch",
+            "httpOptions"
+        ]);
+        return Object.fromEntries(Object.entries(params).filter(([key]) => !blocked.has(key)));
+    }
+
+    /**
      * Check if the provider has been initialized.
      *
      * @returns {boolean} `true` when the provider has been initialized.

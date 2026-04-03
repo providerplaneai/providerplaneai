@@ -7,6 +7,7 @@ import {
     AIProvider,
     AIRequest,
     AIResponse,
+    assertSafeRemoteHttpUrl,
     BaseProvider,
     CapabilityKeys,
     ClientFileInputSource,
@@ -179,7 +180,7 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
 
         if (input.images?.length) {
             for (const image of input.images) {
-                parts.push(this.toGeminiImagePart(image));
+                parts.push(await this.toGeminiImagePart(image));
             }
         } else if (input.file !== undefined) {
             parts.push(await this.toGeminiFilePart(input.file, input.mimeType, input.filename));
@@ -349,7 +350,7 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         return !(hasPages || hasAnnotations || hasHeaders || hasFooters);
     }
 
-    private toGeminiImagePart(img: ClientReferenceImage) {
+    private async toGeminiImagePart(img: ClientReferenceImage) {
         const resolved = resolveReferenceMediaSource(
             img,
             "image/png",
@@ -365,6 +366,7 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
             };
         }
 
+        await assertSafeRemoteHttpUrl(resolved.url);
         return {
             fileData: {
                 mimeType: resolved.mimeType,
@@ -377,6 +379,7 @@ export class GeminiOCRCapabilityImpl implements OCRCapability<ClientOCRRequest, 
         const resolvedMimeType = mimeType ?? inferMimeTypeFromFilename(filename) ?? "application/octet-stream";
 
         if (typeof file === "string" && /^https?:\/\//i.test(file)) {
+            await assertSafeRemoteHttpUrl(file);
             return {
                 fileData: {
                     mimeType: resolvedMimeType,

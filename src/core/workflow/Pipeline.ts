@@ -1248,12 +1248,8 @@ export class Pipeline<TOutput = unknown> {
             // Normalization is executed as a regular job so it appears consistently in workflow/job telemetry.
             if (client.jobManager) {
                 client.jobManager.addJob(job);
-            } else {
-                console.warn(
-                    `Pipeline normalization for node "${id}" is executing without a job manager. 
-                    Ensure the workflow client has a job manager configured for full visibility.`
-                );
             }
+
             return job;
         });
 

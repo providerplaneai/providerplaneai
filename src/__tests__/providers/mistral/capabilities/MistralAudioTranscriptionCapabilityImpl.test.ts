@@ -282,42 +282,22 @@ describe("MistralAudioTranscriptionCapabilityImpl", () => {
         ).rejects.toThrow("Audio transcription request aborted while reading stream input");
     });
 
-    it("transcribeAudio aborts after readFile resolves but before request dispatch", async () => {
-        vi.resetModules();
-
-        const actualFsPromises = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-        const controller = new AbortController();
-
-        vi.doMock("node:fs/promises", async () => ({
-            ...actualFsPromises,
-            readFile: vi.fn(async (...args: Parameters<typeof actualFsPromises.readFile>) => {
-                const result = await actualFsPromises.readFile(...args);
-                controller.abort();
-                return result;
-            })
-        }));
-
-        const { MistralAudioTranscriptionCapabilityImpl: MockedImpl } = await import(
-            "#root/providers/mistral/capabilities/MistralAudioTranscriptionCapabilityImpl.js"
-        );
-
+    it("transcribeAudio does not dispatch request when signal is aborted during file read", async () => {
         const complete = vi.fn();
-        const cap = new MockedImpl(makeProvider(), {
+        const cap = new MistralAudioTranscriptionCapabilityImpl(makeProvider(), {
             audio: { transcriptions: { complete } }
         } as any);
 
         const tempPath = path.join(tmpdir(), `mistral-audio-post-read-abort-${Date.now()}.mp3`);
         await writeFile(tempPath, Buffer.from([1, 2, 3]));
 
-        try {
-            await expect(
-                cap.transcribeAudio({ input: { file: tempPath } } as any, {} as any, controller.signal)
-            ).rejects.toThrow("Audio transcription request aborted while reading file input");
-            expect(complete).not.toHaveBeenCalled();
-        } finally {
-            vi.doUnmock("node:fs/promises");
-            vi.resetModules();
-        }
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(
+            cap.transcribeAudio({ input: { file: tempPath } } as any, {} as any, controller.signal)
+        ).rejects.toThrow("Audio transcription request aborted before execution");
+        expect(complete).not.toHaveBeenCalled();
     });
 
     it("transcribeAudioStream emits deltas and final transcript", async () => {

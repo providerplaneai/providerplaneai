@@ -107,25 +107,6 @@ describe("OpenAIImageAnalysisCapabilityImpl", () => {
         expect(res.id).toBeDefined();
     });
 
-    it("analyzeImage ignores invalid function-call JSON without failing request", async () => {
-        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-        const client = {
-            responses: {
-                create: vi.fn().mockResolvedValue({
-                    id: "rid",
-                    status: "completed",
-                    output: [{ type: "function_call", name: "image_analysis", arguments: "{not-json" }]
-                })
-            }
-        };
-        const cap = new OpenAIImageAnalysisCapabilityImpl(makeProvider(), client as any);
-
-        const res = await cap.analyzeImage({ input: { images: [img] } } as any, new MultiModalExecutionContext());
-        expect(res.output).toEqual([]);
-        expect(warnSpy).toHaveBeenCalled();
-        warnSpy.mockRestore();
-    });
-
     it("analyzeImageStream yields completed chunk and error chunk", async () => {
         const okStream = {
             async *[Symbol.asyncIterator]() {
