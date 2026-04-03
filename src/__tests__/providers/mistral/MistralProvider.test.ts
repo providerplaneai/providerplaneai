@@ -54,14 +54,13 @@ describe("MistralProvider", () => {
         expect(provider.hasCapability(CapabilityKeys.AudioTextToSpeechStreamCapabilityKey)).toBe(true);
     });
 
-    it("passes baseUrl and provider-level providerParams into the Mistral SDK constructor", async () => {
+    it("passes provider-level providerParams into the Mistral SDK constructor", async () => {
         const { MistralProvider } = await import("#root/providers/mistral/MistralProvider.js");
         const provider = new MistralProvider();
 
         provider.init({
             apiKey: "mistral-key",
             apiKeyEnvVar: "MISTRAL_API_KEY",
-            baseUrl: "https://mistral-proxy.example.com",
             defaultModels: {},
             models: {},
             providerDefaults: {
@@ -75,7 +74,6 @@ describe("MistralProvider", () => {
         expect(mistralConstructor).toHaveBeenCalledWith(
             expect.objectContaining({
                 apiKey: "mistral-key",
-                serverURL: "https://mistral-proxy.example.com",
                 timeout: 45_000,
                 headers: { "x-test": "mistral" }
             })

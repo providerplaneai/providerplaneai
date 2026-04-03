@@ -139,7 +139,7 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
         this.maxStoredResponseChunks = maxStoredResponseChunks ?? 1000;
         this.capability = executionMetadata?.capability;
         this.providerChain = executionMetadata?.providerChain;
-        this.storeRawResponses = executionMetadata?.storeRawResponses ?? true;
+        this.storeRawResponses = executionMetadata?.storeRawResponses ?? false;
         this.maxRawBytesPerJob = executionMetadata?.maxRawBytesPerJob;
         this.stripBinaryPayloadsInSnapshotsAndTimeline = executionMetadata?.stripBinaryPayloadsInSnapshotsAndTimeline ?? false;
         this.completionPromise = new Promise<TOutput>((resolve, reject) => {
@@ -390,6 +390,10 @@ export class GenericJob<TInput, TOutput> implements Job<TInput, TOutput> {
      * @returns {void} Nothing.
      */
     markAborted(reason?: Error) {
+        // Do not overwrite a terminal status — job may have completed just before the abort call.
+        if (this._status === "completed" || this._status === "error" || this._status === "aborted") {
+            return;
+        }
         // Preserve the first meaningful abort reason when provided by caller/manager.
         if (reason) {
             this._error = reason;

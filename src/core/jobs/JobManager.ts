@@ -530,6 +530,7 @@ export class JobManager {
             this.queuedJobIds.delete(job.id);
             this.runningCount++;
             let finalized = false;
+            let errorFired = false;
             /**
              * Finalizes job execution, cleaning up state and triggering next jobs.
              */
@@ -583,6 +584,7 @@ export class JobManager {
                 })
                 .then((completedSnapshot) => completedSnapshot)
                 .catch((err) => {
+                    errorFired = true;
                     const erroredSnapshot = job.toSnapshot();
                     this.options?.hooks?.onError?.(err, erroredSnapshot);
                     return erroredSnapshot;
@@ -596,7 +598,9 @@ export class JobManager {
             runPromise.catch((err) => {
                 const normalized = err instanceof Error ? err : new Error(String(err));
                 const erroredSnapshot = job.toSnapshot();
-                this.options?.hooks?.onError?.(normalized, erroredSnapshot);
+                if (!errorFired) {
+                    this.options?.hooks?.onError?.(normalized, erroredSnapshot);
+                }
                 finalize(erroredSnapshot);
             });
         }

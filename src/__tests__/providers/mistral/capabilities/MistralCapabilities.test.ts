@@ -1856,30 +1856,23 @@ describe("Mistral capability implementations", () => {
         });
         expect(upload.mock.calls.at(-1)?.[0].file.content).toBeInstanceOf(Uint8Array);
 
-        const actualFsPromises = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-        const controller = new AbortController();
-        vi.resetModules();
-        vi.doMock("node:fs/promises", async () => ({
-            ...actualFsPromises,
-            readFile: vi.fn(async (...args: Parameters<typeof actualFsPromises.readFile>) => {
-                const result = await actualFsPromises.readFile(...args);
-                controller.abort();
-                return result;
-            })
-        }));
+    });
 
-        const { MistralOCRCapabilityImpl: MockedOCRImpl } = await import(
-            "#root/providers/mistral/capabilities/MistralOCRCapabilityImpl.js"
-        );
-        const mockedCap = new MockedOCRImpl(makeProvider(), {
-            files: { upload: vi.fn() },
-            ocr: { process: vi.fn() }
+    it("ocr does not dispatch request when signal is aborted during file read", async () => {
+        const upload = vi.fn();
+        const process = vi.fn();
+        const cap = new MistralOCRCapabilityImpl(makeProvider(), {
+            files: { upload },
+            ocr: { process }
         } as any);
+
         const tempPath = makeTempFile("ocr-post-read-abort.pdf", "%PDF-1.7 abort");
+        const controller = new AbortController();
+        controller.abort();
 
         try {
             await expect(
-                mockedCap.ocr(
+                cap.ocr(
                     {
                         input: {
                             file: tempPath,
@@ -1889,10 +1882,9 @@ describe("Mistral capability implementations", () => {
                     {} as any,
                     controller.signal
                 )
-            ).rejects.toThrow("OCR request aborted while reading file input");
+            ).rejects.toThrow("OCR request aborted before execution");
+            expect(process).not.toHaveBeenCalled();
         } finally {
-            vi.doUnmock("node:fs/promises");
-            vi.resetModules();
             fs.rmSync(tempPath, { force: true });
         }
     });

@@ -13,7 +13,9 @@ import {
     MultiModalExecutionContext,
     NormalizedVideo,
     VideoDownloadCapability,
-    buildMetadata
+    buildMetadata,
+    getMaxRawVideoBytes,
+    streamBoundedResponse
 } from "#root/index.js";
 
 const DEFAULT_VIDEO_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -75,7 +77,12 @@ export class OpenAIVideoDownloadCapabilityImpl implements VideoDownloadCapabilit
                 signal: effectiveSignal
             }
         );
-        const bytes = Buffer.from(await response.arrayBuffer());
+        const maxBytes = getMaxRawVideoBytes();
+        const bytes = await streamBoundedResponse(
+            response,
+            maxBytes,
+            `Video download exceeds max allowed size (${maxBytes} bytes)`
+        );
         const base64 = bytes.length > 0 ? bytes.toString("base64") : undefined;
         const artifactId = `${videoId}:${variant}`;
 

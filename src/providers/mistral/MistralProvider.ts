@@ -129,8 +129,7 @@ export class MistralProvider
         // auth, transport, and API-version drift are handled by the vendor client.
         this.client = new Mistral({
             apiKey: config.apiKey,
-            ...(config.baseUrl ? { serverURL: config.baseUrl } : {}),
-            ...(config.providerDefaults?.providerParams ?? {})
+            ...BaseProvider.sanitizeConstructorParams(config.providerDefaults?.providerParams ?? {})
         });
 
         // Initialize capability delegates once so all provider methods share the

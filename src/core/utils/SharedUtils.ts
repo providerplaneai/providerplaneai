@@ -16,6 +16,10 @@ const DEFAULT_REMOTE_IMAGE_FETCH_TIMEOUT_MS = 30_000;
  * Default maximum allowed remote image size in bytes (512 MB).
  */
 const DEFAULT_MAX_REMOTE_IMAGE_BYTES = 512 * 1024 * 1024; // 512 MB
+/**
+ * Default maximum allowed remote video size in bytes (500 MB).
+ */
+const DEFAULT_MAX_RAW_VIDEO_BYTES = 500 * 1024 * 1024; // 500 MB
 
 /**
  * Summarizes a job snapshot as a compact comma-separated string for logging and diagnostics.
@@ -285,47 +289,67 @@ export async function resolveImageToBytes(url: string): Promise<Buffer> {
         await assertSafeRemoteHttpUrl(url);
 
         const timeout = AbortSignal.timeout(remoteImageFetchTimeoutMs);
-        const response = await fetch(url, { signal: timeout });
+        const response = await fetch(url, { signal: timeout, redirect: "error" });
         if (!response.ok) {
             throw new Error(`Failed to fetch image: ${response.statusText}`);
         }
 
-        const contentLengthHeader = response.headers.get("content-length");
-        if (contentLengthHeader) {
-            const contentLength = Number(contentLengthHeader);
-            if (Number.isFinite(contentLength) && contentLength > maxRemoteImageBytes) {
-                throw new Error(`Image exceeds max allowed size (${maxRemoteImageBytes} bytes)`);
-            }
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) {
-            throw new Error("Failed to read response body");
-        }
-
-        const chunks: Buffer[] = [];
-        let total = 0;
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
-            }
-            if (!value) {
-                continue;
-            }
-
-            total += value.byteLength;
-            if (total > maxRemoteImageBytes) {
-                throw new Error(`Image exceeds max allowed size (${maxRemoteImageBytes} bytes)`);
-            }
-            chunks.push(Buffer.from(value));
-        }
-
-        return Buffer.concat(chunks, total);
+        return await streamBoundedResponse(
+            response,
+            maxRemoteImageBytes,
+            `Image exceeds max allowed size (${maxRemoteImageBytes} bytes)`
+        );
     } catch {
         // Keep outward errors generic so URLs/tokens from provider-specific errors are not leaked.
         throw new Error("Could not resolve reference image");
     }
+}
+
+/**
+ * Streams a fetch Response body into a Buffer, enforcing a total size limit.
+ *
+ * Checks the `content-length` header first for an early rejection, then accumulates
+ * chunks and throws as soon as the running total exceeds `maxBytes`.
+ *
+ * @param {Response} response - An already-fetched Response with an OK status.
+ * @param {number} maxBytes - Maximum number of bytes allowed.
+ * @param {string} sizeErrorMessage - Error message thrown when the limit is exceeded.
+ * @returns {Promise<Buffer>} The full response body as a Buffer.
+ * @throws {Error} When `content-length` exceeds the limit, the body exceeds the limit while streaming, or the body is unreadable.
+ */
+export async function streamBoundedResponse(response: Response, maxBytes: number, sizeErrorMessage: string): Promise<Buffer> {
+    const contentLengthHeader = response.headers.get("content-length");
+    if (contentLengthHeader) {
+        const contentLength = Number(contentLengthHeader);
+        if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+            throw new Error(sizeErrorMessage);
+        }
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+        throw new Error("Failed to read response body");
+    }
+
+    const chunks: Buffer[] = [];
+    let total = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        if (!value) {
+            continue;
+        }
+
+        total += value.byteLength;
+        if (total > maxBytes) {
+            throw new Error(sizeErrorMessage);
+        }
+        chunks.push(Buffer.from(value));
+    }
+
+    return Buffer.concat(chunks, total);
 }
 
 /**
@@ -347,6 +371,17 @@ function getImageFetchLimits(): {
     const maxRemoteImageBytes = toNonNegativeInteger(appConfig.maxRemoteImageBytes, DEFAULT_MAX_REMOTE_IMAGE_BYTES);
 
     return { remoteImageFetchTimeoutMs, maxRemoteImageBytes };
+}
+
+/**
+ * Reads the maximum raw video download size from config, falling back to a safe default.
+ *
+ * @returns {number} Maximum allowed video byte count.
+ */
+export function getMaxRawVideoBytes(): number {
+    const raw = (config.has("providerplane") ? config.get("providerplane") : {}) as { appConfig?: Record<string, unknown> };
+    const appConfig = raw.appConfig ?? {};
+    return toNonNegativeInteger(appConfig.maxRawVideoBytes, DEFAULT_MAX_RAW_VIDEO_BYTES);
 }
 
 /**
@@ -418,20 +453,35 @@ function isPrivateIPv4(ip: string): boolean {
     }
 
     const [a, b] = parts;
+    if (a === 0) {
+        return true; // 0.0.0.0/8 — "this" network, unroutable
+    }
     if (a === 10) {
-        return true;
+        return true; // 10.0.0.0/8 — private
+    }
+    if (a === 100 && b >= 64 && b <= 127) {
+        return true; // 100.64.0.0/10 — CGNAT (AWS Lambda, Alibaba Cloud metadata at 100.100.100.200)
     }
     if (a === 127) {
-        return true;
+        return true; // 127.0.0.0/8 — loopback
     }
     if (a === 169 && b === 254) {
-        return true;
+        return true; // 169.254.0.0/16 — link-local / cloud metadata (e.g. 169.254.169.254)
     }
     if (a === 172 && b >= 16 && b <= 31) {
-        return true;
+        return true; // 172.16.0.0/12 — private
     }
     if (a === 192 && b === 168) {
-        return true;
+        return true; // 192.168.0.0/16 — private
+    }
+    if (a === 198 && (b === 18 || b === 19)) {
+        return true; // 198.18.0.0/15 — benchmarking, often used internally
+    }
+    if (a === 240) {
+        return true; // 240.0.0.0/4 — reserved
+    }
+    if (a === 255 && b === 255) {
+        return true; // 255.255.255.255 — broadcast
     }
     return false;
 }
@@ -518,7 +568,6 @@ export function parseBestEffortJson<T = any>(text: string): T[] {
     }
 
     const results: T[] = [];
-    let parsingWarningsLogged = false;
 
     // 1. Try full JSON parse (array or object)
     try {
@@ -535,17 +584,11 @@ export function parseBestEffortJson<T = any>(text: string): T[] {
     for (const line of lines) {
         // 3. Handle adjacent objects without newline: e.g. `{}{}`
         const potentialObjects = line.split(/(?<=})\s*(?=\{)/);
-
         for (const objText of potentialObjects) {
             try {
                 const parsed = JSON.parse(objText);
                 results.push(parsed);
-            } catch {
-                if (!parsingWarningsLogged) {
-                    //console.warn("[parseBestEffortJson] Skipping unparseable JSON fragment:", objText);
-                    parsingWarningsLogged = true;
-                }
-            }
+            } catch {}
         }
     }
 

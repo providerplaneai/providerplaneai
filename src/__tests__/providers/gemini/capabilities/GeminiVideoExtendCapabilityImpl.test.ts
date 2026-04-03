@@ -158,7 +158,8 @@ describe("GeminiVideoExtendCapabilityImpl", () => {
             "fetch",
             vi.fn().mockResolvedValue({
                 ok: true,
-                arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([1, 2]).buffer)
+                headers: { get: () => null },
+                body: { getReader: () => { let done = false; return { read: async () => done ? { done: true, value: undefined } : (done = true, { done: false, value: Uint8Array.from([1, 2]) }) }; } }
             } as Partial<Response>)
         );
         await expect(
@@ -208,7 +209,8 @@ describe("GeminiVideoExtendCapabilityImpl", () => {
             "fetch",
             vi.fn().mockResolvedValue({
                 ok: true,
-                arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array(0).buffer)
+                headers: { get: () => null },
+                body: { getReader: () => ({ read: async () => ({ done: true, value: undefined }) }) }
             } as Partial<Response>)
         );
         try {

@@ -23,7 +23,8 @@ import {
     MultiModalExecutionContext,
     NormalizedChatMessage,
     resolveMistralFileInput,
-    buildMetadata
+    buildMetadata,
+    assertSafeRemoteHttpUrl
 } from "#root/index.js";
 
 const DEFAULT_MISTRAL_AUDIO_TRANSCRIPTION_MODEL = "voxtral-mini-latest";
@@ -343,6 +344,7 @@ export class MistralAudioTranscriptionCapabilityImpl
         if (typeof file === "string") {
             if (/^https?:\/\//i.test(file)) {
                 // Remote audio can be fetched directly by Mistral without a local upload hop.
+                await assertSafeRemoteHttpUrl(file);
                 return { fileUrl: file };
             }
         }

@@ -200,8 +200,8 @@ export class OpenAIImageAnalysisCapabilityImpl
                 const parsed = JSON.parse(item.arguments);
                 const normalized = this.normalizeAnalyses(parsed);
                 analyses.push(...normalized);
-            } catch (err) {
-                console.warn("Failed to parse image analysis output:", err);
+            } catch {
+                // Ignore malformed tool payloads and continue with any already-parsed analyses.
             }
         }
 

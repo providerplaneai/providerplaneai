@@ -16,7 +16,9 @@ import {
     pollOpenAIVideoUntilTerminal,
     buildOpenAIVideoArtifact,
     buildOpenAIVideoResponseMetadata,
-    resolveOpenAIVideoExecutionControls
+    resolveOpenAIVideoExecutionControls,
+    getMaxRawVideoBytes,
+    streamBoundedResponse
 } from "#root/index.js";
 
 /**
@@ -107,7 +109,12 @@ export class OpenAIVideoRemixCapabilityImpl implements VideoRemixCapability<Clie
         // Only completed jobs can be downloaded.
         if (includeBase64 && video.status === "completed") {
             const contentResponse = await this.client.videos.downloadContent(video.id, { variant: variant as any }, { signal });
-            const bytes = Buffer.from(await contentResponse.arrayBuffer());
+            const maxBytes = getMaxRawVideoBytes();
+            const bytes = await streamBoundedResponse(
+                contentResponse,
+                maxBytes,
+                `Video download exceeds max allowed size (${maxBytes} bytes)`
+            );
             base64 = bytes.length > 0 ? bytes.toString("base64") : undefined;
         }
 

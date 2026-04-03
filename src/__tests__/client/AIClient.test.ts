@@ -73,7 +73,7 @@ describe("AIClient", () => {
         expect(manager.getMaxConcurrency()).toBe(128);
         expect(manager.getMaxQueueSize()).toBe(1024);
         expect(manager.getMaxStoredResponseChunks()).toBe(1024);
-        expect(manager.getStoreRawResponses()).toBe(true);
+        expect(manager.getStoreRawResponses()).toBe(false);
         expect(manager.getStripBinaryPayloadsInSnapshotsAndTimeline()).toBe(true);
         expect(manager.getMaxRawBytesPerJob()).toBe(1048576);
     }, 15000);
@@ -321,7 +321,7 @@ describe("AIClient", () => {
 
     it("createCapabilityJob streaming emits delta/final chunks and uses final chunk id/raw/metadata", async () => {
         const { AIClient, root } = await loadClient();
-        const jobManager = new root.JobManager();
+        const jobManager = new root.JobManager({ storeRawResponses: true });
         const client = new AIClient(jobManager, new root.CapabilityExecutorRegistry());
         const customCap = "custom:stream-job";
         const streamExec: StreamingExecutor<any, unknown, string> = {

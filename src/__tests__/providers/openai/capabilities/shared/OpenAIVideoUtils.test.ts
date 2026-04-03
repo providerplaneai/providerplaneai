@@ -124,8 +124,8 @@ describe("OpenAIVideoUtils", () => {
             videos: {
                 downloadContent: vi
                     .fn()
-                    .mockResolvedValueOnce({ arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([1, 2, 3]).buffer) })
-                    .mockResolvedValueOnce({ arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([]).buffer) })
+                    .mockResolvedValueOnce({ headers: { get: () => null }, body: { getReader: () => { let done = false; return { read: async () => done ? { done: true, value: undefined } : (done = true, { done: false, value: Uint8Array.from([1, 2, 3]) }) }; } } })
+                    .mockResolvedValueOnce({ headers: { get: () => null }, body: { getReader: () => ({ read: async () => ({ done: true, value: undefined }) }) } })
             }
         } as any;
 

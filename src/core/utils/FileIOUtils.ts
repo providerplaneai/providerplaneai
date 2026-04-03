@@ -2,6 +2,8 @@
  * @module core/utils/FileIOUtils.ts
  * @description Shared file/source utilities used by provider adapters.
  */
+import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { ensureDataUri, parseDataUri, stripDataUriPrefix } from "#root/index.js";
 
 /**
@@ -102,15 +104,11 @@ export function isNodeReadableStream(value: unknown): value is NodeJS.ReadableSt
 /**
  * Async existence check for local filesystem paths.
  *
- * This stays behind a dynamic import so provider adapters can avoid direct
- * `node:fs/promises` imports and keep the Node-only boundary centralized.
- *
  * @param {string} filePath - Path to test.
  * @returns {Promise<boolean>} `true` when the path is accessible.
  */
 export async function pathExists(filePath: string): Promise<boolean> {
     try {
-        const { access } = await import("node:fs/promises");
         await access(filePath);
         return true;
     } catch {
@@ -132,7 +130,6 @@ export async function readFileToBuffer(
     signal?: AbortSignal,
     abortMessage = "Request aborted while reading file input"
 ): Promise<Buffer> {
-    const { readFile } = await import("node:fs/promises");
     const bytes = await readFile(filePath);
     if (signal?.aborted) {
         throw new Error(abortMessage);
@@ -208,8 +205,7 @@ export async function readNodeReadableStreamToUint8Array(
  * @returns {Promise<string>} File content as UTF-8 text.
  */
 export async function readTextFile(filePath: string): Promise<string> {
-    const { readFile } = await import("node:fs/promises");
-    return await readFile(filePath, "utf8");
+    return readFile(filePath, "utf8");
 }
 
 /**
@@ -218,7 +214,6 @@ export async function readTextFile(filePath: string): Promise<string> {
  * @param {string} filePath - Destination file path.
  */
 export async function ensureParentDirectory(filePath: string): Promise<void> {
-    const [{ mkdir }, path] = await Promise.all([import("node:fs/promises"), import("node:path")]);
     await mkdir(path.dirname(filePath), { recursive: true });
 }
 
@@ -234,7 +229,6 @@ export async function writeFileContent(
     data: string | Buffer | Uint8Array,
     options?: { encoding?: BufferEncoding; ensureDir?: boolean }
 ): Promise<void> {
-    const { writeFile } = await import("node:fs/promises");
     if (options?.ensureDir) {
         await ensureParentDirectory(filePath);
     }
@@ -251,7 +245,6 @@ export async function writeFileContent(
  * @param {string} filePath - File to remove.
  */
 export async function removeFileIfExists(filePath: string): Promise<void> {
-    const { unlink } = await import("node:fs/promises");
     await unlink(filePath).catch(() => undefined);
 }
 
